@@ -10,3 +10,6 @@
 | 2026-11-17 | CP00 | Theo chỉ thị của Tiến, XÓA HẲN phần F2C (không lưu trữ): 3 rule `f2c-*.md`, 5 `f2c-integration.md`; xóa metadata ECC không dùng (`enterprise/`, `research/`, `team/`, `homunculus/`, `workflows/`, `ecc-tools.json`, `identity.json`, `package-manager.json`, `settings.local.json`, `commands/add-language-rules.md`, `rules/node.md`). |
 | 2026-11-17 | CP00 | Tiến thêm `CLAUDE.md` (nguyên tắc hành vi) và `.claude-plugin/`; gộp nguyên tắc vào `CLAUDE.md` cùng bản đồ dự án. |
 | 2026-11-17 | CP00 | Tạo SPEC-LOCK, CONTEXT, TESTS (41 TEST-ID), REGRESSION (khung), STATUS, `checkpoints/CP00.md`; `git init`, commit đầu. CP00 → CHỜ REVIEW. |
+| 2026-11-17 | CP00 | Tiến xác nhận CP00 ĐẠT (yêu cầu "bắt đầu làm CP01"). Commit f9ea35f, aa318ab. |
+| 2026-11-17 | — | Tiến cấp remote `origin` = github.com/luongvantien27052006-lab/fruit-retail (repo trống); từ nay code đẩy lên đây. |
+| 2026-11-17 | CP01 | Mở CP01. |

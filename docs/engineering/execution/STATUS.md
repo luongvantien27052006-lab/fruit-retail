@@ -4,8 +4,8 @@ Trạng thái: `CHƯA MỞ` → `ĐANG LÀM` → `CHỜ REVIEW` → `ĐẠT` (ho
 
 | CP | Tên | Trạng thái | Ghi chú |
 |---|---|---|---|
-| CP00 | Chuẩn hóa quy trình `.claude` | CHỜ REVIEW | Cổng tự kiểm đạt; chờ Tiến xác nhận ĐẠT — xem `checkpoints/CP00.md` |
-| CP01 | Quyết định kiến trúc & hợp đồng | CHƯA MỞ | Tiên quyết: CP00 ĐẠT |
+| CP00 | Chuẩn hóa quy trình `.claude` | ĐẠT | Tiến xác nhận 2026-11-17; review agent NOT RUN (chạy ở đầu CP01) — `checkpoints/CP00.md` |
+| CP01 | Quyết định kiến trúc & hợp đồng | ĐANG LÀM | Mở 2026-11-17 |
 | CP02 | Khung dự án & hạ tầng | CHƯA MỞ | Cần VPS + object storage khác nhà cung cấp |
 | CP03 | Nền tảng: auth, quyền, audit, outbox, file | CHƯA MỞ | |
 | CP04 | Danh mục, đơn vị tính, giá | CHƯA MỞ | Cần dữ liệu thật SKU + giá |

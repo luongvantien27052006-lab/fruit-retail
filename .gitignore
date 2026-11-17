@@ -1,0 +1,33 @@
+# Secrets & môi trường
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Node / Next.js
+node_modules/
+dist/
+.next/
+coverage/
+*.log
+
+# Flutter / Dart
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Claude Code cục bộ
+.claude/settings.local.json
+
+# Dữ liệu khách thật / backup
+backups/
+*.dump

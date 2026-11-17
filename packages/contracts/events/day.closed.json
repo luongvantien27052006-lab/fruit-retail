@@ -19,12 +19,7 @@
     },
     "payload": {
       "type": "object",
-      "required": [
-        "store_id",
-        "business_date",
-        "day_close_id",
-        "version"
-      ],
+      "required": ["store_id", "business_date", "day_close_id", "version"],
       "properties": {
         "store_id": {
           "type": "string",

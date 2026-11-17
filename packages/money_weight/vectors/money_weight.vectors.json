@@ -12,8 +12,20 @@
     { "id": "E2", "source": "0,499 đ làm tròn xuống", "pricePerKg": "499", "grams": 1, "expected": "0" },
     { "id": "E3", "source": "0,5 đ làm tròn lên (HALF_UP)", "pricePerKg": "500", "grams": 1, "expected": "1" },
     { "id": "E4", "source": "1,5 đ → 2", "pricePerKg": "1500", "grams": 1, "expected": "2" },
-    { "id": "E5", "source": "giá trị lớn ~10^10 (Phụ lục A)", "pricePerKg": "10000000", "grams": 1000000, "expected": "10000000000" },
-    { "id": "E6", "source": "vượt 2^53 khi nhân", "pricePerKg": "9000000000", "grams": 2000000, "expected": "18000000000000" }
+    {
+      "id": "E5",
+      "source": "giá trị lớn ~10^10 (Phụ lục A)",
+      "pricePerKg": "10000000",
+      "grams": 1000000,
+      "expected": "10000000000"
+    },
+    {
+      "id": "E6",
+      "source": "vượt 2^53 khi nhân",
+      "pricePerKg": "9000000000",
+      "grams": 2000000,
+      "expected": "18000000000000"
+    }
   ],
   "lineAmountRejects": [
     { "id": "R1", "pricePerKg": "-1", "grams": 100, "error": "NEGATIVE" },

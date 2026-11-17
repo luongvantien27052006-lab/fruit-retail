@@ -5,160 +5,83 @@
   "service": "TransferStateMachine",
   "events_table": "audit.logs",
   "initial": "DRAFT",
-  "terminal": [
-    "CLOSED",
-    "CANCELLED"
-  ],
-  "states": [
-    "DRAFT",
-    "PICKING",
-    "CANCELLED",
-    "IN_TRANSIT",
-    "RECEIVED",
-    "CLOSED"
-  ],
+  "terminal": ["CLOSED", "CANCELLED"],
+  "states": ["DRAFT", "PICKING", "CANCELLED", "IN_TRANSIT", "RECEIVED", "CLOSED"],
   "transitions": [
     {
       "from": "DRAFT",
       "to": "PICKING",
-      "actors": [
-        "WAREHOUSE"
-      ],
+      "actors": ["WAREHOUSE"],
       "note": "",
       "effects": []
     },
     {
       "from": "DRAFT",
       "to": "CANCELLED",
-      "actors": [
-        "WAREHOUSE",
-        "MASTER"
-      ],
+      "actors": ["WAREHOUSE", "MASTER"],
       "note": "",
       "effects": []
     },
     {
       "from": "PICKING",
       "to": "IN_TRANSIT",
-      "actors": [
-        "WAREHOUSE"
-      ],
+      "actors": ["WAREHOUSE"],
       "note": "TRANSFER_OUT",
-      "effects": [
-        "POST_MOVEMENTS"
-      ]
+      "effects": ["POST_MOVEMENTS"]
     },
     {
       "from": "PICKING",
       "to": "CANCELLED",
-      "actors": [
-        "WAREHOUSE",
-        "MASTER"
-      ],
+      "actors": ["WAREHOUSE", "MASTER"],
       "note": "",
       "effects": []
     },
     {
       "from": "IN_TRANSIT",
       "to": "RECEIVED",
-      "actors": [
-        "STORE"
-      ],
+      "actors": ["STORE"],
       "note": "TRANSFER_IN; lệch > ngưỡng bắt buộc ảnh + lý do",
-      "effects": [
-        "POST_MOVEMENTS"
-      ]
+      "effects": ["POST_MOVEMENTS"]
     },
     {
       "from": "IN_TRANSIT",
       "to": "CANCELLED",
-      "actors": [
-        "WAREHOUSE",
-        "MASTER"
-      ],
+      "actors": ["WAREHOUSE", "MASTER"],
       "note": "Hàng không đi / mất: đảo TRANSFER_OUT",
-      "effects": [
-        "REVERSE_MOVEMENTS",
-        "REQUIRE_REASON"
-      ],
+      "effects": ["REVERSE_MOVEMENTS", "REQUIRE_REASON"],
       "guard": "kỳ chưa khóa"
     },
     {
       "from": "RECEIVED",
       "to": "CLOSED",
-      "actors": [
-        "STORE",
-        "MASTER"
-      ],
+      "actors": ["STORE", "MASTER"],
       "note": "",
       "effects": []
     },
     {
       "from": "RECEIVED",
       "to": "CANCELLED",
-      "actors": [
-        "MASTER"
-      ],
+      "actors": ["MASTER"],
       "note": "Đảo toàn bộ",
-      "effects": [
-        "REVERSE_MOVEMENTS",
-        "REQUIRE_REASON"
-      ],
+      "effects": ["REVERSE_MOVEMENTS", "REQUIRE_REASON"],
       "guard": "hàng nhận chưa xuất tiếp và kỳ chưa khóa (§21.3.2)"
     }
   ],
   "test_vectors": {
     "valid": [
-      [
-        "DRAFT",
-        "PICKING",
-        "IN_TRANSIT",
-        "RECEIVED",
-        "CLOSED"
-      ],
-      [
-        "DRAFT",
-        "CANCELLED"
-      ],
-      [
-        "DRAFT",
-        "PICKING",
-        "IN_TRANSIT",
-        "CANCELLED"
-      ],
-      [
-        "DRAFT",
-        "PICKING",
-        "IN_TRANSIT",
-        "RECEIVED",
-        "CANCELLED"
-      ]
+      ["DRAFT", "PICKING", "IN_TRANSIT", "RECEIVED", "CLOSED"],
+      ["DRAFT", "CANCELLED"],
+      ["DRAFT", "PICKING", "IN_TRANSIT", "CANCELLED"],
+      ["DRAFT", "PICKING", "IN_TRANSIT", "RECEIVED", "CANCELLED"]
     ],
     "invalid": [
-      [
-        "DRAFT",
-        "IN_TRANSIT"
-      ],
-      [
-        "CLOSED",
-        "RECEIVED"
-      ],
-      [
-        "CLOSED",
-        "CANCELLED"
-      ]
+      ["DRAFT", "IN_TRANSIT"],
+      ["CLOSED", "RECEIVED"],
+      ["CLOSED", "CANCELLED"]
     ],
     "actor_invalid": [
-      [
-        "IN_TRANSIT",
-        "RECEIVED",
-        "WAREHOUSE"
-      ],
-      [
-        "RECEIVED",
-        "CANCELLED",
-        "STORE"
-      ]
+      ["IN_TRANSIT", "RECEIVED", "WAREHOUSE"],
+      ["RECEIVED", "CANCELLED", "STORE"]
     ]
   }
 }

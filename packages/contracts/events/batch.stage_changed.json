@@ -19,11 +19,7 @@
     },
     "payload": {
       "type": "object",
-      "required": [
-        "batch_id",
-        "from_stage",
-        "to_stage"
-      ],
+      "required": ["batch_id", "from_stage", "to_stage"],
       "properties": {
         "batch_id": {
           "type": "string",

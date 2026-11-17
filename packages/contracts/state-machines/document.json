@@ -5,22 +5,13 @@
   "service": "DocumentLifecycle",
   "events_table": "audit.logs",
   "initial": "DRAFT",
-  "terminal": [
-    "CANCELLED"
-  ],
-  "states": [
-    "DRAFT",
-    "PENDING_APPROVAL",
-    "COMPLETED",
-    "CANCELLED"
-  ],
+  "terminal": ["CANCELLED"],
+  "states": ["DRAFT", "PENDING_APPROVAL", "COMPLETED", "CANCELLED"],
   "transitions": [
     {
       "from": "DRAFT",
       "to": "PENDING_APPROVAL",
-      "actors": [
-        "CREATOR"
-      ],
+      "actors": ["CREATOR"],
       "note": "Gửi duyệt",
       "effects": [],
       "guard": "doc_type = SPOILAGE, hoặc vượt hạn mức (§2.3)"
@@ -28,98 +19,48 @@
     {
       "from": "DRAFT",
       "to": "COMPLETED",
-      "actors": [
-        "CREATOR"
-      ],
+      "actors": ["CREATOR"],
       "note": "Tự hoàn thành",
-      "effects": [
-        "POST_MOVEMENTS"
-      ],
+      "effects": ["POST_MOVEMENTS"],
       "guard": "doc_type ≠ SPOILAGE và trong hạn mức"
     },
     {
       "from": "PENDING_APPROVAL",
       "to": "COMPLETED",
-      "actors": [
-        "APPROVER"
-      ],
+      "actors": ["APPROVER"],
       "note": "Duyệt",
-      "effects": [
-        "POST_MOVEMENTS"
-      ],
+      "effects": ["POST_MOVEMENTS"],
       "guard": "approver ≠ creator và trong hạn mức của approver"
     },
     {
       "from": "PENDING_APPROVAL",
       "to": "DRAFT",
-      "actors": [
-        "APPROVER"
-      ],
+      "actors": ["APPROVER"],
       "note": "Trả lại để sửa",
-      "effects": [
-        "REQUIRE_REASON"
-      ]
+      "effects": ["REQUIRE_REASON"]
     },
     {
       "from": "COMPLETED",
       "to": "CANCELLED",
-      "actors": [
-        "PERMITTED"
-      ],
+      "actors": ["PERMITTED"],
       "note": "Hủy chứng từ",
-      "effects": [
-        "REVERSE_MOVEMENTS",
-        "REQUIRE_REASON"
-      ],
+      "effects": ["REVERSE_MOVEMENTS", "REQUIRE_REASON"],
       "guard": "hàng chưa xuất tiếp, kỳ chưa khóa, có quyền document:cancel"
     }
   ],
   "notes": "Áp cho nhận hàng, trả NCC, kiểm kê, hủy hàng, dùng nội bộ, sơ chế, đóng gói, lắp giỏ. DRAFT chỉ xóa vật lý bởi người tạo; PENDING_APPROVAL không sửa/xóa. Phiếu hủy hàng (SPOILAGE) LUÔN đi qua PENDING_APPROVAL (§5.9).",
   "test_vectors": {
     "valid": [
-      [
-        "DRAFT",
-        "COMPLETED",
-        "CANCELLED"
-      ],
-      [
-        "DRAFT",
-        "PENDING_APPROVAL",
-        "COMPLETED"
-      ],
-      [
-        "DRAFT",
-        "PENDING_APPROVAL",
-        "DRAFT",
-        "PENDING_APPROVAL",
-        "COMPLETED",
-        "CANCELLED"
-      ]
+      ["DRAFT", "COMPLETED", "CANCELLED"],
+      ["DRAFT", "PENDING_APPROVAL", "COMPLETED"],
+      ["DRAFT", "PENDING_APPROVAL", "DRAFT", "PENDING_APPROVAL", "COMPLETED", "CANCELLED"]
     ],
     "invalid": [
-      [
-        "DRAFT",
-        "CANCELLED"
-      ],
-      [
-        "CANCELLED",
-        "COMPLETED"
-      ],
-      [
-        "COMPLETED",
-        "DRAFT"
-      ],
-      [
-        "PENDING_APPROVAL",
-        "CANCELLED"
-      ]
+      ["DRAFT", "CANCELLED"],
+      ["CANCELLED", "COMPLETED"],
+      ["COMPLETED", "DRAFT"],
+      ["PENDING_APPROVAL", "CANCELLED"]
     ],
-    "actor_invalid": [
-      [
-        "PENDING_APPROVAL",
-        "COMPLETED",
-        "CREATOR"
-      ]
-    ]
+    "actor_invalid": [["PENDING_APPROVAL", "COMPLETED", "CREATOR"]]
   }
 }

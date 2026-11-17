@@ -19,10 +19,7 @@
     },
     "payload": {
       "type": "object",
-      "required": [
-        "order_id",
-        "lines"
-      ],
+      "required": ["order_id", "lines"],
       "properties": {
         "order_id": {
           "type": "string",

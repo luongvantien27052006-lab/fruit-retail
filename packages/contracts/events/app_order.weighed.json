@@ -19,12 +19,7 @@
     },
     "payload": {
       "type": "object",
-      "required": [
-        "order_id",
-        "actual_subtotal",
-        "total_amount",
-        "payment_mode"
-      ],
+      "required": ["order_id", "actual_subtotal", "total_amount", "payment_mode"],
       "properties": {
         "order_id": {
           "type": "string",

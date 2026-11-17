@@ -16,10 +16,12 @@ for (const f of readdirSync(dir).filter((x) => x.endsWith('.json') && !x.startsW
     else for (const e of t.effects) if (!EFFECTS.has(e)) err(`${f}: ${t.from}→${t.to} effect lạ ${e}`);
   }
   const cancels = m.transitions.filter((t) => t.to === 'CANCELLED' || t.to === 'REJECTED');
-  if (m.machine === 'app_order') for (const t of cancels) {
-    if (!t.effects.includes('REQUIRE_REASON')) err(`${f}: ${t.from}→${t.to} hủy phải có REQUIRE_REASON`);
-    if (!t.effects.includes('RETURN_QUOTA') && t.from !== 'DELIVERY_FAILED') err(`${f}: ${t.from}→${t.to} hủy phải hoàn hạn mức`);
-  }
+  if (m.machine === 'app_order')
+    for (const t of cancels) {
+      if (!t.effects.includes('REQUIRE_REASON')) err(`${f}: ${t.from}→${t.to} hủy phải có REQUIRE_REASON`);
+      if (!t.effects.includes('RETURN_QUOTA') && t.from !== 'DELIVERY_FAILED')
+        err(`${f}: ${t.from}→${t.to} hủy phải hoàn hạn mức`);
+    }
   const S = new Set(m.states);
   const key = (a, b) => `${a}>${b}`;
   const T = new Map(m.transitions.map((t) => [key(t.from, t.to), t]));
@@ -33,7 +35,11 @@ for (const f of readdirSync(dir).filter((x) => x.endsWith('.json') && !x.startsW
   let grow = true;
   while (grow) {
     grow = false;
-    for (const t of m.transitions) if (seen.has(t.from) && !seen.has(t.to)) { seen.add(t.to); grow = true; }
+    for (const t of m.transitions)
+      if (seen.has(t.from) && !seen.has(t.to)) {
+        seen.add(t.to);
+        grow = true;
+      }
   }
   for (const s of S) if (!seen.has(s)) err(`${f}: ${s} không đến được từ ${m.initial}`);
   const pathOk = (p) => p.every((s, i) => i === 0 || T.has(key(p[i - 1], s)));

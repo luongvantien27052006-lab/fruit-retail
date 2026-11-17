@@ -19,11 +19,7 @@
     },
     "payload": {
       "type": "object",
-      "required": [
-        "bank_txn_id",
-        "amount",
-        "txn_at"
-      ],
+      "required": ["bank_txn_id", "amount", "txn_at"],
       "properties": {
         "bank_txn_id": {
           "type": "string",

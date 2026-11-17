@@ -5,11 +5,7 @@
   "service": "PaymentStateMachine",
   "events_table": "audit.logs",
   "initial": "CREATED",
-  "terminal": [
-    "SUCCEEDED",
-    "LATE_RECEIVED",
-    "FAILED"
-  ],
+  "terminal": ["SUCCEEDED", "LATE_RECEIVED", "FAILED"],
   "states": [
     "CREATED",
     "PENDING",
@@ -25,115 +21,77 @@
     {
       "from": "CREATED",
       "to": "PENDING",
-      "actors": [
-        "SYSTEM"
-      ],
+      "actors": ["SYSTEM"],
       "note": "SePay trả VA",
       "effects": []
     },
     {
       "from": "CREATED",
       "to": "UNKNOWN",
-      "actors": [
-        "SYSTEM"
-      ],
+      "actors": ["SYSTEM"],
       "note": "Timeout khi tạo VA",
       "effects": []
     },
     {
       "from": "CREATED",
       "to": "PENDING_VERIFY",
-      "actors": [
-        "STORE"
-      ],
+      "actors": ["STORE"],
       "note": "Chuyển khoản thủ công / mất mạng, thu ngân xác nhận bằng mắt",
-      "effects": [
-        "REQUIRE_PROOF_PHOTO"
-      ]
+      "effects": ["REQUIRE_PROOF_PHOTO"]
     },
     {
       "from": "UNKNOWN",
       "to": "PENDING",
-      "actors": [
-        "SYSTEM"
-      ],
+      "actors": ["SYSTEM"],
       "note": "Tra cứu lại thấy VA đã tạo",
       "effects": []
     },
     {
       "from": "UNKNOWN",
       "to": "CANCELLED",
-      "actors": [
-        "SYSTEM",
-        "STORE"
-      ],
+      "actors": ["SYSTEM", "STORE"],
       "note": "Tra cứu lại: không có VA, hoặc đã hủy được VA",
-      "effects": [
-        "CANCEL_VA"
-      ]
+      "effects": ["CANCEL_VA"]
     },
     {
       "from": "PENDING",
       "to": "SUCCEEDED",
-      "actors": [
-        "SYSTEM"
-      ],
+      "actors": ["SYSTEM"],
       "note": "Webhook/đối soát khớp VA",
       "effects": []
     },
     {
       "from": "PENDING",
       "to": "EXPIRED",
-      "actors": [
-        "SYSTEM"
-      ],
+      "actors": ["SYSTEM"],
       "note": "",
-      "effects": [
-        "CANCEL_VA"
-      ]
+      "effects": ["CANCEL_VA"]
     },
     {
       "from": "PENDING",
       "to": "CANCELLED",
-      "actors": [
-        "SYSTEM",
-        "STORE",
-        "MASTER"
-      ],
+      "actors": ["SYSTEM", "STORE", "MASTER"],
       "note": "",
-      "effects": [
-        "CANCEL_VA"
-      ]
+      "effects": ["CANCEL_VA"]
     },
     {
       "from": "EXPIRED",
       "to": "LATE_RECEIVED",
-      "actors": [
-        "SYSTEM"
-      ],
+      "actors": ["SYSTEM"],
       "note": "Tiền về sau khi hết hạn",
-      "effects": [
-        "CREATE_REFUND_OBLIGATION"
-      ]
+      "effects": ["CREATE_REFUND_OBLIGATION"]
     },
     {
       "from": "CANCELLED",
       "to": "LATE_RECEIVED",
-      "actors": [
-        "SYSTEM"
-      ],
+      "actors": ["SYSTEM"],
       "note": "Tiền về sau khi hủy (thu thừa §6.6)",
-      "effects": [
-        "CREATE_REFUND_OBLIGATION"
-      ]
+      "effects": ["CREATE_REFUND_OBLIGATION"]
     },
     {
       "from": "PENDING_VERIFY",
       "to": "SUCCEEDED",
-      "actors": [
-        "STORE_MANAGER",
-        "MASTER"
-      ],
+      "actors": ["STORE_MANAGER", "MASTER"],
       "note": "Đối soát app ngân hàng khớp",
       "effects": [],
       "guard": "người đối soát ≠ thu ngân xác nhận"
@@ -141,72 +99,28 @@
     {
       "from": "PENDING_VERIFY",
       "to": "FAILED",
-      "actors": [
-        "STORE_MANAGER",
-        "MASTER"
-      ],
+      "actors": ["STORE_MANAGER", "MASTER"],
       "note": "Không thấy tiền",
-      "effects": [
-        "REQUIRE_REASON"
-      ]
+      "effects": ["REQUIRE_REASON"]
     }
   ],
   "notes": "Áp cho mọi lần thu chuyển khoản (POS/app/sỉ). Tiền mặt ghi thẳng SUCCEEDED khi chốt hóa đơn. va_status (CREATING/ACTIVE/CANCELLED) lưu tách cột.",
   "test_vectors": {
     "valid": [
-      [
-        "CREATED",
-        "PENDING",
-        "SUCCEEDED"
-      ],
-      [
-        "CREATED",
-        "UNKNOWN",
-        "PENDING",
-        "SUCCEEDED"
-      ],
-      [
-        "CREATED",
-        "UNKNOWN",
-        "CANCELLED"
-      ],
-      [
-        "CREATED",
-        "PENDING",
-        "EXPIRED",
-        "LATE_RECEIVED"
-      ],
-      [
-        "CREATED",
-        "PENDING_VERIFY",
-        "SUCCEEDED"
-      ]
+      ["CREATED", "PENDING", "SUCCEEDED"],
+      ["CREATED", "UNKNOWN", "PENDING", "SUCCEEDED"],
+      ["CREATED", "UNKNOWN", "CANCELLED"],
+      ["CREATED", "PENDING", "EXPIRED", "LATE_RECEIVED"],
+      ["CREATED", "PENDING_VERIFY", "SUCCEEDED"]
     ],
     "invalid": [
-      [
-        "SUCCEEDED",
-        "EXPIRED"
-      ],
-      [
-        "EXPIRED",
-        "SUCCEEDED"
-      ],
-      [
-        "PENDING_VERIFY",
-        "PENDING"
-      ]
+      ["SUCCEEDED", "EXPIRED"],
+      ["EXPIRED", "SUCCEEDED"],
+      ["PENDING_VERIFY", "PENDING"]
     ],
     "actor_invalid": [
-      [
-        "PENDING",
-        "SUCCEEDED",
-        "STORE"
-      ],
-      [
-        "PENDING_VERIFY",
-        "SUCCEEDED",
-        "STORE"
-      ]
+      ["PENDING", "SUCCEEDED", "STORE"],
+      ["PENDING_VERIFY", "SUCCEEDED", "STORE"]
     ]
   }
 }

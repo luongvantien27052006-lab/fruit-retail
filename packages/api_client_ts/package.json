@@ -6,7 +6,12 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "scripts": {
     "generate": "openapi-typescript ../contracts/openapi.yaml -o src/generated/schema.ts",
     "build": "pnpm run generate && tsc -p tsconfig.build.json",

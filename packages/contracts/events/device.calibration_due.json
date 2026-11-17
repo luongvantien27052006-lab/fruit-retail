@@ -19,11 +19,7 @@
     },
     "payload": {
       "type": "object",
-      "required": [
-        "device_id",
-        "store_id",
-        "calibration_expires_at"
-      ],
+      "required": ["device_id", "store_id", "calibration_expires_at"],
       "properties": {
         "device_id": {
           "type": "string",

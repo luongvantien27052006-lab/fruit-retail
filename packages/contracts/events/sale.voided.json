@@ -19,13 +19,7 @@
     },
     "payload": {
       "type": "object",
-      "required": [
-        "sale_id",
-        "store_id",
-        "void_reason",
-        "voided_by",
-        "total_amount"
-      ],
+      "required": ["sale_id", "store_id", "void_reason", "voided_by", "total_amount"],
       "properties": {
         "sale_id": {
           "type": "string",

@@ -19,12 +19,7 @@
     },
     "payload": {
       "type": "object",
-      "required": [
-        "order_id",
-        "store_id",
-        "zone_id",
-        "ref_subtotal"
-      ],
+      "required": ["order_id", "store_id", "zone_id", "ref_subtotal"],
       "properties": {
         "order_id": {
           "type": "string",

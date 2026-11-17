@@ -1,5 +1,15 @@
-docs/specs/
+*.md
+docs/
+.github/
 pnpm-lock.yaml
+pubspec.lock
 **/generated/
+**/.codegen/
 **/.dart_tool/
 **/build/
+**/.next/
+apps/customer_app/
+apps/staff_app/
+packages/money_weight/dart/
+packages/shared_models/
+.claude/

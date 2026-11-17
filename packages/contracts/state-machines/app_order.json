@@ -5,11 +5,7 @@
   "service": "AppOrderStateMachine",
   "events_table": "app_order_events",
   "initial": "PLACED",
-  "terminal": [
-    "REJECTED",
-    "CANCELLED",
-    "COMPLETED"
-  ],
+  "terminal": ["REJECTED", "CANCELLED", "COMPLETED"],
   "states": [
     "PLACED",
     "ACCEPTED",
@@ -32,99 +28,56 @@
     {
       "from": "PLACED",
       "to": "ACCEPTED",
-      "actors": [
-        "STORE"
-      ],
+      "actors": ["STORE"],
       "note": "Picker/cửa hàng trưởng nhận",
       "effects": []
     },
     {
       "from": "PLACED",
       "to": "REJECTED",
-      "actors": [
-        "STORE"
-      ],
+      "actors": ["STORE"],
       "note": "Cửa hàng từ chối",
-      "effects": [
-        "RELEASE_HOLD",
-        "RETURN_QUOTA",
-        "REFUND_IF_PAID",
-        "REQUIRE_REASON"
-      ]
+      "effects": ["RELEASE_HOLD", "RETURN_QUOTA", "REFUND_IF_PAID", "REQUIRE_REASON"]
     },
     {
       "from": "PLACED",
       "to": "CANCELLED",
-      "actors": [
-        "CUSTOMER",
-        "STORE",
-        "SYSTEM",
-        "MASTER"
-      ],
+      "actors": ["CUSTOMER", "STORE", "SYSTEM", "MASTER"],
       "note": "",
-      "effects": [
-        "RELEASE_HOLD",
-        "RETURN_QUOTA",
-        "REQUIRE_REASON"
-      ]
+      "effects": ["RELEASE_HOLD", "RETURN_QUOTA", "REQUIRE_REASON"]
     },
     {
       "from": "ACCEPTED",
       "to": "PICKING",
-      "actors": [
-        "STORE"
-      ],
+      "actors": ["STORE"],
       "note": "",
       "effects": []
     },
     {
       "from": "ACCEPTED",
       "to": "CANCELLED",
-      "actors": [
-        "CUSTOMER",
-        "STORE",
-        "SYSTEM",
-        "MASTER"
-      ],
+      "actors": ["CUSTOMER", "STORE", "SYSTEM", "MASTER"],
       "note": "Khách chỉ được hủy trước PICKING",
-      "effects": [
-        "RELEASE_HOLD",
-        "RETURN_QUOTA",
-        "REQUIRE_REASON"
-      ]
+      "effects": ["RELEASE_HOLD", "RETURN_QUOTA", "REQUIRE_REASON"]
     },
     {
       "from": "PICKING",
       "to": "WEIGHED",
-      "actors": [
-        "STORE"
-      ],
+      "actors": ["STORE"],
       "note": "Cân từng dòng + ảnh",
-      "effects": [
-        "COMPUTE_ACTUAL_AMOUNT"
-      ]
+      "effects": ["COMPUTE_ACTUAL_AMOUNT"]
     },
     {
       "from": "PICKING",
       "to": "CANCELLED",
-      "actors": [
-        "STORE",
-        "SYSTEM",
-        "MASTER"
-      ],
+      "actors": ["STORE", "SYSTEM", "MASTER"],
       "note": "",
-      "effects": [
-        "RELEASE_HOLD",
-        "RETURN_QUOTA",
-        "REQUIRE_REASON"
-      ]
+      "effects": ["RELEASE_HOLD", "RETURN_QUOTA", "REQUIRE_REASON"]
     },
     {
       "from": "WEIGHED",
       "to": "AWAITING_CONFIRM",
-      "actors": [
-        "SYSTEM"
-      ],
+      "actors": ["SYSTEM"],
       "note": "",
       "effects": [],
       "guard": "có dòng thiếu hàng"
@@ -132,21 +85,15 @@
     {
       "from": "WEIGHED",
       "to": "AWAITING_PAYMENT",
-      "actors": [
-        "SYSTEM"
-      ],
+      "actors": ["SYSTEM"],
       "note": "",
-      "effects": [
-        "CREATE_VA"
-      ],
+      "effects": ["CREATE_VA"],
       "guard": "payment_mode = PAY_AFTER_WEIGH và không thiếu hàng"
     },
     {
       "from": "WEIGHED",
       "to": "READY_TO_PACK",
-      "actors": [
-        "SYSTEM"
-      ],
+      "actors": ["SYSTEM"],
       "note": "",
       "effects": [],
       "guard": "payment_mode = COD hoặc (PICKUP và trả khi lấy), không thiếu hàng"
@@ -154,119 +101,65 @@
     {
       "from": "WEIGHED",
       "to": "CANCELLED",
-      "actors": [
-        "STORE",
-        "SYSTEM",
-        "MASTER"
-      ],
+      "actors": ["STORE", "SYSTEM", "MASTER"],
       "note": "",
-      "effects": [
-        "RELEASE_HOLD",
-        "RETURN_QUOTA",
-        "REQUIRE_REASON"
-      ]
+      "effects": ["RELEASE_HOLD", "RETURN_QUOTA", "REQUIRE_REASON"]
     },
     {
       "from": "AWAITING_CONFIRM",
       "to": "AWAITING_PAYMENT",
-      "actors": [
-        "CUSTOMER",
-        "SYSTEM"
-      ],
+      "actors": ["CUSTOMER", "SYSTEM"],
       "note": "Khách nhận phần còn lại, hoặc hết 10 phút → mặc định giao phần còn lại (§8.5)",
-      "effects": [
-        "ADJUST_LINES",
-        "CREATE_VA"
-      ],
+      "effects": ["ADJUST_LINES", "CREATE_VA"],
       "guard": "payment_mode = PAY_AFTER_WEIGH"
     },
     {
       "from": "AWAITING_CONFIRM",
       "to": "READY_TO_PACK",
-      "actors": [
-        "CUSTOMER",
-        "SYSTEM"
-      ],
+      "actors": ["CUSTOMER", "SYSTEM"],
       "note": "Như trên",
-      "effects": [
-        "ADJUST_LINES"
-      ],
+      "effects": ["ADJUST_LINES"],
       "guard": "payment_mode = COD hoặc trả khi lấy"
     },
     {
       "from": "AWAITING_CONFIRM",
       "to": "CANCELLED",
-      "actors": [
-        "CUSTOMER",
-        "MASTER"
-      ],
+      "actors": ["CUSTOMER", "MASTER"],
       "note": "Khách chọn hủy",
-      "effects": [
-        "RELEASE_HOLD",
-        "RETURN_QUOTA",
-        "REQUIRE_REASON"
-      ]
+      "effects": ["RELEASE_HOLD", "RETURN_QUOTA", "REQUIRE_REASON"]
     },
     {
       "from": "AWAITING_PAYMENT",
       "to": "READY_TO_PACK",
-      "actors": [
-        "SYSTEM"
-      ],
+      "actors": ["SYSTEM"],
       "note": "payment.succeeded",
       "effects": []
     },
     {
       "from": "AWAITING_PAYMENT",
       "to": "CANCELLED",
-      "actors": [
-        "SYSTEM",
-        "MASTER"
-      ],
+      "actors": ["SYSTEM", "MASTER"],
       "note": "Quá 30 phút chưa trả: hàng về kệ",
-      "effects": [
-        "CANCEL_VA",
-        "RELEASE_HOLD",
-        "RETURN_QUOTA",
-        "REFUND_IF_PAID",
-        "REQUIRE_REASON"
-      ]
+      "effects": ["CANCEL_VA", "RELEASE_HOLD", "RETURN_QUOTA", "REFUND_IF_PAID", "REQUIRE_REASON"]
     },
     {
       "from": "READY_TO_PACK",
       "to": "PACKED",
-      "actors": [
-        "STORE"
-      ],
+      "actors": ["STORE"],
       "note": "Picker đóng gói (§8.3: PACKED do Picker)",
-      "effects": [
-        "DEDUCT_STOCK_FEFO",
-        "RELEASE_HOLD",
-        "PRINT_BAG_LABEL"
-      ]
+      "effects": ["DEDUCT_STOCK_FEFO", "RELEASE_HOLD", "PRINT_BAG_LABEL"]
     },
     {
       "from": "READY_TO_PACK",
       "to": "CANCELLED",
-      "actors": [
-        "STORE",
-        "MASTER"
-      ],
+      "actors": ["STORE", "MASTER"],
       "note": "",
-      "effects": [
-        "RELEASE_HOLD",
-        "RETURN_QUOTA",
-        "REFUND_IF_PAID",
-        "REQUIRE_REASON"
-      ]
+      "effects": ["RELEASE_HOLD", "RETURN_QUOTA", "REFUND_IF_PAID", "REQUIRE_REASON"]
     },
     {
       "from": "PACKED",
       "to": "SHIPPER_ASSIGNED",
-      "actors": [
-        "STORE",
-        "SYSTEM"
-      ],
+      "actors": ["STORE", "SYSTEM"],
       "note": "",
       "effects": [],
       "guard": "fulfillment_type = DELIVERY"
@@ -274,108 +167,64 @@
     {
       "from": "PACKED",
       "to": "PICKED_UP",
-      "actors": [
-        "STORE"
-      ],
+      "actors": ["STORE"],
       "note": "Khách lấy tại cửa hàng",
-      "effects": [
-        "COLLECT_CASH_AT_PICKUP"
-      ],
+      "effects": ["COLLECT_CASH_AT_PICKUP"],
       "guard": "fulfillment_type = PICKUP"
     },
     {
       "from": "PACKED",
       "to": "CANCELLED",
-      "actors": [
-        "STORE",
-        "SYSTEM",
-        "MASTER"
-      ],
+      "actors": ["STORE", "SYSTEM", "MASTER"],
       "note": "Quá giờ lấy (PHONE/PICKUP) hoặc Master can thiệp",
-      "effects": [
-        "RETURN_STOCK_OR_SPOIL",
-        "RETURN_QUOTA",
-        "REFUND_IF_PAID",
-        "REQUIRE_REASON"
-      ]
+      "effects": ["RETURN_STOCK_OR_SPOIL", "RETURN_QUOTA", "REFUND_IF_PAID", "REQUIRE_REASON"]
     },
     {
       "from": "SHIPPER_ASSIGNED",
       "to": "DELIVERING",
-      "actors": [
-        "SHIPPER",
-        "COURIER"
-      ],
+      "actors": ["SHIPPER", "COURIER"],
       "note": "",
       "effects": []
     },
     {
       "from": "SHIPPER_ASSIGNED",
       "to": "PACKED",
-      "actors": [
-        "STORE",
-        "SYSTEM",
-        "COURIER"
-      ],
+      "actors": ["STORE", "SYSTEM", "COURIER"],
       "note": "3PL không tìm được tài xế / hủy — gán lại",
-      "effects": [
-        "CANCEL_COURIER"
-      ]
+      "effects": ["CANCEL_COURIER"]
     },
     {
       "from": "DELIVERING",
       "to": "DELIVERED",
-      "actors": [
-        "SHIPPER",
-        "COURIER"
-      ],
+      "actors": ["SHIPPER", "COURIER"],
       "note": "",
-      "effects": [
-        "POD_PHOTO",
-        "COLLECT_COD"
-      ]
+      "effects": ["POD_PHOTO", "COLLECT_COD"]
     },
     {
       "from": "DELIVERING",
       "to": "DELIVERY_FAILED",
-      "actors": [
-        "SHIPPER",
-        "COURIER"
-      ],
+      "actors": ["SHIPPER", "COURIER"],
       "note": "",
-      "effects": [
-        "REQUIRE_REASON"
-      ]
+      "effects": ["REQUIRE_REASON"]
     },
     {
       "from": "DELIVERY_FAILED",
       "to": "SHIPPER_ASSIGNED",
-      "actors": [
-        "STORE"
-      ],
+      "actors": ["STORE"],
       "note": "Giao lại",
       "effects": []
     },
     {
       "from": "DELIVERY_FAILED",
       "to": "CANCELLED",
-      "actors": [
-        "STORE",
-        "MASTER"
-      ],
+      "actors": ["STORE", "MASTER"],
       "note": "",
-      "effects": [
-        "RETURN_STOCK_OR_SPOIL",
-        "REFUND_IF_PAID",
-        "REQUIRE_REASON"
-      ]
+      "effects": ["RETURN_STOCK_OR_SPOIL", "REFUND_IF_PAID", "REQUIRE_REASON"]
     },
     {
       "from": "DELIVERED",
       "to": "COMPLETED",
-      "actors": [
-        "SYSTEM"
-      ],
+      "actors": ["SYSTEM"],
       "note": "Hết 24h",
       "effects": [],
       "guard": "không có khiếu nại đang mở (complaint ở trạng thái chưa kết thúc chặn COMPLETED)"
@@ -383,9 +232,7 @@
     {
       "from": "PICKED_UP",
       "to": "COMPLETED",
-      "actors": [
-        "SYSTEM"
-      ],
+      "actors": ["SYSTEM"],
       "note": "Hết 24h",
       "effects": [],
       "guard": "không có khiếu nại đang mở"
@@ -419,18 +266,8 @@
         "DELIVERED",
         "COMPLETED"
       ],
-      [
-        "PLACED",
-        "ACCEPTED",
-        "PICKING",
-        "WEIGHED",
-        "AWAITING_PAYMENT",
-        "CANCELLED"
-      ],
-      [
-        "PLACED",
-        "REJECTED"
-      ],
+      ["PLACED", "ACCEPTED", "PICKING", "WEIGHED", "AWAITING_PAYMENT", "CANCELLED"],
+      ["PLACED", "REJECTED"],
       [
         "PLACED",
         "ACCEPTED",
@@ -449,77 +286,23 @@
         "DELIVERING",
         "DELIVERED"
       ],
-      [
-        "PLACED",
-        "ACCEPTED",
-        "PICKING",
-        "WEIGHED",
-        "READY_TO_PACK",
-        "PACKED",
-        "PICKED_UP",
-        "COMPLETED"
-      ],
-      [
-        "PLACED",
-        "ACCEPTED",
-        "PICKING",
-        "WEIGHED",
-        "READY_TO_PACK",
-        "PACKED",
-        "CANCELLED"
-      ]
+      ["PLACED", "ACCEPTED", "PICKING", "WEIGHED", "READY_TO_PACK", "PACKED", "PICKED_UP", "COMPLETED"],
+      ["PLACED", "ACCEPTED", "PICKING", "WEIGHED", "READY_TO_PACK", "PACKED", "CANCELLED"]
     ],
     "invalid": [
-      [
-        "PLACED",
-        "WEIGHED"
-      ],
-      [
-        "PICKING",
-        "PACKED"
-      ],
-      [
-        "DELIVERED",
-        "CANCELLED"
-      ],
-      [
-        "COMPLETED",
-        "DELIVERING"
-      ],
-      [
-        "AWAITING_PAYMENT",
-        "PACKED"
-      ],
-      [
-        "REJECTED",
-        "ACCEPTED"
-      ],
-      [
-        "WEIGHED",
-        "PACKED"
-      ]
+      ["PLACED", "WEIGHED"],
+      ["PICKING", "PACKED"],
+      ["DELIVERED", "CANCELLED"],
+      ["COMPLETED", "DELIVERING"],
+      ["AWAITING_PAYMENT", "PACKED"],
+      ["REJECTED", "ACCEPTED"],
+      ["WEIGHED", "PACKED"]
     ],
     "actor_invalid": [
-      [
-        "PICKING",
-        "CANCELLED",
-        "CUSTOMER"
-      ],
-      [
-        "READY_TO_PACK",
-        "PACKED",
-        "SYSTEM"
-      ],
-      [
-        "READY_TO_PACK",
-        "PACKED",
-        "CUSTOMER"
-      ],
-      [
-        "AWAITING_PAYMENT",
-        "READY_TO_PACK",
-        "STORE"
-      ]
+      ["PICKING", "CANCELLED", "CUSTOMER"],
+      ["READY_TO_PACK", "PACKED", "SYSTEM"],
+      ["READY_TO_PACK", "PACKED", "CUSTOMER"],
+      ["AWAITING_PAYMENT", "READY_TO_PACK", "STORE"]
     ]
   }
 }

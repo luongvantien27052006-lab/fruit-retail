@@ -1,0 +1,22 @@
+{
+  "name": "@fruit/admin-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Trang quản lý — Master Admin + Admin Chỉ Xem (Next.js App Router, §10)",
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint app"
+  },
+  "dependencies": {
+    "next": "16.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@fruit/api_client_ts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Client TS SINH từ packages/contracts/openapi.yaml (ADR-017) — không viết tay DTO",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "generate": "openapi-typescript ../contracts/openapi.yaml -o src/generated/schema.ts",
+    "build": "pnpm run generate && tsc -p tsconfig.build.json",
+    "typecheck": "pnpm run generate && tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src test",
+    "test": "pnpm run generate && vitest run"
+  },
+  "dependencies": {
+    "@fruit/money_weight": "workspace:*",
+    "openapi-fetch": "0.17.0"
+  },
+  "devDependencies": {
+    "openapi-typescript": "7.13.0",
+    "vitest": "5.1.0"
+  }
+}

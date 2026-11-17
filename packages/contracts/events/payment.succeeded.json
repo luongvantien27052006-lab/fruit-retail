@@ -19,14 +19,7 @@
     },
     "payload": {
       "type": "object",
-      "required": [
-        "payment_id",
-        "ref_type",
-        "ref_id",
-        "amount",
-        "provider_txn_id",
-        "paid_at"
-      ],
+      "required": ["payment_id", "ref_type", "ref_id", "amount", "provider_txn_id", "paid_at"],
       "properties": {
         "payment_id": {
           "type": "string",

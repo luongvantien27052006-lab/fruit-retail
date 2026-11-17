@@ -19,13 +19,7 @@
     },
     "payload": {
       "type": "object",
-      "required": [
-        "shipment_id",
-        "ref_type",
-        "ref_id",
-        "from_status",
-        "to_status"
-      ],
+      "required": ["shipment_id", "ref_type", "ref_id", "from_status", "to_status"],
       "properties": {
         "shipment_id": {
           "type": "string",

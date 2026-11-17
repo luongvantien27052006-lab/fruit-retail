@@ -5,25 +5,13 @@
   "service": "RefundStateMachine",
   "events_table": "audit.logs",
   "initial": "REQUESTED",
-  "terminal": [
-    "PAID_OUT",
-    "REJECTED"
-  ],
-  "states": [
-    "REQUESTED",
-    "APPROVED",
-    "REJECTED",
-    "PAID_OUT"
-  ],
+  "terminal": ["PAID_OUT", "REJECTED"],
+  "states": ["REQUESTED", "APPROVED", "REJECTED", "PAID_OUT"],
   "transitions": [
     {
       "from": "REQUESTED",
       "to": "APPROVED",
-      "actors": [
-        "SYSTEM",
-        "STORE_MANAGER",
-        "MASTER"
-      ],
+      "actors": ["SYSTEM", "STORE_MANAGER", "MASTER"],
       "note": "SYSTEM chỉ khi nguồn là khiếu nại AUTO_APPROVED",
       "effects": [],
       "guard": "SYSTEM: complaint AUTO_APPROVED; người: trong hạn mức (§2.3 STORE_MANAGER ≤ 200.000đ) và người duyệt ≠ người yêu cầu"
@@ -31,56 +19,27 @@
     {
       "from": "REQUESTED",
       "to": "REJECTED",
-      "actors": [
-        "STORE_MANAGER",
-        "MASTER"
-      ],
+      "actors": ["STORE_MANAGER", "MASTER"],
       "note": "",
-      "effects": [
-        "REQUIRE_REASON"
-      ]
+      "effects": ["REQUIRE_REASON"]
     },
     {
       "from": "APPROVED",
       "to": "PAID_OUT",
-      "actors": [
-        "STORE_MANAGER",
-        "MASTER"
-      ],
+      "actors": ["STORE_MANAGER", "MASTER"],
       "note": "Chuyển khoản/tiền mặt cho khách",
-      "effects": [
-        "REQUIRE_PROOF_PHOTO"
-      ]
+      "effects": ["REQUIRE_PROOF_PHOTO"]
     }
   ],
   "test_vectors": {
     "valid": [
-      [
-        "REQUESTED",
-        "APPROVED",
-        "PAID_OUT"
-      ],
-      [
-        "REQUESTED",
-        "REJECTED"
-      ]
+      ["REQUESTED", "APPROVED", "PAID_OUT"],
+      ["REQUESTED", "REJECTED"]
     ],
     "invalid": [
-      [
-        "REQUESTED",
-        "PAID_OUT"
-      ],
-      [
-        "PAID_OUT",
-        "APPROVED"
-      ]
+      ["REQUESTED", "PAID_OUT"],
+      ["PAID_OUT", "APPROVED"]
     ],
-    "actor_invalid": [
-      [
-        "APPROVED",
-        "PAID_OUT",
-        "CASHIER"
-      ]
-    ]
+    "actor_invalid": [["APPROVED", "PAID_OUT", "CASHIER"]]
   }
 }

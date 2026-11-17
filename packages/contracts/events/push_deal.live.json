@@ -19,9 +19,7 @@
     },
     "payload": {
       "type": "object",
-      "required": [
-        "push_deal_id"
-      ],
+      "required": ["push_deal_id"],
       "properties": {
         "push_deal_id": {
           "type": "string",

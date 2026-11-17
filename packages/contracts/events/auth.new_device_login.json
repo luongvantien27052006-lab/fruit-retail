@@ -19,11 +19,7 @@
     },
     "payload": {
       "type": "object",
-      "required": [
-        "user_id",
-        "device_id",
-        "at"
-      ],
+      "required": ["user_id", "device_id", "at"],
       "properties": {
         "user_id": {
           "type": "string",

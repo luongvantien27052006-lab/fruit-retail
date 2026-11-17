@@ -19,12 +19,7 @@
     },
     "payload": {
       "type": "object",
-      "required": [
-        "snapshot_id",
-        "version",
-        "checksum",
-        "viewer_profile_ids"
-      ],
+      "required": ["snapshot_id", "version", "checksum", "viewer_profile_ids"],
       "properties": {
         "snapshot_id": {
           "type": "string",

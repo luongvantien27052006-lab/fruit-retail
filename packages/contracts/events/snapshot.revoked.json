@@ -19,11 +19,7 @@
     },
     "payload": {
       "type": "object",
-      "required": [
-        "snapshot_id",
-        "version",
-        "reason"
-      ],
+      "required": ["snapshot_id", "version", "reason"],
       "properties": {
         "snapshot_id": {
           "type": "string",

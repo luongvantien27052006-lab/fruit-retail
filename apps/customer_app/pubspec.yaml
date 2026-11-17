@@ -1,0 +1,22 @@
+name: customer_app
+description: "App người dùng — thông báo + mặt hàng đẩy (A1)"
+publish_to: none
+version: 0.1.0+1
+resolution: workspace
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  money_weight:
+    path: ../../packages/money_weight/dart
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

@@ -1,0 +1,10 @@
+# Pub workspace gốc (ADR-001, ADR-017): một pubspec.lock cho mọi package Dart/Flutter.
+name: fruit_retail_workspace
+publish_to: none
+environment:
+  sdk: ^3.12.0
+workspace:
+  - packages/money_weight/dart
+  - apps/customer_app
+  - apps/staff_app
+  - packages/shared_models

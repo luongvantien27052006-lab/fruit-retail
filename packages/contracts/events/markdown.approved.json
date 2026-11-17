@@ -19,12 +19,7 @@
     },
     "payload": {
       "type": "object",
-      "required": [
-        "markdown_id",
-        "batch_id",
-        "price_per_kg",
-        "price_per_unit"
-      ],
+      "required": ["markdown_id", "batch_id", "price_per_kg", "price_per_unit"],
       "properties": {
         "markdown_id": {
           "type": "string",

@@ -19,12 +19,7 @@
     },
     "payload": {
       "type": "object",
-      "required": [
-        "order_id",
-        "from_status",
-        "to_status",
-        "actor_id"
-      ],
+      "required": ["order_id", "from_status", "to_status", "actor_id"],
       "properties": {
         "order_id": {
           "type": "string",

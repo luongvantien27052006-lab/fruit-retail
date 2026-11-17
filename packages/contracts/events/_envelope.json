@@ -3,14 +3,7 @@
   "$id": "https://fruit-retail.local/events/_envelope.json",
   "title": "Event envelope (ADR-007)",
   "type": "object",
-  "required": [
-    "event_id",
-    "event_type",
-    "schema_version",
-    "occurred_at",
-    "aggregate_id",
-    "payload"
-  ],
+  "required": ["event_id", "event_type", "schema_version", "occurred_at", "aggregate_id", "payload"],
   "properties": {
     "event_id": {
       "type": "string",

@@ -1,0 +1,12 @@
+// Schema Prisma (ADR-003). Bảng được thêm theo nhóm migration M02… ở các CP sau (ERD §4).
+// Schema, role, extension, raise_immutable() tạo bởi infra/sql/000_bootstrap.sql trước Prisma (ADR-017).
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["core", "reporting", "reporting_private", "audit", "integration"]
+}

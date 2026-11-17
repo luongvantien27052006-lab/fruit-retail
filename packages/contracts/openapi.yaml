@@ -24,42 +24,42 @@ security:
   - bearerAuth: []
 tags:
   - name: auth
-    description: "Xác thực (§2.4)"
+    description: 'Xác thực (§2.4)'
   - name: app
-    description: "App người dùng (A1)"
+    description: 'App người dùng (A1)'
   - name: pos
-    description: "POS quầy (A2)"
+    description: 'POS quầy (A2)'
   - name: fulfillment
-    description: "Soạn đơn (tablet)"
+    description: 'Soạn đơn (tablet)'
   - name: inventory
-    description: "Kho (A3)"
+    description: 'Kho (A3)'
   - name: shipper
-    description: "Shipper (A5)"
+    description: 'Shipper (A5)'
   - name: admin
-    description: "Master Admin (A4)"
+    description: 'Master Admin (A4)'
   - name: publish
-    description: "Phát hành báo cáo (§10.4)"
+    description: 'Phát hành báo cáo (§10.4)'
   - name: viewer
-    description: "Admin Chỉ Xem — chỉ đọc (§2.5)"
+    description: 'Admin Chỉ Xem — chỉ đọc (§2.5)'
   - name: webhooks
-    description: "Webhook đối tác"
+    description: 'Webhook đối tác'
   - name: files
-    description: "File (ADR-014)"
+    description: 'File (ADR-014)'
   - name: system
-    description: "Hệ thống"
+    description: 'Hệ thống'
 paths:
   /auth/otp/request:
     post:
       operationId: postAuthOtpRequest
       tags: [auth]
-      summary: "Gửi OTP đăng nhập khách (SEC6) — giới hạn theo SĐT/thiết bị/IP"
+      summary: 'Gửi OTP đăng nhập khách (SEC6) — giới hạn theo SĐT/thiết bị/IP'
       security: []
-      x-permission: "public"
-      x-spec-ref: "§2.4"
+      x-permission: 'public'
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -91,14 +91,14 @@ paths:
     post:
       operationId: postAuthOtpVerify
       tags: [auth]
-      summary: "Xác minh OTP, cấp token khách"
+      summary: 'Xác minh OTP, cấp token khách'
       security: []
-      x-permission: "public"
-      x-spec-ref: "§2.4"
+      x-permission: 'public'
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -130,13 +130,13 @@ paths:
     post:
       operationId: postAuthLogin
       tags: [auth]
-      summary: "Đăng nhập Master/Viewer bằng mật khẩu (bước 1) → mfa_challenge"
+      summary: 'Đăng nhập Master/Viewer bằng mật khẩu (bước 1) → mfa_challenge'
       security: []
-      x-permission: "public"
-      x-spec-ref: "§2.4"
+      x-permission: 'public'
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -168,14 +168,14 @@ paths:
     post:
       operationId: postAuth2faVerify
       tags: [auth]
-      summary: "Xác minh TOTP sau login (SEC1) — cần mfa_challenge 5 phút, 1 lần"
+      summary: 'Xác minh TOTP sau login (SEC1) — cần mfa_challenge 5 phút, 1 lần'
       security:
         - mfaChallenge: []
-      x-permission: "mfa:challenge"
-      x-spec-ref: "§2.4"
+      x-permission: 'mfa:challenge'
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -207,15 +207,15 @@ paths:
     post:
       operationId: postAuth2faRecover
       tags: [auth]
-      summary: "Đăng nhập bằng mã khôi phục (dùng 1 lần)"
+      summary: 'Đăng nhập bằng mã khôi phục (dùng 1 lần)'
       security:
         - mfaChallenge: []
-      x-permission: "mfa:challenge"
-      x-spec-ref: "§2.4"
+      x-permission: 'mfa:challenge'
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -247,14 +247,14 @@ paths:
     post:
       operationId: postAuth2faSetup
       tags: [auth]
-      summary: "Bắt đầu đăng ký TOTP (bắt buộc lần đầu với Master/Viewer)"
-      x-permission: "auth:*"
-      x-spec-ref: "§2.4"
+      summary: 'Bắt đầu đăng ký TOTP (bắt buộc lần đầu với Master/Viewer)'
+      x-permission: 'auth:*'
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -286,14 +286,14 @@ paths:
     post:
       operationId: postAuth2faConfirm
       tags: [auth]
-      summary: "Xác nhận đăng ký TOTP, trả mã khôi phục"
-      x-permission: "auth:*"
-      x-spec-ref: "§2.4"
+      summary: 'Xác nhận đăng ký TOTP, trả mã khôi phục'
+      x-permission: 'auth:*'
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -325,15 +325,15 @@ paths:
     post:
       operationId: postAuth2faRecoveryCodes
       tags: [auth]
-      summary: "Sinh lại mã khôi phục"
-      x-permission: "auth:*"
+      summary: 'Sinh lại mã khôi phục'
+      x-permission: 'auth:*'
       x-step-up: true
-      x-spec-ref: "§2.4"
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -365,14 +365,14 @@ paths:
     post:
       operationId: postAuthPin
       tags: [auth]
-      summary: "Nhân viên đăng nhập mã NV + PIN trên thiết bị đã kích hoạt (SEC3) — ký nonce bằng khóa thiết bị"
+      summary: 'Nhân viên đăng nhập mã NV + PIN trên thiết bị đã kích hoạt (SEC3) — ký nonce bằng khóa thiết bị'
       security: []
-      x-permission: "public"
-      x-spec-ref: "§2.4"
+      x-permission: 'public'
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -404,16 +404,16 @@ paths:
     post:
       operationId: postAuthDevicesRegister
       tags: [auth]
-      summary: "Thiết bị POS/tablet đăng ký khóa công khai (PENDING chờ kích hoạt)"
+      summary: 'Thiết bị POS/tablet đăng ký khóa công khai (PENDING chờ kích hoạt)'
       security: []
-      x-permission: "public"
-      x-spec-ref: "§2.4"
+      x-permission: 'public'
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -445,12 +445,12 @@ paths:
     post:
       operationId: postAuthStepUp
       tags: [auth]
-      summary: "Xác thực lại 2FA, hiệu lực 5 phút (SEC2)"
-      x-permission: "auth:*"
-      x-spec-ref: "§2.4"
+      summary: 'Xác thực lại 2FA, hiệu lực 5 phút (SEC2)'
+      x-permission: 'auth:*'
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -482,14 +482,14 @@ paths:
     post:
       operationId: postAuthRefresh
       tags: [auth]
-      summary: "Xoay vòng refresh token theo họ (SEC4); staff bắt buộc X-Device-Id"
+      summary: 'Xoay vòng refresh token theo họ (SEC4); staff bắt buộc X-Device-Id'
       security: []
-      x-permission: "public"
-      x-spec-ref: "§2.4"
+      x-permission: 'public'
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -521,12 +521,12 @@ paths:
     post:
       operationId: postAuthLogout
       tags: [auth]
-      summary: "Thu hồi phiên hiện tại"
-      x-permission: "auth:*"
-      x-spec-ref: "§2.4"
+      summary: 'Thu hồi phiên hiện tại'
+      x-permission: 'auth:*'
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -558,13 +558,13 @@ paths:
     get:
       operationId: getAuthSessions
       tags: [auth]
-      summary: "Danh sách phiên của chính mình theo thiết bị (SEC4)"
-      x-permission: "auth:*"
-      x-spec-ref: "§2.4"
+      summary: 'Danh sách phiên của chính mình theo thiết bị (SEC4)'
+      x-permission: 'auth:*'
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -593,14 +593,14 @@ paths:
     delete:
       operationId: deleteAuthSessionsId
       tags: [auth]
-      summary: "Thu hồi một phiên của chính mình"
-      x-permission: "auth:*"
-      x-spec-ref: "§2.4"
+      summary: 'Thu hồi một phiên của chính mình'
+      x-permission: 'auth:*'
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '204':
           description: Thành công
@@ -624,14 +624,14 @@ paths:
     post:
       operationId: postFilesPresign
       tags: [files]
-      summary: "Xin presigned PUT (khai kind, mime, bytes, sha256, captured_at)"
-      x-permission: "auth:*"
-      x-spec-ref: "§3.5"
+      summary: 'Xin presigned PUT (khai kind, mime, bytes, sha256, captured_at)'
+      x-permission: 'auth:*'
+      x-spec-ref: '§3.5'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -670,14 +670,14 @@ paths:
     post:
       operationId: postFilesIdComplete
       tags: [files]
-      summary: "Xác nhận upload — server tự tính sha256, cảnh báo trùng"
-      x-permission: "auth:*"
-      x-spec-ref: "§3.5"
+      summary: 'Xác nhận upload — server tự tính sha256, cảnh báo trùng'
+      x-permission: 'auth:*'
+      x-spec-ref: '§3.5'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -718,13 +718,13 @@ paths:
     get:
       operationId: getFilesIdDownloadUrl
       tags: [files]
-      summary: "Presigned GET 60 giây sau khi kiểm quyền theo owner"
-      x-permission: "auth:*"
-      x-spec-ref: "§3.5"
+      summary: 'Presigned GET 60 giây sau khi kiểm quyền theo owner'
+      x-permission: 'auth:*'
+      x-spec-ref: '§3.5'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -748,12 +748,12 @@ paths:
     get:
       operationId: getAppDeals
       tags: [app]
-      summary: "Mặt hàng đẩy đang hiệu lực theo địa chỉ (U04)"
-      x-permission: "customer:self"
-      x-spec-ref: "§7.2"
+      summary: 'Mặt hàng đẩy đang hiệu lực theo địa chỉ (U04)'
+      x-permission: 'customer:self'
+      x-spec-ref: '§7.2'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
         - name: address_id
           in: query
           schema:
@@ -786,12 +786,12 @@ paths:
     get:
       operationId: getAppDealsId
       tags: [app]
-      summary: "Chi tiết mặt hàng đẩy (U05)"
-      x-permission: "customer:self"
-      x-spec-ref: "§7.2"
+      summary: 'Chi tiết mặt hàng đẩy (U05)'
+      x-permission: 'customer:self'
+      x-spec-ref: '§7.2'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -815,13 +815,13 @@ paths:
     get:
       operationId: getAppAddresses
       tags: [app]
-      summary: "Danh sách địa chỉ (U03)"
-      x-permission: "customer:self"
-      x-spec-ref: "§7.2"
+      summary: 'Danh sách địa chỉ (U03)'
+      x-permission: 'customer:self'
+      x-spec-ref: '§7.2'
       x-detail-cp: CP14
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -842,13 +842,13 @@ paths:
     post:
       operationId: postAppAddresses
       tags: [app]
-      summary: "Thêm địa chỉ, trả về vùng giao (U03)"
-      x-permission: "customer:self"
-      x-spec-ref: "§8.2"
+      summary: 'Thêm địa chỉ, trả về vùng giao (U03)'
+      x-permission: 'customer:self'
+      x-spec-ref: '§8.2'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -880,12 +880,12 @@ paths:
     post:
       operationId: postAppOrdersQuote
       tags: [app]
-      summary: "Báo giá tham khảo + phí ship (U07)"
-      x-permission: "customer:self"
-      x-spec-ref: "§8.4"
+      summary: 'Báo giá tham khảo + phí ship (U07)'
+      x-permission: 'customer:self'
+      x-spec-ref: '§8.4'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -917,13 +917,13 @@ paths:
     post:
       operationId: postAppOrders
       tags: [app]
-      summary: "Đặt đơn: trừ hạn mức, giữ tồn (PLACED)"
-      x-permission: "customer:self"
-      x-spec-ref: "§8.3"
+      summary: 'Đặt đơn: trừ hạn mức, giữ tồn (PLACED)'
+      x-permission: 'customer:self'
+      x-spec-ref: '§8.3'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -954,13 +954,13 @@ paths:
     get:
       operationId: getAppOrders
       tags: [app]
-      summary: "Lịch sử đơn (U11)"
-      x-permission: "customer:self"
-      x-spec-ref: "§7.2"
+      summary: 'Lịch sử đơn (U11)'
+      x-permission: 'customer:self'
+      x-spec-ref: '§7.2'
       x-detail-cp: CP14
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -989,12 +989,12 @@ paths:
     get:
       operationId: getAppOrdersId
       tags: [app]
-      summary: "Theo dõi đơn + phiếu cân (U09)"
-      x-permission: "customer:self"
-      x-spec-ref: "§7.2"
+      summary: 'Theo dõi đơn + phiếu cân (U09)'
+      x-permission: 'customer:self'
+      x-spec-ref: '§7.2'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -1025,13 +1025,13 @@ paths:
     post:
       operationId: postAppOrdersIdConfirm
       tags: [app]
-      summary: "Khách xác nhận nhận phần còn lại khi thiếu hàng (AWAITING_CONFIRM)"
-      x-permission: "customer:self"
-      x-spec-ref: "§8.5"
+      summary: 'Khách xác nhận nhận phần còn lại khi thiếu hàng (AWAITING_CONFIRM)'
+      x-permission: 'customer:self'
+      x-spec-ref: '§8.5'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -1072,13 +1072,13 @@ paths:
     post:
       operationId: postAppOrdersIdCancel
       tags: [app]
-      summary: "Khách hủy đơn trước PICKING"
-      x-permission: "customer:self"
-      x-spec-ref: "§8.3"
+      summary: 'Khách hủy đơn trước PICKING'
+      x-permission: 'customer:self'
+      x-spec-ref: '§8.3'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -1119,13 +1119,13 @@ paths:
     post:
       operationId: postAppOrdersIdPayments
       tags: [app]
-      summary: "Tạo/lấy VA SePay đúng số tiền thực (U08, U10)"
-      x-permission: "customer:self"
-      x-spec-ref: "§8.4"
+      summary: 'Tạo/lấy VA SePay đúng số tiền thực (U08, U10)'
+      x-permission: 'customer:self'
+      x-spec-ref: '§8.4'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -1159,13 +1159,13 @@ paths:
     post:
       operationId: postAppComplaints
       tags: [app]
-      summary: "Gửi khiếu nại ≤24h sau giao (U12, D12)"
-      x-permission: "customer:self"
-      x-spec-ref: "§8.8"
+      summary: 'Gửi khiếu nại ≤24h sau giao (U12, D12)'
+      x-permission: 'customer:self'
+      x-spec-ref: '§8.8'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -1197,12 +1197,12 @@ paths:
     get:
       operationId: getAppNotifications
       tags: [app]
-      summary: "Hộp thông báo (U13)"
-      x-permission: "customer:self"
-      x-spec-ref: "§7.2"
+      summary: 'Hộp thông báo (U13)'
+      x-permission: 'customer:self'
+      x-spec-ref: '§7.2'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -1231,14 +1231,14 @@ paths:
     post:
       operationId: postAppNotificationsIdOpen
       tags: [app]
-      summary: "Ghi nhận mở thông báo"
-      x-permission: "customer:self"
-      x-spec-ref: "§13.5"
+      summary: 'Ghi nhận mở thông báo'
+      x-permission: 'customer:self'
+      x-spec-ref: '§13.5'
       x-detail-cp: CP14
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -1272,13 +1272,13 @@ paths:
     patch:
       operationId: patchAppMePreferences
       tags: [app]
-      summary: "Bật/tắt nhận thông báo khuyến mãi (U14)"
-      x-permission: "customer:self"
-      x-spec-ref: "§7.7"
+      summary: 'Bật/tắt nhận thông báo khuyến mãi (U14)'
+      x-permission: 'customer:self'
+      x-spec-ref: '§7.7'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -1310,13 +1310,13 @@ paths:
     delete:
       operationId: deleteAppMe
       tags: [app]
-      summary: "Xóa tài khoản: ẩn danh PII, giữ đơn (U14)"
-      x-permission: "customer:self"
-      x-spec-ref: "§7.7"
+      summary: 'Xóa tài khoản: ẩn danh PII, giữ đơn (U14)'
+      x-permission: 'customer:self'
+      x-spec-ref: '§7.7'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '204':
           description: Thành công
@@ -1338,13 +1338,13 @@ paths:
     post:
       operationId: postAppDevices
       tags: [app]
-      summary: "Đăng ký FCM token"
-      x-permission: "customer:self"
-      x-spec-ref: "§13.5"
+      summary: 'Đăng ký FCM token'
+      x-permission: 'customer:self'
+      x-spec-ref: '§13.5'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -1376,14 +1376,14 @@ paths:
     post:
       operationId: postPosShiftsOpen
       tags: [pos]
-      summary: "Mở ca"
-      x-permission: "shift:open"
-      x-spec-ref: "§6.2"
+      summary: 'Mở ca'
+      x-permission: 'shift:open'
+      x-spec-ref: '§6.2'
       x-detail-cp: CP08
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -1422,14 +1422,14 @@ paths:
     post:
       operationId: postPosShiftsIdClose
       tags: [pos]
-      summary: "Đóng ca, đối chiếu theo phương thức (B10)"
-      x-permission: "shift:close"
-      x-spec-ref: "§21.3.10"
+      summary: 'Đóng ca, đối chiếu theo phương thức (B10)'
+      x-permission: 'shift:close'
+      x-spec-ref: '§21.3.10'
       x-detail-cp: CP08
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -1470,15 +1470,15 @@ paths:
     post:
       operationId: postPosShiftsIdSwitchStaff
       tags: [pos]
-      summary: "Đổi người bán bằng thẻ/PIN (B9)"
-      x-permission: "pos:sell"
-      x-spec-ref: "§21.3.9"
+      summary: 'Đổi người bán bằng thẻ/PIN (B9)'
+      x-permission: 'pos:sell'
+      x-spec-ref: '§21.3.9'
       x-detail-cp: CP09
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -1512,14 +1512,14 @@ paths:
     post:
       operationId: postPosDayClose
       tags: [pos]
-      summary: "Đóng ngày, Z-report"
-      x-permission: "day:close"
-      x-spec-ref: "§6.2"
+      summary: 'Đóng ngày, Z-report'
+      x-permission: 'day:close'
+      x-spec-ref: '§6.2'
       x-detail-cp: CP08
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -1551,18 +1551,18 @@ paths:
     post:
       operationId: postPosSales
       tags: [pos]
-      summary: "Chốt hóa đơn (server tính tiền)"
-      x-permission: "pos:sell"
+      summary: 'Chốt hóa đơn (server tính tiền)'
+      x-permission: 'pos:sell'
       x-conditional-permissions:
-        "line.weight_source=MANUAL": "pos:manual_weight (người duyệt tại chỗ: thẻ + PIN quản lý)"
-        "line.discount_amount>0": "pos:discount (trong hạn mức §2.3; dưới giá sàn chỉ Master)"
-        "line.voided_after_weigh": "pos:void_line (ghi log đặc biệt)"
-      x-spec-ref: "§6.3"
+        'line.weight_source=MANUAL': 'pos:manual_weight (người duyệt tại chỗ: thẻ + PIN quản lý)'
+        'line.discount_amount>0': 'pos:discount (trong hạn mức §2.3; dưới giá sàn chỉ Master)'
+        'line.voided_after_weigh': 'pos:void_line (ghi log đặc biệt)'
+      x-spec-ref: '§6.3'
       x-detail-cp: CP07
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -1594,23 +1594,23 @@ paths:
     get:
       operationId: getPosApprovals
       tags: [pos]
-      summary: "Yêu cầu chờ duyệt trong hạn mức của cửa hàng (cửa hàng trưởng)"
-      x-permission: "approval:by-type"
+      summary: 'Yêu cầu chờ duyệt trong hạn mức của cửa hàng (cửa hàng trưởng)'
+      x-permission: 'approval:by-type'
       x-permission-map:
-        "SPOILAGE": "spoilage:approve"
-        "STOCKTAKE_ADJUST": "stocktake:approve"
-        "INTERNAL_USE": "internal_use:approve"
-        "MARKDOWN": "markdown:approve"
-        "CASH_DIFFERENCE": "cash:approve"
-        "SALE_VOID": "pos:void_sale"
-        "REFUND": "pos:refund"
-        "PO": "po:approve"
-      x-spec-ref: "§2.3"
+        'SPOILAGE': 'spoilage:approve'
+        'STOCKTAKE_ADJUST': 'stocktake:approve'
+        'INTERNAL_USE': 'internal_use:approve'
+        'MARKDOWN': 'markdown:approve'
+        'CASH_DIFFERENCE': 'cash:approve'
+        'SALE_VOID': 'pos:void_sale'
+        'REFUND': 'pos:refund'
+        'PO': 'po:approve'
+      x-spec-ref: '§2.3'
       x-detail-cp: CP06
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       responses:
         '200':
           description: Thành công
@@ -1639,24 +1639,24 @@ paths:
     post:
       operationId: postPosApprovalsIdApprove
       tags: [pos]
-      summary: "Cửa hàng trưởng duyệt trong hạn mức; người duyệt ≠ người tạo"
-      x-permission: "approval:by-type"
+      summary: 'Cửa hàng trưởng duyệt trong hạn mức; người duyệt ≠ người tạo'
+      x-permission: 'approval:by-type'
       x-permission-map:
-        "SPOILAGE": "spoilage:approve"
-        "STOCKTAKE_ADJUST": "stocktake:approve"
-        "INTERNAL_USE": "internal_use:approve"
-        "MARKDOWN": "markdown:approve"
-        "CASH_DIFFERENCE": "cash:approve"
-        "SALE_VOID": "pos:void_sale"
-        "REFUND": "pos:refund"
-        "PO": "po:approve"
-      x-spec-ref: "§2.3"
+        'SPOILAGE': 'spoilage:approve'
+        'STOCKTAKE_ADJUST': 'stocktake:approve'
+        'INTERNAL_USE': 'internal_use:approve'
+        'MARKDOWN': 'markdown:approve'
+        'CASH_DIFFERENCE': 'cash:approve'
+        'SALE_VOID': 'pos:void_sale'
+        'REFUND': 'pos:refund'
+        'PO': 'po:approve'
+      x-spec-ref: '§2.3'
       x-detail-cp: CP06
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -1697,24 +1697,24 @@ paths:
     post:
       operationId: postPosApprovalsIdReject
       tags: [pos]
-      summary: "Cửa hàng trưởng từ chối"
-      x-permission: "approval:by-type"
+      summary: 'Cửa hàng trưởng từ chối'
+      x-permission: 'approval:by-type'
       x-permission-map:
-        "SPOILAGE": "spoilage:approve"
-        "STOCKTAKE_ADJUST": "stocktake:approve"
-        "INTERNAL_USE": "internal_use:approve"
-        "MARKDOWN": "markdown:approve"
-        "CASH_DIFFERENCE": "cash:approve"
-        "SALE_VOID": "pos:void_sale"
-        "REFUND": "pos:refund"
-        "PO": "po:approve"
-      x-spec-ref: "§2.3"
+        'SPOILAGE': 'spoilage:approve'
+        'STOCKTAKE_ADJUST': 'stocktake:approve'
+        'INTERNAL_USE': 'internal_use:approve'
+        'MARKDOWN': 'markdown:approve'
+        'CASH_DIFFERENCE': 'cash:approve'
+        'SALE_VOID': 'pos:void_sale'
+        'REFUND': 'pos:refund'
+        'PO': 'po:approve'
+      x-spec-ref: '§2.3'
       x-detail-cp: CP06
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -1755,14 +1755,14 @@ paths:
     post:
       operationId: postPosSalesIdVoid
       tags: [pos]
-      summary: "Hủy hóa đơn đã thanh toán (hạn mức §2.3)"
-      x-permission: "pos:void_sale"
-      x-spec-ref: "§6.7"
+      summary: 'Hủy hóa đơn đã thanh toán (hạn mức §2.3)'
+      x-permission: 'pos:void_sale'
+      x-spec-ref: '§6.7'
       x-detail-cp: CP08
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -1803,14 +1803,14 @@ paths:
     post:
       operationId: postPosSalesIdRefund
       tags: [pos]
-      summary: "Hoàn tiền hóa đơn"
-      x-permission: "pos:refund"
-      x-spec-ref: "§6.7"
+      summary: 'Hoàn tiền hóa đơn'
+      x-permission: 'pos:refund'
+      x-spec-ref: '§6.7'
       x-detail-cp: CP09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -1844,14 +1844,14 @@ paths:
     post:
       operationId: postPosReturns
       tags: [pos]
-      summary: "Đổi–trả trong một màn hình (B11)"
-      x-permission: "return:create"
-      x-spec-ref: "§21.3.11"
+      summary: 'Đổi–trả trong một màn hình (B11)'
+      x-permission: 'return:create'
+      x-spec-ref: '§21.3.11'
       x-detail-cp: CP09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -1883,14 +1883,14 @@ paths:
     post:
       operationId: postPosPhoneOrders
       tags: [pos]
-      summary: "Tạo đơn đặt giữ hàng qua điện thoại (B12)"
-      x-permission: "phone_order:create"
-      x-spec-ref: "§21.3.12"
+      summary: 'Tạo đơn đặt giữ hàng qua điện thoại (B12)'
+      x-permission: 'phone_order:create'
+      x-spec-ref: '§21.3.12'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -1922,14 +1922,14 @@ paths:
     post:
       operationId: postPosPaymentsVa
       tags: [pos]
-      summary: "Tạo VA SePay cho hóa đơn POS"
-      x-permission: "pos:sell"
-      x-spec-ref: "§13.4"
+      summary: 'Tạo VA SePay cho hóa đơn POS'
+      x-permission: 'pos:sell'
+      x-spec-ref: '§13.4'
       x-detail-cp: CP08
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -1961,17 +1961,17 @@ paths:
     post:
       operationId: postPosCashMovements
       tags: [pos]
-      summary: "Thu/chi tại cửa hàng"
-      x-permission: "cash:movement"
+      summary: 'Thu/chi tại cửa hàng'
+      x-permission: 'cash:movement'
       x-conditional-permissions:
-        "type=NO_SALE_OPEN": "pos:no_sale_open (PIN cửa hàng trưởng + lý do)"
-        "cần duyệt": "cash:approve"
-      x-spec-ref: "§6.10"
+        'type=NO_SALE_OPEN': 'pos:no_sale_open (PIN cửa hàng trưởng + lý do)'
+        'cần duyệt': 'cash:approve'
+      x-spec-ref: '§6.10'
       x-detail-cp: CP09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2003,13 +2003,13 @@ paths:
     get:
       operationId: getPosSyncCatalog
       tags: [pos]
-      summary: "Tải danh mục/giá/barcode_rules thay đổi từ since"
-      x-permission: "pos:sell"
-      x-spec-ref: "§6.12"
+      summary: 'Tải danh mục/giá/barcode_rules thay đổi từ since'
+      x-permission: 'pos:sell'
+      x-spec-ref: '§6.12'
       x-detail-cp: CP07
       parameters:
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
         - name: since
           in: query
           schema:
@@ -2035,20 +2035,20 @@ paths:
     post:
       operationId: postPosSyncUpload
       tags: [pos]
-      summary: "Đồng bộ giao dịch offline theo client_txn_id — server kiểm lại mọi quyền con của từng giao dịch"
-      x-permission: "pos:sell"
+      summary: 'Đồng bộ giao dịch offline theo client_txn_id — server kiểm lại mọi quyền con của từng giao dịch'
+      x-permission: 'pos:sell'
       x-conditional-permissions:
-        "line.weight_source=MANUAL": "pos:manual_weight (người duyệt tại chỗ: thẻ + PIN quản lý)"
-        "line.discount_amount>0": "pos:discount (trong hạn mức §2.3; dưới giá sàn chỉ Master)"
-        "line.voided_after_weigh": "pos:void_line (ghi log đặc biệt)"
-        "type=NO_SALE_OPEN": "pos:no_sale_open (PIN cửa hàng trưởng + lý do)"
-        "cần duyệt": "cash:approve"
-      x-spec-ref: "§6.12"
+        'line.weight_source=MANUAL': 'pos:manual_weight (người duyệt tại chỗ: thẻ + PIN quản lý)'
+        'line.discount_amount>0': 'pos:discount (trong hạn mức §2.3; dưới giá sàn chỉ Master)'
+        'line.voided_after_weigh': 'pos:void_line (ghi log đặc biệt)'
+        'type=NO_SALE_OPEN': 'pos:no_sale_open (PIN cửa hàng trưởng + lý do)'
+        'cần duyệt': 'cash:approve'
+      x-spec-ref: '§6.12'
       x-detail-cp: CP09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2080,13 +2080,13 @@ paths:
     get:
       operationId: getPosQueue
       tags: [fulfillment]
-      summary: "Hàng đợi đơn app/đơn sỉ của cửa hàng"
-      x-permission: "app_order:fulfill"
-      x-spec-ref: "§8.6"
+      summary: 'Hàng đợi đơn app/đơn sỉ của cửa hàng'
+      x-permission: 'app_order:fulfill'
+      x-spec-ref: '§8.6'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       responses:
         '200':
           description: Thành công
@@ -2115,14 +2115,14 @@ paths:
     post:
       operationId: postPosAppOrdersIdAccept
       tags: [fulfillment]
-      summary: "Đơn app: accept"
-      x-permission: "app_order:fulfill"
-      x-spec-ref: "§8.3"
+      summary: 'Đơn app: accept'
+      x-permission: 'app_order:fulfill'
+      x-spec-ref: '§8.3'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2163,14 +2163,14 @@ paths:
     post:
       operationId: postPosAppOrdersIdReject
       tags: [fulfillment]
-      summary: "Đơn app: reject"
-      x-permission: "app_order:fulfill"
-      x-spec-ref: "§8.3"
+      summary: 'Đơn app: reject'
+      x-permission: 'app_order:fulfill'
+      x-spec-ref: '§8.3'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2211,14 +2211,14 @@ paths:
     post:
       operationId: postPosAppOrdersIdWeighLine
       tags: [fulfillment]
-      summary: "Đơn app: weigh-line"
-      x-permission: "app_order:fulfill"
-      x-spec-ref: "§8.3"
+      summary: 'Đơn app: weigh-line'
+      x-permission: 'app_order:fulfill'
+      x-spec-ref: '§8.3'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2259,14 +2259,14 @@ paths:
     post:
       operationId: postPosAppOrdersIdReportShortage
       tags: [fulfillment]
-      summary: "Đơn app: report-shortage"
-      x-permission: "app_order:fulfill"
-      x-spec-ref: "§8.3"
+      summary: 'Đơn app: report-shortage'
+      x-permission: 'app_order:fulfill'
+      x-spec-ref: '§8.3'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2307,14 +2307,14 @@ paths:
     post:
       operationId: postPosAppOrdersIdPack
       tags: [fulfillment]
-      summary: "Đơn app: pack"
-      x-permission: "app_order:fulfill"
-      x-spec-ref: "§8.3"
+      summary: 'Đơn app: pack'
+      x-permission: 'app_order:fulfill'
+      x-spec-ref: '§8.3'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2355,14 +2355,14 @@ paths:
     post:
       operationId: postPosAppOrdersIdDispatch
       tags: [fulfillment]
-      summary: "Đơn app: dispatch"
-      x-permission: "app_order:fulfill"
-      x-spec-ref: "§8.3"
+      summary: 'Đơn app: dispatch'
+      x-permission: 'app_order:fulfill'
+      x-spec-ref: '§8.3'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2403,14 +2403,14 @@ paths:
     post:
       operationId: postPosWholesaleOrdersIdStartPicking
       tags: [fulfillment]
-      summary: "Đơn sỉ: start-picking"
-      x-permission: "wholesale:fulfill"
-      x-spec-ref: "§9.2"
+      summary: 'Đơn sỉ: start-picking'
+      x-permission: 'wholesale:fulfill'
+      x-spec-ref: '§9.2'
       x-detail-cp: CP16
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2451,14 +2451,14 @@ paths:
     post:
       operationId: postPosWholesaleOrdersIdWeighLine
       tags: [fulfillment]
-      summary: "Đơn sỉ: weigh-line"
-      x-permission: "wholesale:fulfill"
-      x-spec-ref: "§9.2"
+      summary: 'Đơn sỉ: weigh-line'
+      x-permission: 'wholesale:fulfill'
+      x-spec-ref: '§9.2'
       x-detail-cp: CP16
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2499,14 +2499,14 @@ paths:
     post:
       operationId: postPosWholesaleOrdersIdPack
       tags: [fulfillment]
-      summary: "Đơn sỉ: pack"
-      x-permission: "wholesale:fulfill"
-      x-spec-ref: "§9.2"
+      summary: 'Đơn sỉ: pack'
+      x-permission: 'wholesale:fulfill'
+      x-spec-ref: '§9.2'
       x-detail-cp: CP16
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2547,14 +2547,14 @@ paths:
     post:
       operationId: postPosWholesaleOrdersIdDispatch
       tags: [fulfillment]
-      summary: "Đơn sỉ: dispatch"
-      x-permission: "wholesale:fulfill"
-      x-spec-ref: "§9.2"
+      summary: 'Đơn sỉ: dispatch'
+      x-permission: 'wholesale:fulfill'
+      x-spec-ref: '§9.2'
       x-detail-cp: CP16
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2588,14 +2588,14 @@ paths:
     get:
       operationId: getPosStock
       tags: [inventory]
-      summary: "Tồn theo vị trí/lô"
-      x-permission: "stock:read"
-      x-spec-ref: "§5.1"
+      summary: 'Tồn theo vị trí/lô'
+      x-permission: 'stock:read'
+      x-spec-ref: '§5.1'
       x-detail-cp: CP06
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       responses:
         '200':
           description: Thành công
@@ -2617,16 +2617,16 @@ paths:
     post:
       operationId: postPosReceipts
       tags: [inventory]
-      summary: "Phiếu nhận hàng NCC (DRAFT)"
-      x-permission: "receipt:create"
+      summary: 'Phiếu nhận hàng NCC (DRAFT)'
+      x-permission: 'receipt:create'
       x-conditional-permissions:
-        "có trường giá nhập (invoice_price_*)": "purchase_price:write"
-      x-spec-ref: "§5.3"
+        'có trường giá nhập (invoice_price_*)': 'purchase_price:write'
+      x-spec-ref: '§5.3'
       x-detail-cp: CP05
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2665,17 +2665,17 @@ paths:
     post:
       operationId: postPosReceiptsIdComplete
       tags: [inventory]
-      summary: "Hoàn thành phiếu nhận, tạo lô"
-      x-permission: "receipt:create"
+      summary: 'Hoàn thành phiếu nhận, tạo lô'
+      x-permission: 'receipt:create'
       x-conditional-permissions:
-        "có trường giá nhập (invoice_price_*)": "purchase_price:write"
-      x-spec-ref: "§21.3.2"
+        'có trường giá nhập (invoice_price_*)': 'purchase_price:write'
+      x-spec-ref: '§21.3.2'
       x-detail-cp: CP05
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2709,14 +2709,14 @@ paths:
     post:
       operationId: postPosTransfers
       tags: [inventory]
-      summary: "Tạo phiếu điều chuyển"
-      x-permission: "transfer:create"
-      x-spec-ref: "§5.10"
+      summary: 'Tạo phiếu điều chuyển'
+      x-permission: 'transfer:create'
+      x-spec-ref: '§5.10'
       x-detail-cp: CP06
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2755,14 +2755,14 @@ paths:
     post:
       operationId: postPosTransfersIdShip
       tags: [inventory]
-      summary: "Xuất điều chuyển (IN_TRANSIT)"
-      x-permission: "transfer:ship"
-      x-spec-ref: "§5.10"
+      summary: 'Xuất điều chuyển (IN_TRANSIT)'
+      x-permission: 'transfer:ship'
+      x-spec-ref: '§5.10'
       x-detail-cp: CP06
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2803,14 +2803,14 @@ paths:
     post:
       operationId: postPosTransfersIdReceive
       tags: [inventory]
-      summary: "Nhận điều chuyển, ghi lệch"
-      x-permission: "transfer:receive"
-      x-spec-ref: "§5.10"
+      summary: 'Nhận điều chuyển, ghi lệch'
+      x-permission: 'transfer:receive'
+      x-spec-ref: '§5.10'
       x-detail-cp: CP06
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2844,14 +2844,14 @@ paths:
     post:
       operationId: postPosStocktakes
       tags: [inventory]
-      summary: "Tạo phiếu kiểm kê (đếm mù)"
-      x-permission: "stocktake:create"
-      x-spec-ref: "§5.7"
+      summary: 'Tạo phiếu kiểm kê (đếm mù)'
+      x-permission: 'stocktake:create'
+      x-spec-ref: '§5.7'
       x-detail-cp: CP06
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2890,15 +2890,15 @@ paths:
     post:
       operationId: postPosStocktakesIdLines
       tags: [inventory]
-      summary: "Ghi số đếm / Hủy ngay trên dòng (B3)"
-      x-permission: "stocktake:create"
-      x-spec-ref: "§21.3.3"
+      summary: 'Ghi số đếm / Hủy ngay trên dòng (B3)'
+      x-permission: 'stocktake:create'
+      x-spec-ref: '§21.3.3'
       x-detail-cp: CP06
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2939,15 +2939,15 @@ paths:
     post:
       operationId: postPosStocktakesIdComplete
       tags: [inventory]
-      summary: "Chốt số đếm, phân loại hao hụt"
-      x-permission: "stocktake:create"
-      x-spec-ref: "§5.7"
+      summary: 'Chốt số đếm, phân loại hao hụt'
+      x-permission: 'stocktake:create'
+      x-spec-ref: '§5.7'
       x-detail-cp: CP06
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -2981,14 +2981,14 @@ paths:
     post:
       operationId: postPosSpoilage
       tags: [inventory]
-      summary: "Phiếu hủy hàng (ảnh watermark)"
-      x-permission: "spoilage:create"
-      x-spec-ref: "§5.9"
+      summary: 'Phiếu hủy hàng (ảnh watermark)'
+      x-permission: 'spoilage:create'
+      x-spec-ref: '§5.9'
       x-detail-cp: CP06
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -3020,14 +3020,14 @@ paths:
     post:
       operationId: postPosInternalUse
       tags: [inventory]
-      summary: "Xuất dùng nội bộ (B4)"
-      x-permission: "internal_use:create"
-      x-spec-ref: "§21.3.4"
+      summary: 'Xuất dùng nội bộ (B4)'
+      x-permission: 'internal_use:create'
+      x-spec-ref: '§21.3.4'
       x-detail-cp: CP06
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -3071,14 +3071,14 @@ paths:
     post:
       operationId: postPosDocumentsTypeIdCancel
       tags: [inventory]
-      summary: "Hủy chứng từ COMPLETED bằng bút toán đảo (B2)"
-      x-permission: "document:cancel"
-      x-spec-ref: "§21.3.2"
+      summary: 'Hủy chứng từ COMPLETED bằng bút toán đảo (B2)'
+      x-permission: 'document:cancel'
+      x-spec-ref: '§21.3.2'
       x-detail-cp: CP06
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -3112,13 +3112,13 @@ paths:
     get:
       operationId: getPosRipenessTasks
       tags: [inventory]
-      summary: "Việc kiểm độ chín"
-      x-permission: "ripeness:check"
-      x-spec-ref: "§5.6"
+      summary: 'Việc kiểm độ chín'
+      x-permission: 'ripeness:check'
+      x-spec-ref: '§5.6'
       x-detail-cp: CP17
       parameters:
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       responses:
         '200':
           description: Thành công
@@ -3140,14 +3140,14 @@ paths:
     post:
       operationId: postPosRipenessChecks
       tags: [inventory]
-      summary: "Ghi kết quả kiểm độ chín, tách lô"
-      x-permission: "ripeness:check"
-      x-spec-ref: "§5.6"
+      summary: 'Ghi kết quả kiểm độ chín, tách lô'
+      x-permission: 'ripeness:check'
+      x-spec-ref: '§5.6'
       x-detail-cp: CP17
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -3179,14 +3179,14 @@ paths:
     post:
       operationId: postPosProcessingOrders
       tags: [inventory]
-      summary: "Phiếu sơ chế/đóng gói/lắp giỏ"
-      x-permission: "processing:create"
-      x-spec-ref: "§5.11"
+      summary: 'Phiếu sơ chế/đóng gói/lắp giỏ'
+      x-permission: 'processing:create'
+      x-spec-ref: '§5.11'
       x-detail-cp: CP17
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -3218,13 +3218,13 @@ paths:
     get:
       operationId: getPosMarkdowns
       tags: [inventory]
-      summary: "Đề xuất giảm giá cận hạn"
-      x-permission: "stock:read"
-      x-spec-ref: "§5.8"
+      summary: 'Đề xuất giảm giá cận hạn'
+      x-permission: 'stock:read'
+      x-spec-ref: '§5.8'
       x-detail-cp: CP17
       parameters:
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       responses:
         '200':
           description: Thành công
@@ -3253,14 +3253,14 @@ paths:
     post:
       operationId: postPosMarkdownsIdApprove
       tags: [inventory]
-      summary: "Duyệt giảm giá lô"
-      x-permission: "markdown:approve"
-      x-spec-ref: "§5.8"
+      summary: 'Duyệt giảm giá lô'
+      x-permission: 'markdown:approve'
+      x-spec-ref: '§5.8'
       x-detail-cp: CP17
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -3294,13 +3294,13 @@ paths:
     get:
       operationId: getShipperJobs
       tags: [shipper]
-      summary: "Chuyến được giao"
-      x-permission: "shipper:deliver"
-      x-spec-ref: "§8.7"
+      summary: 'Chuyến được giao'
+      x-permission: 'shipper:deliver'
+      x-spec-ref: '§8.7'
       x-detail-cp: CP15
       parameters:
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       responses:
         '200':
           description: Thành công
@@ -3329,14 +3329,14 @@ paths:
     post:
       operationId: postShipperJobsIdPickup
       tags: [shipper]
-      summary: "Chuyến: pickup"
-      x-permission: "shipper:deliver"
-      x-spec-ref: "§8.7"
+      summary: 'Chuyến: pickup'
+      x-permission: 'shipper:deliver'
+      x-spec-ref: '§8.7'
       x-detail-cp: CP15
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -3377,14 +3377,14 @@ paths:
     post:
       operationId: postShipperJobsIdDeliver
       tags: [shipper]
-      summary: "Chuyến: deliver"
-      x-permission: "shipper:deliver"
-      x-spec-ref: "§8.7"
+      summary: 'Chuyến: deliver'
+      x-permission: 'shipper:deliver'
+      x-spec-ref: '§8.7'
       x-detail-cp: CP15
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -3425,14 +3425,14 @@ paths:
     post:
       operationId: postShipperJobsIdFail
       tags: [shipper]
-      summary: "Chuyến: fail"
-      x-permission: "shipper:deliver"
-      x-spec-ref: "§8.7"
+      summary: 'Chuyến: fail'
+      x-permission: 'shipper:deliver'
+      x-spec-ref: '§8.7'
       x-detail-cp: CP15
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -3466,14 +3466,14 @@ paths:
     post:
       operationId: postShipperLocation
       tags: [shipper]
-      summary: "Gửi vị trí"
-      x-permission: "shipper:deliver"
-      x-spec-ref: "§8.7"
+      summary: 'Gửi vị trí'
+      x-permission: 'shipper:deliver'
+      x-spec-ref: '§8.7'
       x-detail-cp: CP15
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -3505,14 +3505,14 @@ paths:
     post:
       operationId: postShipperCodRemit
       tags: [shipper]
-      summary: "Nộp tiền COD"
-      x-permission: "cod:remit"
-      x-spec-ref: "§8.7"
+      summary: 'Nộp tiền COD'
+      x-permission: 'cod:remit'
+      x-spec-ref: '§8.7'
       x-detail-cp: CP15
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
-        - $ref: "#/components/parameters/DeviceId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/DeviceId'
       requestBody:
         required: true
         content:
@@ -3544,12 +3544,12 @@ paths:
     get:
       operationId: getAdminCategories
       tags: [admin]
-      summary: "Danh sách danh mục"
-      x-permission: "catalog:read"
-      x-spec-ref: "§4.1"
+      summary: 'Danh sách danh mục'
+      x-permission: 'catalog:read'
+      x-spec-ref: '§4.1'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -3570,13 +3570,13 @@ paths:
     post:
       operationId: postAdminCategories
       tags: [admin]
-      summary: "Tạo danh mục"
-      x-permission: "catalog:write"
-      x-spec-ref: "§4.1"
+      summary: 'Tạo danh mục'
+      x-permission: 'catalog:write'
+      x-spec-ref: '§4.1'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -3615,12 +3615,12 @@ paths:
     get:
       operationId: getAdminCategoriesId
       tags: [admin]
-      summary: "Chi tiết danh mục"
-      x-permission: "catalog:read"
-      x-spec-ref: "§4.1"
+      summary: 'Chi tiết danh mục'
+      x-permission: 'catalog:read'
+      x-spec-ref: '§4.1'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -3643,13 +3643,13 @@ paths:
     patch:
       operationId: patchAdminCategoriesId
       tags: [admin]
-      summary: "Sửa danh mục"
-      x-permission: "catalog:write"
-      x-spec-ref: "§4.1"
+      summary: 'Sửa danh mục'
+      x-permission: 'catalog:write'
+      x-spec-ref: '§4.1'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -3683,12 +3683,12 @@ paths:
     get:
       operationId: getAdminProducts
       tags: [admin]
-      summary: "Danh sách sản phẩm"
-      x-permission: "catalog:read"
-      x-spec-ref: "§4.1"
+      summary: 'Danh sách sản phẩm'
+      x-permission: 'catalog:read'
+      x-spec-ref: '§4.1'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -3709,13 +3709,13 @@ paths:
     post:
       operationId: postAdminProducts
       tags: [admin]
-      summary: "Tạo sản phẩm"
-      x-permission: "catalog:write"
-      x-spec-ref: "§4.1"
+      summary: 'Tạo sản phẩm'
+      x-permission: 'catalog:write'
+      x-spec-ref: '§4.1'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -3754,12 +3754,12 @@ paths:
     get:
       operationId: getAdminProductsId
       tags: [admin]
-      summary: "Chi tiết sản phẩm"
-      x-permission: "catalog:read"
-      x-spec-ref: "§4.1"
+      summary: 'Chi tiết sản phẩm'
+      x-permission: 'catalog:read'
+      x-spec-ref: '§4.1'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -3782,13 +3782,13 @@ paths:
     patch:
       operationId: patchAdminProductsId
       tags: [admin]
-      summary: "Sửa sản phẩm"
-      x-permission: "catalog:write"
-      x-spec-ref: "§4.1"
+      summary: 'Sửa sản phẩm'
+      x-permission: 'catalog:write'
+      x-spec-ref: '§4.1'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -3822,12 +3822,12 @@ paths:
     get:
       operationId: getAdminSkus
       tags: [admin]
-      summary: "Danh sách SKU"
-      x-permission: "catalog:read"
-      x-spec-ref: "§4.3"
+      summary: 'Danh sách SKU'
+      x-permission: 'catalog:read'
+      x-spec-ref: '§4.3'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -3848,13 +3848,13 @@ paths:
     post:
       operationId: postAdminSkus
       tags: [admin]
-      summary: "Tạo SKU"
-      x-permission: "catalog:write"
-      x-spec-ref: "§4.3"
+      summary: 'Tạo SKU'
+      x-permission: 'catalog:write'
+      x-spec-ref: '§4.3'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -3893,12 +3893,12 @@ paths:
     get:
       operationId: getAdminSkusId
       tags: [admin]
-      summary: "Chi tiết SKU"
-      x-permission: "catalog:read"
-      x-spec-ref: "§4.3"
+      summary: 'Chi tiết SKU'
+      x-permission: 'catalog:read'
+      x-spec-ref: '§4.3'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -3921,13 +3921,13 @@ paths:
     patch:
       operationId: patchAdminSkusId
       tags: [admin]
-      summary: "Sửa SKU"
-      x-permission: "catalog:write"
-      x-spec-ref: "§4.3"
+      summary: 'Sửa SKU'
+      x-permission: 'catalog:write'
+      x-spec-ref: '§4.3'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -3961,12 +3961,12 @@ paths:
     get:
       operationId: getAdminUnits
       tags: [admin]
-      summary: "Danh sách đơn vị tính SKU"
-      x-permission: "catalog:read"
-      x-spec-ref: "§21.3.1"
+      summary: 'Danh sách đơn vị tính SKU'
+      x-permission: 'catalog:read'
+      x-spec-ref: '§21.3.1'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -3987,13 +3987,13 @@ paths:
     post:
       operationId: postAdminUnits
       tags: [admin]
-      summary: "Tạo đơn vị tính SKU"
-      x-permission: "unit:write"
-      x-spec-ref: "§21.3.1"
+      summary: 'Tạo đơn vị tính SKU'
+      x-permission: 'unit:write'
+      x-spec-ref: '§21.3.1'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -4032,12 +4032,12 @@ paths:
     get:
       operationId: getAdminUnitsId
       tags: [admin]
-      summary: "Chi tiết đơn vị tính SKU"
-      x-permission: "catalog:read"
-      x-spec-ref: "§21.3.1"
+      summary: 'Chi tiết đơn vị tính SKU'
+      x-permission: 'catalog:read'
+      x-spec-ref: '§21.3.1'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -4060,13 +4060,13 @@ paths:
     patch:
       operationId: patchAdminUnitsId
       tags: [admin]
-      summary: "Sửa đơn vị tính SKU"
-      x-permission: "unit:write"
-      x-spec-ref: "§21.3.1"
+      summary: 'Sửa đơn vị tính SKU'
+      x-permission: 'unit:write'
+      x-spec-ref: '§21.3.1'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -4100,12 +4100,12 @@ paths:
     get:
       operationId: getAdminSuppliers
       tags: [admin]
-      summary: "Danh sách nhà cung cấp"
-      x-permission: "supplier:read"
-      x-spec-ref: "§4.5"
+      summary: 'Danh sách nhà cung cấp'
+      x-permission: 'supplier:read'
+      x-spec-ref: '§4.5'
       x-detail-cp: CP05
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -4126,13 +4126,13 @@ paths:
     post:
       operationId: postAdminSuppliers
       tags: [admin]
-      summary: "Tạo nhà cung cấp"
-      x-permission: "supplier:write"
-      x-spec-ref: "§4.5"
+      summary: 'Tạo nhà cung cấp'
+      x-permission: 'supplier:write'
+      x-spec-ref: '§4.5'
       x-detail-cp: CP05
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -4171,12 +4171,12 @@ paths:
     get:
       operationId: getAdminSuppliersId
       tags: [admin]
-      summary: "Chi tiết nhà cung cấp"
-      x-permission: "supplier:read"
-      x-spec-ref: "§4.5"
+      summary: 'Chi tiết nhà cung cấp'
+      x-permission: 'supplier:read'
+      x-spec-ref: '§4.5'
       x-detail-cp: CP05
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -4199,13 +4199,13 @@ paths:
     patch:
       operationId: patchAdminSuppliersId
       tags: [admin]
-      summary: "Sửa nhà cung cấp"
-      x-permission: "supplier:write"
-      x-spec-ref: "§4.5"
+      summary: 'Sửa nhà cung cấp'
+      x-permission: 'supplier:write'
+      x-spec-ref: '§4.5'
       x-detail-cp: CP05
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -4239,12 +4239,12 @@ paths:
     get:
       operationId: getAdminStores
       tags: [admin]
-      summary: "Danh sách cửa hàng"
-      x-permission: "report:read"
-      x-spec-ref: "§4.6"
+      summary: 'Danh sách cửa hàng'
+      x-permission: 'report:read'
+      x-spec-ref: '§4.6'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -4265,13 +4265,13 @@ paths:
     post:
       operationId: postAdminStores
       tags: [admin]
-      summary: "Tạo cửa hàng"
-      x-permission: "store:write"
-      x-spec-ref: "§4.6"
+      summary: 'Tạo cửa hàng'
+      x-permission: 'store:write'
+      x-spec-ref: '§4.6'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -4310,12 +4310,12 @@ paths:
     get:
       operationId: getAdminStoresId
       tags: [admin]
-      summary: "Chi tiết cửa hàng"
-      x-permission: "report:read"
-      x-spec-ref: "§4.6"
+      summary: 'Chi tiết cửa hàng'
+      x-permission: 'report:read'
+      x-spec-ref: '§4.6'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -4338,13 +4338,13 @@ paths:
     patch:
       operationId: patchAdminStoresId
       tags: [admin]
-      summary: "Sửa cửa hàng"
-      x-permission: "store:write"
-      x-spec-ref: "§4.6"
+      summary: 'Sửa cửa hàng'
+      x-permission: 'store:write'
+      x-spec-ref: '§4.6'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -4378,12 +4378,12 @@ paths:
     get:
       operationId: getAdminDevices
       tags: [admin]
-      summary: "Danh sách thiết bị"
-      x-permission: "report:read"
-      x-spec-ref: "§4.6"
+      summary: 'Danh sách thiết bị'
+      x-permission: 'report:read'
+      x-spec-ref: '§4.6'
       x-detail-cp: CP07
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -4404,13 +4404,13 @@ paths:
     post:
       operationId: postAdminDevices
       tags: [admin]
-      summary: "Tạo thiết bị"
-      x-permission: "device:write"
-      x-spec-ref: "§4.6"
+      summary: 'Tạo thiết bị'
+      x-permission: 'device:write'
+      x-spec-ref: '§4.6'
       x-detail-cp: CP07
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -4449,12 +4449,12 @@ paths:
     get:
       operationId: getAdminDevicesId
       tags: [admin]
-      summary: "Chi tiết thiết bị"
-      x-permission: "report:read"
-      x-spec-ref: "§4.6"
+      summary: 'Chi tiết thiết bị'
+      x-permission: 'report:read'
+      x-spec-ref: '§4.6'
       x-detail-cp: CP07
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -4477,13 +4477,13 @@ paths:
     patch:
       operationId: patchAdminDevicesId
       tags: [admin]
-      summary: "Sửa thiết bị"
-      x-permission: "device:write"
-      x-spec-ref: "§4.6"
+      summary: 'Sửa thiết bị'
+      x-permission: 'device:write'
+      x-spec-ref: '§4.6'
       x-detail-cp: CP07
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -4517,12 +4517,12 @@ paths:
     get:
       operationId: getAdminZones
       tags: [admin]
-      summary: "Danh sách vùng giao"
-      x-permission: "report:read"
-      x-spec-ref: "§8.2"
+      summary: 'Danh sách vùng giao'
+      x-permission: 'report:read'
+      x-spec-ref: '§8.2'
       x-detail-cp: CP13
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -4543,13 +4543,13 @@ paths:
     post:
       operationId: postAdminZones
       tags: [admin]
-      summary: "Tạo vùng giao"
-      x-permission: "zone:write"
-      x-spec-ref: "§8.2"
+      summary: 'Tạo vùng giao'
+      x-permission: 'zone:write'
+      x-spec-ref: '§8.2'
       x-detail-cp: CP13
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -4588,12 +4588,12 @@ paths:
     get:
       operationId: getAdminZonesId
       tags: [admin]
-      summary: "Chi tiết vùng giao"
-      x-permission: "report:read"
-      x-spec-ref: "§8.2"
+      summary: 'Chi tiết vùng giao'
+      x-permission: 'report:read'
+      x-spec-ref: '§8.2'
       x-detail-cp: CP13
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -4616,13 +4616,13 @@ paths:
     patch:
       operationId: patchAdminZonesId
       tags: [admin]
-      summary: "Sửa vùng giao"
-      x-permission: "zone:write"
-      x-spec-ref: "§8.2"
+      summary: 'Sửa vùng giao'
+      x-permission: 'zone:write'
+      x-spec-ref: '§8.2'
       x-detail-cp: CP13
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -4656,14 +4656,14 @@ paths:
     get:
       operationId: getAdminStaff
       tags: [admin]
-      summary: "Danh sách nhân viên (không gồm tài khoản admin)"
-      x-permission: "staff:write"
+      summary: 'Danh sách nhân viên (không gồm tài khoản admin)'
+      x-permission: 'staff:write'
       x-scope: store
-      x-assignable-roles: "MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)"
-      x-spec-ref: "§4.8"
+      x-assignable-roles: 'MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)'
+      x-spec-ref: '§4.8'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -4684,15 +4684,15 @@ paths:
     post:
       operationId: postAdminStaff
       tags: [admin]
-      summary: "Tạo nhân viên (không gồm tài khoản admin)"
-      x-permission: "staff:write"
+      summary: 'Tạo nhân viên (không gồm tài khoản admin)'
+      x-permission: 'staff:write'
       x-scope: store
-      x-assignable-roles: "MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)"
-      x-spec-ref: "§4.8"
+      x-assignable-roles: 'MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)'
+      x-spec-ref: '§4.8'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -4731,14 +4731,14 @@ paths:
     get:
       operationId: getAdminStaffId
       tags: [admin]
-      summary: "Chi tiết nhân viên (không gồm tài khoản admin)"
-      x-permission: "staff:write"
+      summary: 'Chi tiết nhân viên (không gồm tài khoản admin)'
+      x-permission: 'staff:write'
       x-scope: store
-      x-assignable-roles: "MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)"
-      x-spec-ref: "§4.8"
+      x-assignable-roles: 'MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)'
+      x-spec-ref: '§4.8'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -4761,15 +4761,15 @@ paths:
     patch:
       operationId: patchAdminStaffId
       tags: [admin]
-      summary: "Sửa nhân viên (không gồm tài khoản admin)"
-      x-permission: "staff:write"
+      summary: 'Sửa nhân viên (không gồm tài khoản admin)'
+      x-permission: 'staff:write'
       x-scope: store
-      x-assignable-roles: "MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)"
-      x-spec-ref: "§4.8"
+      x-assignable-roles: 'MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)'
+      x-spec-ref: '§4.8'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -4803,12 +4803,12 @@ paths:
     get:
       operationId: getAdminWholesaleCustomers
       tags: [admin]
-      summary: "Danh sách khách sỉ"
-      x-permission: "wholesale:read"
-      x-spec-ref: "§9"
+      summary: 'Danh sách khách sỉ'
+      x-permission: 'wholesale:read'
+      x-spec-ref: '§9'
       x-detail-cp: CP16
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -4829,13 +4829,13 @@ paths:
     post:
       operationId: postAdminWholesaleCustomers
       tags: [admin]
-      summary: "Tạo khách sỉ"
-      x-permission: "wholesale:write"
-      x-spec-ref: "§9"
+      summary: 'Tạo khách sỉ'
+      x-permission: 'wholesale:write'
+      x-spec-ref: '§9'
       x-detail-cp: CP16
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -4874,12 +4874,12 @@ paths:
     get:
       operationId: getAdminWholesaleCustomersId
       tags: [admin]
-      summary: "Chi tiết khách sỉ"
-      x-permission: "wholesale:read"
-      x-spec-ref: "§9"
+      summary: 'Chi tiết khách sỉ'
+      x-permission: 'wholesale:read'
+      x-spec-ref: '§9'
       x-detail-cp: CP16
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -4902,13 +4902,13 @@ paths:
     patch:
       operationId: patchAdminWholesaleCustomersId
       tags: [admin]
-      summary: "Sửa khách sỉ"
-      x-permission: "wholesale:write"
-      x-spec-ref: "§9"
+      summary: 'Sửa khách sỉ'
+      x-permission: 'wholesale:write'
+      x-spec-ref: '§9'
       x-detail-cp: CP16
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -4942,12 +4942,12 @@ paths:
     get:
       operationId: getAdminWholesalePriceLists
       tags: [admin]
-      summary: "Danh sách bảng giá sỉ"
-      x-permission: "wholesale:read"
-      x-spec-ref: "§9.6"
+      summary: 'Danh sách bảng giá sỉ'
+      x-permission: 'wholesale:read'
+      x-spec-ref: '§9.6'
       x-detail-cp: CP16
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -4968,13 +4968,13 @@ paths:
     post:
       operationId: postAdminWholesalePriceLists
       tags: [admin]
-      summary: "Tạo bảng giá sỉ"
-      x-permission: "wholesale:write"
-      x-spec-ref: "§9.6"
+      summary: 'Tạo bảng giá sỉ'
+      x-permission: 'wholesale:write'
+      x-spec-ref: '§9.6'
       x-detail-cp: CP16
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -5013,12 +5013,12 @@ paths:
     get:
       operationId: getAdminWholesalePriceListsId
       tags: [admin]
-      summary: "Chi tiết bảng giá sỉ"
-      x-permission: "wholesale:read"
-      x-spec-ref: "§9.6"
+      summary: 'Chi tiết bảng giá sỉ'
+      x-permission: 'wholesale:read'
+      x-spec-ref: '§9.6'
       x-detail-cp: CP16
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -5041,13 +5041,13 @@ paths:
     patch:
       operationId: patchAdminWholesalePriceListsId
       tags: [admin]
-      summary: "Sửa bảng giá sỉ"
-      x-permission: "wholesale:write"
-      x-spec-ref: "§9.6"
+      summary: 'Sửa bảng giá sỉ'
+      x-permission: 'wholesale:write'
+      x-spec-ref: '§9.6'
       x-detail-cp: CP16
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -5081,12 +5081,12 @@ paths:
     get:
       operationId: getAdminBarcodeRules
       tags: [admin]
-      summary: "Danh sách quy tắc mã vạch"
-      x-permission: "catalog:read"
-      x-spec-ref: "§21.3.8"
+      summary: 'Danh sách quy tắc mã vạch'
+      x-permission: 'catalog:read'
+      x-spec-ref: '§21.3.8'
       x-detail-cp: CP07
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -5107,13 +5107,13 @@ paths:
     post:
       operationId: postAdminBarcodeRules
       tags: [admin]
-      summary: "Tạo quy tắc mã vạch"
-      x-permission: "barcode_rule:write"
-      x-spec-ref: "§21.3.8"
+      summary: 'Tạo quy tắc mã vạch'
+      x-permission: 'barcode_rule:write'
+      x-spec-ref: '§21.3.8'
       x-detail-cp: CP07
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -5152,12 +5152,12 @@ paths:
     get:
       operationId: getAdminBarcodeRulesId
       tags: [admin]
-      summary: "Chi tiết quy tắc mã vạch"
-      x-permission: "catalog:read"
-      x-spec-ref: "§21.3.8"
+      summary: 'Chi tiết quy tắc mã vạch'
+      x-permission: 'catalog:read'
+      x-spec-ref: '§21.3.8'
       x-detail-cp: CP07
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -5180,13 +5180,13 @@ paths:
     patch:
       operationId: patchAdminBarcodeRulesId
       tags: [admin]
-      summary: "Sửa quy tắc mã vạch"
-      x-permission: "barcode_rule:write"
-      x-spec-ref: "§21.3.8"
+      summary: 'Sửa quy tắc mã vạch'
+      x-permission: 'barcode_rule:write'
+      x-spec-ref: '§21.3.8'
       x-detail-cp: CP07
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -5220,12 +5220,12 @@ paths:
     get:
       operationId: getAdminCashAccounts
       tags: [admin]
-      summary: "Danh sách quỹ tiền (số tài khoản luôn che trong response)"
-      x-permission: "cash_account:write"
-      x-spec-ref: "§21.3.15"
+      summary: 'Danh sách quỹ tiền (số tài khoản luôn che trong response)'
+      x-permission: 'cash_account:write'
+      x-spec-ref: '§21.3.15'
       x-detail-cp: CP09
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -5246,13 +5246,13 @@ paths:
     post:
       operationId: postAdminCashAccounts
       tags: [admin]
-      summary: "Tạo quỹ tiền (số tài khoản luôn che trong response)"
-      x-permission: "cash_account:write"
-      x-spec-ref: "§21.3.15"
+      summary: 'Tạo quỹ tiền (số tài khoản luôn che trong response)'
+      x-permission: 'cash_account:write'
+      x-spec-ref: '§21.3.15'
       x-detail-cp: CP09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -5291,12 +5291,12 @@ paths:
     get:
       operationId: getAdminCashAccountsId
       tags: [admin]
-      summary: "Chi tiết quỹ tiền (số tài khoản luôn che trong response)"
-      x-permission: "cash_account:write"
-      x-spec-ref: "§21.3.15"
+      summary: 'Chi tiết quỹ tiền (số tài khoản luôn che trong response)'
+      x-permission: 'cash_account:write'
+      x-spec-ref: '§21.3.15'
       x-detail-cp: CP09
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -5319,13 +5319,13 @@ paths:
     patch:
       operationId: patchAdminCashAccountsId
       tags: [admin]
-      summary: "Sửa quỹ tiền (số tài khoản luôn che trong response)"
-      x-permission: "cash_account:write"
-      x-spec-ref: "§21.3.15"
+      summary: 'Sửa quỹ tiền (số tài khoản luôn che trong response)'
+      x-permission: 'cash_account:write'
+      x-spec-ref: '§21.3.15'
       x-detail-cp: CP09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -5359,12 +5359,12 @@ paths:
     get:
       operationId: getAdminReorderRules
       tags: [admin]
-      summary: "Danh sách quy tắc min/max"
-      x-permission: "stock:read"
-      x-spec-ref: "§21.3.6"
+      summary: 'Danh sách quy tắc min/max'
+      x-permission: 'stock:read'
+      x-spec-ref: '§21.3.6'
       x-detail-cp: CP18
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -5385,13 +5385,13 @@ paths:
     post:
       operationId: postAdminReorderRules
       tags: [admin]
-      summary: "Tạo quy tắc min/max"
-      x-permission: "reorder:write"
-      x-spec-ref: "§21.3.6"
+      summary: 'Tạo quy tắc min/max'
+      x-permission: 'reorder:write'
+      x-spec-ref: '§21.3.6'
       x-detail-cp: CP18
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -5430,12 +5430,12 @@ paths:
     get:
       operationId: getAdminReorderRulesId
       tags: [admin]
-      summary: "Chi tiết quy tắc min/max"
-      x-permission: "stock:read"
-      x-spec-ref: "§21.3.6"
+      summary: 'Chi tiết quy tắc min/max'
+      x-permission: 'stock:read'
+      x-spec-ref: '§21.3.6'
       x-detail-cp: CP18
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -5458,13 +5458,13 @@ paths:
     patch:
       operationId: patchAdminReorderRulesId
       tags: [admin]
-      summary: "Sửa quy tắc min/max"
-      x-permission: "reorder:write"
-      x-spec-ref: "§21.3.6"
+      summary: 'Sửa quy tắc min/max'
+      x-permission: 'reorder:write'
+      x-spec-ref: '§21.3.6'
       x-detail-cp: CP18
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -5498,12 +5498,12 @@ paths:
     get:
       operationId: getAdminPurchaseOrders
       tags: [admin]
-      summary: "Danh sách đơn đặt hàng nhập"
-      x-permission: "po:write"
-      x-spec-ref: "§21.3.6"
+      summary: 'Danh sách đơn đặt hàng nhập'
+      x-permission: 'po:write'
+      x-spec-ref: '§21.3.6'
       x-detail-cp: CP18
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -5524,13 +5524,13 @@ paths:
     post:
       operationId: postAdminPurchaseOrders
       tags: [admin]
-      summary: "Tạo đơn đặt hàng nhập"
-      x-permission: "po:write"
-      x-spec-ref: "§21.3.6"
+      summary: 'Tạo đơn đặt hàng nhập'
+      x-permission: 'po:write'
+      x-spec-ref: '§21.3.6'
       x-detail-cp: CP18
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -5569,12 +5569,12 @@ paths:
     get:
       operationId: getAdminPurchaseOrdersId
       tags: [admin]
-      summary: "Chi tiết đơn đặt hàng nhập"
-      x-permission: "po:write"
-      x-spec-ref: "§21.3.6"
+      summary: 'Chi tiết đơn đặt hàng nhập'
+      x-permission: 'po:write'
+      x-spec-ref: '§21.3.6'
       x-detail-cp: CP18
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -5597,13 +5597,13 @@ paths:
     patch:
       operationId: patchAdminPurchaseOrdersId
       tags: [admin]
-      summary: "Sửa đơn đặt hàng nhập"
-      x-permission: "po:write"
-      x-spec-ref: "§21.3.6"
+      summary: 'Sửa đơn đặt hàng nhập'
+      x-permission: 'po:write'
+      x-spec-ref: '§21.3.6'
       x-detail-cp: CP18
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -5637,12 +5637,12 @@ paths:
     get:
       operationId: getAdminViewerProfiles
       tags: [admin]
-      summary: "Danh sách hồ sơ hiển thị viewer"
-      x-permission: "viewer_profile:write"
-      x-spec-ref: "§10.3"
+      summary: 'Danh sách hồ sơ hiển thị viewer'
+      x-permission: 'viewer_profile:write'
+      x-spec-ref: '§10.3'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -5663,13 +5663,13 @@ paths:
     post:
       operationId: postAdminViewerProfiles
       tags: [admin]
-      summary: "Tạo hồ sơ hiển thị viewer"
-      x-permission: "viewer_profile:write"
-      x-spec-ref: "§10.3"
+      summary: 'Tạo hồ sơ hiển thị viewer'
+      x-permission: 'viewer_profile:write'
+      x-spec-ref: '§10.3'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -5708,12 +5708,12 @@ paths:
     get:
       operationId: getAdminViewerProfilesId
       tags: [admin]
-      summary: "Chi tiết hồ sơ hiển thị viewer"
-      x-permission: "viewer_profile:write"
-      x-spec-ref: "§10.3"
+      summary: 'Chi tiết hồ sơ hiển thị viewer'
+      x-permission: 'viewer_profile:write'
+      x-spec-ref: '§10.3'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -5736,13 +5736,13 @@ paths:
     patch:
       operationId: patchAdminViewerProfilesId
       tags: [admin]
-      summary: "Sửa hồ sơ hiển thị viewer"
-      x-permission: "viewer_profile:write"
-      x-spec-ref: "§10.3"
+      summary: 'Sửa hồ sơ hiển thị viewer'
+      x-permission: 'viewer_profile:write'
+      x-spec-ref: '§10.3'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -5783,13 +5783,13 @@ paths:
     put:
       operationId: putAdminPricesSkuId
       tags: [admin]
-      summary: "Đặt giá lẻ chuỗi/cửa hàng (ghi lịch sử)"
-      x-permission: "price:write"
-      x-spec-ref: "§4.4"
+      summary: 'Đặt giá lẻ chuỗi/cửa hàng (ghi lịch sử)'
+      x-permission: 'price:write'
+      x-spec-ref: '§4.4'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -5823,16 +5823,16 @@ paths:
     post:
       operationId: postAdminRoleAssignments
       tags: [admin]
-      summary: "Gán vai trò theo phạm vi (không gán MASTER_ADMIN/VIEW_ONLY_ADMIN ở đây)"
-      x-permission: "role:assign"
+      summary: 'Gán vai trò theo phạm vi (không gán MASTER_ADMIN/VIEW_ONLY_ADMIN ở đây)'
+      x-permission: 'role:assign'
       x-step-up: true
       x-scope: store
-      x-assignable-roles: "MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)"
-      x-spec-ref: "§2.1"
+      x-assignable-roles: 'MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)'
+      x-spec-ref: '§2.1'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -5871,16 +5871,16 @@ paths:
     delete:
       operationId: deleteAdminRoleAssignmentsId
       tags: [admin]
-      summary: "Gỡ vai trò"
-      x-permission: "role:assign"
+      summary: 'Gỡ vai trò'
+      x-permission: 'role:assign'
       x-step-up: true
       x-scope: store
-      x-assignable-roles: "MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)"
-      x-spec-ref: "§2.1"
+      x-assignable-roles: 'MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)'
+      x-spec-ref: '§2.1'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '204':
           description: Thành công
@@ -5904,14 +5904,14 @@ paths:
     put:
       operationId: putAdminApprovalLimits
       tags: [admin]
-      summary: "Cấu hình hạn mức duyệt (chỉ Master)"
-      x-permission: "settings:write"
+      summary: 'Cấu hình hạn mức duyệt (chỉ Master)'
+      x-permission: 'settings:write'
       x-step-up: true
-      x-spec-ref: "§2.3"
+      x-spec-ref: '§2.3'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -5943,16 +5943,16 @@ paths:
     post:
       operationId: postAdminAdminAccounts
       tags: [admin]
-      summary: "Tạo tài khoản MASTER_ADMIN / VIEW_ONLY_ADMIN (chỉ Master, bắt buộc 2FA lần đầu)"
-      x-permission: "staff:write"
+      summary: 'Tạo tài khoản MASTER_ADMIN / VIEW_ONLY_ADMIN (chỉ Master, bắt buộc 2FA lần đầu)'
+      x-permission: 'staff:write'
       x-step-up: true
       x-master-only: true
-      x-spec-ref: "§2.4 SEC2"
+      x-spec-ref: '§2.4 SEC2'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -5991,15 +5991,15 @@ paths:
     post:
       operationId: postAdminUsersIdLock
       tags: [admin]
-      summary: "Khóa tài khoản (thu hồi mọi phiên); admin cần step-up; chặn khóa Master cuối cùng"
-      x-permission: "staff:write"
+      summary: 'Khóa tài khoản (thu hồi mọi phiên); admin cần step-up; chặn khóa Master cuối cùng'
+      x-permission: 'staff:write'
       x-step-up: true
-      x-spec-ref: "§2.4 SEC2"
+      x-spec-ref: '§2.4 SEC2'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6040,15 +6040,15 @@ paths:
     post:
       operationId: postAdminUsersIdUnlock
       tags: [admin]
-      summary: "Mở khóa tài khoản"
-      x-permission: "staff:write"
+      summary: 'Mở khóa tài khoản'
+      x-permission: 'staff:write'
       x-step-up: true
-      x-spec-ref: "§2.4 SEC2"
+      x-spec-ref: '§2.4 SEC2'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6089,16 +6089,16 @@ paths:
     post:
       operationId: postAdminUsersId2faReset
       tags: [admin]
-      summary: "Reset 2FA của người khác (chỉ Master)"
-      x-permission: "staff:write"
+      summary: 'Reset 2FA của người khác (chỉ Master)'
+      x-permission: 'staff:write'
       x-step-up: true
       x-master-only: true
-      x-spec-ref: "§2.4"
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6139,14 +6139,14 @@ paths:
     get:
       operationId: getAdminUsersIdSessions
       tags: [admin]
-      summary: "Phiên đăng nhập của một tài khoản"
-      x-permission: "staff:write"
+      summary: 'Phiên đăng nhập của một tài khoản'
+      x-permission: 'staff:write'
       x-master-only: true
-      x-spec-ref: "§10.1 mục 14"
+      x-spec-ref: '§10.1 mục 14'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -6177,15 +6177,15 @@ paths:
     post:
       operationId: postAdminSessionsIdRevoke
       tags: [admin]
-      summary: "Thu hồi phiên/thiết bị"
-      x-permission: "staff:write"
+      summary: 'Thu hồi phiên/thiết bị'
+      x-permission: 'staff:write'
       x-master-only: true
-      x-spec-ref: "§2.4 SEC4"
+      x-spec-ref: '§2.4 SEC4'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6226,15 +6226,15 @@ paths:
     put:
       operationId: putAdminUsersIdViewerProfiles
       tags: [admin]
-      summary: "Gán hồ sơ hiển thị cho tài khoản viewer"
-      x-permission: "viewer_profile:write"
+      summary: 'Gán hồ sơ hiển thị cho tài khoản viewer'
+      x-permission: 'viewer_profile:write'
       x-step-up: true
-      x-spec-ref: "§10.3"
+      x-spec-ref: '§10.3'
       x-detail-cp: CP12
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6268,14 +6268,14 @@ paths:
     get:
       operationId: getAdminPosDevices
       tags: [admin]
-      summary: "Thiết bị chờ kích hoạt / đã kích hoạt"
-      x-permission: "device:write"
+      summary: 'Thiết bị chờ kích hoạt / đã kích hoạt'
+      x-permission: 'device:write'
       x-scope: store
-      x-spec-ref: "§2.4"
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -6304,13 +6304,13 @@ paths:
     post:
       operationId: postAdminPosDevicesIdActivate
       tags: [admin]
-      summary: "Kích hoạt thiết bị POS"
-      x-permission: "device:write"
-      x-spec-ref: "§2.4"
+      summary: 'Kích hoạt thiết bị POS'
+      x-permission: 'device:write'
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6351,13 +6351,13 @@ paths:
     post:
       operationId: postAdminPosDevicesIdRevoke
       tags: [admin]
-      summary: "Thu hồi thiết bị POS"
-      x-permission: "device:write"
-      x-spec-ref: "§2.4"
+      summary: 'Thu hồi thiết bị POS'
+      x-permission: 'device:write'
+      x-spec-ref: '§2.4'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6391,13 +6391,13 @@ paths:
     post:
       operationId: postAdminBadges
       tags: [admin]
-      summary: "Cấp thẻ nhân viên"
-      x-permission: "badge:issue"
-      x-spec-ref: "§21.3.9"
+      summary: 'Cấp thẻ nhân viên'
+      x-permission: 'badge:issue'
+      x-spec-ref: '§21.3.9'
       x-detail-cp: CP09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6436,14 +6436,14 @@ paths:
     put:
       operationId: putAdminLockDatesStoreId
       tags: [admin]
-      summary: "Khóa sổ cửa hàng đến ngày"
-      x-permission: "lock_date:write"
+      summary: 'Khóa sổ cửa hàng đến ngày'
+      x-permission: 'lock_date:write'
       x-step-up: true
-      x-spec-ref: "§21.3.13"
+      x-spec-ref: '§21.3.13'
       x-detail-cp: CP08
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6484,13 +6484,13 @@ paths:
     post:
       operationId: postAdminPurchaseOrdersIdApprove
       tags: [admin]
-      summary: "Duyệt PO"
-      x-permission: "po:approve"
-      x-spec-ref: "§21.3.6"
+      summary: 'Duyệt PO'
+      x-permission: 'po:approve'
+      x-spec-ref: '§21.3.6'
       x-detail-cp: CP18
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6524,13 +6524,13 @@ paths:
     post:
       operationId: postAdminImports
       tags: [admin]
-      summary: "Nhập Excel (dry-run / chạy)"
-      x-permission: "import:run"
-      x-spec-ref: "§21.3.17"
+      summary: 'Nhập Excel (dry-run / chạy)'
+      x-permission: 'import:run'
+      x-spec-ref: '§21.3.17'
       x-detail-cp: CP04
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6562,13 +6562,13 @@ paths:
     post:
       operationId: postAdminPluExport
       tags: [admin]
-      summary: "Xuất file PLU cho cân"
-      x-permission: "plu:export"
-      x-spec-ref: "§21.3.17"
+      summary: 'Xuất file PLU cho cân'
+      x-permission: 'plu:export'
+      x-spec-ref: '§21.3.17'
       x-detail-cp: CP07
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6600,12 +6600,12 @@ paths:
     get:
       operationId: getAdminCustomers
       tags: [admin]
-      summary: "Danh sách khách app (SĐT che)"
-      x-permission: "customer:read_masked"
-      x-spec-ref: "§10.1"
+      summary: 'Danh sách khách app (SĐT che)'
+      x-permission: 'customer:read_masked'
+      x-spec-ref: '§10.1'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -6634,14 +6634,14 @@ paths:
     get:
       operationId: getAdminCustomersIdContact
       tags: [admin]
-      summary: "Xem SĐT/địa chỉ đầy đủ (ghi audit mỗi lần)"
-      x-permission: "customer:read_full"
+      summary: 'Xem SĐT/địa chỉ đầy đủ (ghi audit mỗi lần)'
+      x-permission: 'customer:read_full'
       x-master-only: true
-      x-spec-ref: "§14, FR-INV-19"
+      x-spec-ref: '§14, FR-INV-19'
       x-detail-cp: CP14
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -6672,15 +6672,15 @@ paths:
     post:
       operationId: postAdminCustomersIdLock
       tags: [admin]
-      summary: "Khóa tài khoản khách"
-      x-permission: "customer:read_full"
+      summary: 'Khóa tài khoản khách'
+      x-permission: 'customer:read_full'
       x-master-only: true
-      x-spec-ref: "§10.1 mục 13"
+      x-spec-ref: '§10.1 mục 13'
       x-detail-cp: CP14
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6714,14 +6714,14 @@ paths:
     post:
       operationId: postAdminCustomersExport
       tags: [admin]
-      summary: "Xuất danh sách khách (step-up + log)"
-      x-permission: "customer:export"
+      summary: 'Xuất danh sách khách (step-up + log)'
+      x-permission: 'customer:export'
       x-step-up: true
-      x-spec-ref: "§2.4"
+      x-spec-ref: '§2.4'
       x-detail-cp: CP14
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6753,12 +6753,12 @@ paths:
     get:
       operationId: getAdminAuditLogs
       tags: [admin]
-      summary: "Tra cứu nhật ký"
-      x-permission: "audit:read"
-      x-spec-ref: "§14"
+      summary: 'Tra cứu nhật ký'
+      x-permission: 'audit:read'
+      x-spec-ref: '§14'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -6780,12 +6780,12 @@ paths:
     get:
       operationId: getAdminSettings
       tags: [admin]
-      summary: "Đọc cấu hình (SePay, OTP, push, COD, bớt lẻ…)"
-      x-permission: "settings:write"
-      x-spec-ref: "§10.1"
+      summary: 'Đọc cấu hình (SePay, OTP, push, COD, bớt lẻ…)'
+      x-permission: 'settings:write'
+      x-spec-ref: '§10.1'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -6806,14 +6806,14 @@ paths:
     patch:
       operationId: patchAdminSettings
       tags: [admin]
-      summary: "Sửa cấu hình"
-      x-permission: "settings:write"
+      summary: 'Sửa cấu hình'
+      x-permission: 'settings:write'
       x-step-up: true
-      x-spec-ref: "§10.1"
+      x-spec-ref: '§10.1'
       x-detail-cp: CP03
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6851,20 +6851,20 @@ paths:
     get:
       operationId: getAdminReportsCode
       tags: [admin]
-      summary: "Báo cáo R01–R24 — quyền theo mã (x-permission-by-code); thiếu purchase_price:read thì không có cột giá vốn"
-      x-permission: "report:read"
+      summary: 'Báo cáo R01–R24 — quyền theo mã (x-permission-by-code); thiếu purchase_price:read thì không có cột giá vốn'
+      x-permission: 'report:read'
       x-scope: store
       x-permission-by-code:
-        "default": "report:read"
-        "R01,R06,R07,R08,R10,R15,R17,R19,R20,R21": "purchase_price:read"
-        "R12": "wholesale:read"
-        "R16": "supplier:read"
-        "R22": "cash_account:write"
-        "R23": "stock:read"
-      x-spec-ref: "§11.2"
+        'default': 'report:read'
+        'R01,R06,R07,R08,R10,R15,R17,R19,R20,R21': 'purchase_price:read'
+        'R12': 'wholesale:read'
+        'R16': 'supplier:read'
+        'R22': 'cash_account:write'
+        'R23': 'stock:read'
+      x-spec-ref: '§11.2'
       x-detail-cp: CP10
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -6888,21 +6888,21 @@ paths:
     post:
       operationId: postAdminExports
       tags: [admin]
-      summary: "Xuất Excel/PDF báo cáo — cùng quyền theo mã như /admin/reports; KHÔNG xuất danh sách khách (đi qua /admin/customers/export)"
-      x-permission: "report:export"
+      summary: 'Xuất Excel/PDF báo cáo — cùng quyền theo mã như /admin/reports; KHÔNG xuất danh sách khách (đi qua /admin/customers/export)'
+      x-permission: 'report:export'
       x-scope: store
       x-permission-by-code:
-        "default": "report:read"
-        "R01,R06,R07,R08,R10,R15,R17,R19,R20,R21": "purchase_price:read"
-        "R12": "wholesale:read"
-        "R16": "supplier:read"
-        "R22": "cash_account:write"
-        "R23": "stock:read"
-      x-spec-ref: "§11"
+        'default': 'report:read'
+        'R01,R06,R07,R08,R10,R15,R17,R19,R20,R21': 'purchase_price:read'
+        'R12': 'wholesale:read'
+        'R16': 'supplier:read'
+        'R22': 'cash_account:write'
+        'R23': 'stock:read'
+      x-spec-ref: '§11'
       x-detail-cp: CP10
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6934,13 +6934,13 @@ paths:
     post:
       operationId: postAdminPushDeals
       tags: [admin]
-      summary: "Tạo mặt hàng đẩy"
-      x-permission: "deal:write"
-      x-spec-ref: "§7.3"
+      summary: 'Tạo mặt hàng đẩy'
+      x-permission: 'deal:write'
+      x-spec-ref: '§7.3'
       x-detail-cp: CP13
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -6971,13 +6971,13 @@ paths:
     get:
       operationId: getAdminPushDeals
       tags: [admin]
-      summary: "Danh sách mặt hàng đẩy"
-      x-permission: "deal:read"
-      x-spec-ref: "§7.3"
+      summary: 'Danh sách mặt hàng đẩy'
+      x-permission: 'deal:read'
+      x-spec-ref: '§7.3'
       x-detail-cp: CP13
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -7006,13 +7006,13 @@ paths:
     post:
       operationId: postAdminPushDealsIdPublish
       tags: [admin]
-      summary: "Đẩy: kiểm tồn, giữ hạn mức, lên lịch push"
-      x-permission: "deal:write"
-      x-spec-ref: "§7.3"
+      summary: 'Đẩy: kiểm tồn, giữ hạn mức, lên lịch push'
+      x-permission: 'deal:write'
+      x-spec-ref: '§7.3'
       x-detail-cp: CP13
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7053,13 +7053,13 @@ paths:
     post:
       operationId: postAdminPushDealsIdEnd
       tags: [admin]
-      summary: "Kết thúc mặt hàng đẩy"
-      x-permission: "deal:write"
-      x-spec-ref: "§7.3"
+      summary: 'Kết thúc mặt hàng đẩy'
+      x-permission: 'deal:write'
+      x-spec-ref: '§7.3'
       x-detail-cp: CP13
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7093,13 +7093,13 @@ paths:
     post:
       operationId: postAdminNotifications
       tags: [admin]
-      summary: "Thông báo chung"
-      x-permission: "notify:send"
-      x-spec-ref: "§7.4"
+      summary: 'Thông báo chung'
+      x-permission: 'notify:send'
+      x-spec-ref: '§7.4'
       x-detail-cp: CP13
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7131,13 +7131,13 @@ paths:
     post:
       operationId: postAdminWholesaleOrders
       tags: [admin]
-      summary: "Tạo đơn sỉ"
-      x-permission: "wholesale:write"
-      x-spec-ref: "§9"
+      summary: 'Tạo đơn sỉ'
+      x-permission: 'wholesale:write'
+      x-spec-ref: '§9'
       x-detail-cp: CP16
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7176,14 +7176,14 @@ paths:
     post:
       operationId: postAdminWholesaleOrdersIdConfirm
       tags: [admin]
-      summary: "Xác nhận đơn sỉ"
-      x-permission: "wholesale:write"
-      x-spec-ref: "§9.2"
+      summary: 'Xác nhận đơn sỉ'
+      x-permission: 'wholesale:write'
+      x-spec-ref: '§9.2'
       x-detail-cp: CP16
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7224,14 +7224,14 @@ paths:
     post:
       operationId: postAdminWholesaleOrdersIdPayments
       tags: [admin]
-      summary: "Ghi thu nợ khách sỉ"
-      x-permission: "receivable:write"
-      x-spec-ref: "§9.5"
+      summary: 'Ghi thu nợ khách sỉ'
+      x-permission: 'receivable:write'
+      x-spec-ref: '§9.5'
       x-detail-cp: CP16
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7265,13 +7265,13 @@ paths:
     get:
       operationId: getAdminAppOrders
       tags: [admin]
-      summary: "Danh sách đơn app"
-      x-permission: "app_order:manage"
-      x-spec-ref: "§10.1"
+      summary: 'Danh sách đơn app'
+      x-permission: 'app_order:manage'
+      x-spec-ref: '§10.1'
       x-detail-cp: CP14
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -7300,14 +7300,14 @@ paths:
     post:
       operationId: postAdminAppOrdersIdTransition
       tags: [admin]
-      summary: "Can thiệp trạng thái đơn app (có log)"
-      x-permission: "app_order:manage"
-      x-spec-ref: "§10.1"
+      summary: 'Can thiệp trạng thái đơn app (có log)'
+      x-permission: 'app_order:manage'
+      x-spec-ref: '§10.1'
       x-detail-cp: CP14
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7348,14 +7348,14 @@ paths:
     post:
       operationId: postAdminComplaintsIdResolve
       tags: [admin]
-      summary: "Xử lý khiếu nại vượt ngưỡng"
-      x-permission: "complaint:resolve"
-      x-spec-ref: "§8.8"
+      summary: 'Xử lý khiếu nại vượt ngưỡng'
+      x-permission: 'complaint:resolve'
+      x-spec-ref: '§8.8'
       x-detail-cp: CP14
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7389,14 +7389,14 @@ paths:
     post:
       operationId: postAdminRefunds
       tags: [admin]
-      summary: "Ghi hoàn tiền + ảnh chứng từ"
-      x-permission: "app_order:manage"
-      x-spec-ref: "§8.4"
+      summary: 'Ghi hoàn tiền + ảnh chứng từ'
+      x-permission: 'app_order:manage'
+      x-spec-ref: '§8.4'
       x-detail-cp: CP14
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7435,14 +7435,14 @@ paths:
     post:
       operationId: postAdminBankTxnsIdMatch
       tags: [admin]
-      summary: "Khớp tay giao dịch ngân hàng"
-      x-permission: "payment:reconcile"
-      x-spec-ref: "§13.4"
+      summary: 'Khớp tay giao dịch ngân hàng'
+      x-permission: 'payment:reconcile'
+      x-spec-ref: '§13.4'
       x-detail-cp: CP08
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7483,22 +7483,22 @@ paths:
     post:
       operationId: postAdminApprovalsIdApprove
       tags: [admin]
-      summary: "Master duyệt yêu cầu vượt hạn mức (quyền theo loại; người duyệt ≠ người tạo)"
-      x-permission: "approval:by-type"
+      summary: 'Master duyệt yêu cầu vượt hạn mức (quyền theo loại; người duyệt ≠ người tạo)'
+      x-permission: 'approval:by-type'
       x-permission-map:
-        "SPOILAGE": "spoilage:approve"
-        "STOCKTAKE_ADJUST": "stocktake:approve"
-        "INTERNAL_USE": "internal_use:approve"
-        "MARKDOWN": "markdown:approve"
-        "CASH_DIFFERENCE": "cash:approve"
-        "SALE_VOID": "pos:void_sale"
-        "REFUND": "pos:refund"
-        "PO": "po:approve"
-      x-spec-ref: "§2.3"
+        'SPOILAGE': 'spoilage:approve'
+        'STOCKTAKE_ADJUST': 'stocktake:approve'
+        'INTERNAL_USE': 'internal_use:approve'
+        'MARKDOWN': 'markdown:approve'
+        'CASH_DIFFERENCE': 'cash:approve'
+        'SALE_VOID': 'pos:void_sale'
+        'REFUND': 'pos:refund'
+        'PO': 'po:approve'
+      x-spec-ref: '§2.3'
       x-detail-cp: CP06
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7539,22 +7539,22 @@ paths:
     post:
       operationId: postAdminApprovalsIdReject
       tags: [admin]
-      summary: "Master từ chối yêu cầu"
-      x-permission: "approval:by-type"
+      summary: 'Master từ chối yêu cầu'
+      x-permission: 'approval:by-type'
       x-permission-map:
-        "SPOILAGE": "spoilage:approve"
-        "STOCKTAKE_ADJUST": "stocktake:approve"
-        "INTERNAL_USE": "internal_use:approve"
-        "MARKDOWN": "markdown:approve"
-        "CASH_DIFFERENCE": "cash:approve"
-        "SALE_VOID": "pos:void_sale"
-        "REFUND": "pos:refund"
-        "PO": "po:approve"
-      x-spec-ref: "§2.3"
+        'SPOILAGE': 'spoilage:approve'
+        'STOCKTAKE_ADJUST': 'stocktake:approve'
+        'INTERNAL_USE': 'internal_use:approve'
+        'MARKDOWN': 'markdown:approve'
+        'CASH_DIFFERENCE': 'cash:approve'
+        'SALE_VOID': 'pos:void_sale'
+        'REFUND': 'pos:refund'
+        'PO': 'po:approve'
+      x-spec-ref: '§2.3'
       x-detail-cp: CP06
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7595,14 +7595,14 @@ paths:
     post:
       operationId: postAdminBatchesIdCost
       tags: [admin]
-      summary: "Nhập/sửa giá nhập lô (step-up nếu đã bán)"
-      x-permission: "batch:cost_write"
+      summary: 'Nhập/sửa giá nhập lô (step-up nếu đã bán)'
+      x-permission: 'batch:cost_write'
       x-step-up: true
-      x-spec-ref: "§5.4"
+      x-spec-ref: '§5.4'
       x-detail-cp: CP05
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7636,13 +7636,13 @@ paths:
     post:
       operationId: postAdminPublishDrafts
       tags: [publish]
-      summary: "Chuẩn bị bản nháp báo cáo"
-      x-permission: "publish:manage"
-      x-spec-ref: "§10.4"
+      summary: 'Chuẩn bị bản nháp báo cáo'
+      x-permission: 'publish:manage'
+      x-spec-ref: '§10.4'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7681,12 +7681,12 @@ paths:
     get:
       operationId: getAdminPublishDraftsIdPreview
       tags: [publish]
-      summary: "Xem trước"
-      x-permission: "publish:manage"
-      x-spec-ref: "§10.4"
+      summary: 'Xem trước'
+      x-permission: 'publish:manage'
+      x-spec-ref: '§10.4'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -7717,14 +7717,14 @@ paths:
     post:
       operationId: postAdminPublishDraftsIdPublish
       tags: [publish]
-      summary: "Phát hành snapshot"
-      x-permission: "publish:manage"
+      summary: 'Phát hành snapshot'
+      x-permission: 'publish:manage'
       x-step-up: true
-      x-spec-ref: "§10.4"
+      x-spec-ref: '§10.4'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7765,14 +7765,14 @@ paths:
     post:
       operationId: postAdminSnapshotsIdRevoke
       tags: [publish]
-      summary: "Thu hồi snapshot"
-      x-permission: "publish:manage"
+      summary: 'Thu hồi snapshot'
+      x-permission: 'publish:manage'
       x-step-up: true
-      x-spec-ref: "§10.4"
+      x-spec-ref: '§10.4'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7813,12 +7813,12 @@ paths:
     get:
       operationId: getAdminViewerProfilesIdPreview
       tags: [publish]
-      summary: "Xem như viewer"
-      x-permission: "viewer_profile:write"
-      x-spec-ref: "§10.4"
+      summary: 'Xem như viewer'
+      x-permission: 'viewer_profile:write'
+      x-spec-ref: '§10.4'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -7842,14 +7842,14 @@ paths:
     post:
       operationId: postAdminPeriodsLock
       tags: [publish]
-      summary: "Khóa kỳ"
-      x-permission: "period:lock"
+      summary: 'Khóa kỳ'
+      x-permission: 'period:lock'
       x-step-up: true
-      x-spec-ref: "§10.4.4"
+      x-spec-ref: '§10.4.4'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7881,14 +7881,14 @@ paths:
     post:
       operationId: postAdminPeriodsUnlock
       tags: [publish]
-      summary: "Mở khóa kỳ (lý do)"
-      x-permission: "period:lock"
+      summary: 'Mở khóa kỳ (lý do)'
+      x-permission: 'period:lock'
       x-step-up: true
-      x-spec-ref: "§10.4.4"
+      x-spec-ref: '§10.4.4'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -7920,12 +7920,12 @@ paths:
     get:
       operationId: getViewerTodaySummary
       tags: [viewer]
-      summary: "Hôm nay: doanh thu tạm tính"
-      x-permission: "viewer:read"
-      x-spec-ref: "§10.2"
+      summary: 'Hôm nay: doanh thu tạm tính'
+      x-permission: 'viewer:read'
+      x-spec-ref: '§10.2'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -7947,12 +7947,12 @@ paths:
     get:
       operationId: getViewerTodayStores
       tags: [viewer]
-      summary: "Hôm nay: trạng thái cửa hàng"
-      x-permission: "viewer:read"
-      x-spec-ref: "§10.2"
+      summary: 'Hôm nay: trạng thái cửa hàng'
+      x-permission: 'viewer:read'
+      x-spec-ref: '§10.2'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -7974,12 +7974,12 @@ paths:
     get:
       operationId: getViewerDailyRevenue
       tags: [viewer]
-      summary: "Doanh thu ngày đã chốt"
-      x-permission: "viewer:read"
-      x-spec-ref: "§10.2"
+      summary: 'Doanh thu ngày đã chốt'
+      x-permission: 'viewer:read'
+      x-spec-ref: '§10.2'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -8001,12 +8001,12 @@ paths:
     get:
       operationId: getViewerOrders
       tags: [viewer]
-      summary: "Đơn app & sỉ (khách đã che)"
-      x-permission: "viewer:read"
-      x-spec-ref: "§10.2"
+      summary: 'Đơn app & sỉ (khách đã che)'
+      x-permission: 'viewer:read'
+      x-spec-ref: '§10.2'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -8028,12 +8028,12 @@ paths:
     get:
       operationId: getViewerStock
       tags: [viewer]
-      summary: "Tồn theo cửa hàng (số lượng)"
-      x-permission: "viewer:read"
-      x-spec-ref: "§10.2"
+      summary: 'Tồn theo cửa hàng (số lượng)'
+      x-permission: 'viewer:read'
+      x-spec-ref: '§10.2'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -8055,12 +8055,12 @@ paths:
     get:
       operationId: getViewerSnapshots
       tags: [viewer]
-      summary: "Báo cáo đã phát hành"
-      x-permission: "viewer:read"
-      x-spec-ref: "§10.2"
+      summary: 'Báo cáo đã phát hành'
+      x-permission: 'viewer:read'
+      x-spec-ref: '§10.2'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -8089,12 +8089,12 @@ paths:
     get:
       operationId: getViewerSnapshotsId
       tags: [viewer]
-      summary: "Chi tiết snapshot + lịch sử phiên bản"
-      x-permission: "viewer:read"
-      x-spec-ref: "§10.5"
+      summary: 'Chi tiết snapshot + lịch sử phiên bản'
+      x-permission: 'viewer:read'
+      x-spec-ref: '§10.5'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -8131,12 +8131,12 @@ paths:
     get:
       operationId: getViewerSnapshotsIdSectionsSection
       tags: [viewer]
-      summary: "Một phần của snapshot (sales, inventory, purchase, price_spread, delivery, pnl) theo hồ sơ"
-      x-permission: "viewer:read"
-      x-spec-ref: "§10.5"
+      summary: 'Một phần của snapshot (sales, inventory, purchase, price_spread, delivery, pnl) theo hồ sơ'
+      x-permission: 'viewer:read'
+      x-spec-ref: '§10.5'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
@@ -8167,12 +8167,12 @@ paths:
     post:
       operationId: postViewerFilesIdDownload
       tags: [viewer]
-      summary: "Yêu cầu tải file báo cáo đã phát hành"
-      x-permission: "viewer:read"
-      x-spec-ref: "§2.5"
+      summary: 'Yêu cầu tải file báo cáo đã phát hành'
+      x-permission: 'viewer:read'
+      x-spec-ref: '§2.5'
       x-detail-cp: CP12
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -8213,13 +8213,13 @@ paths:
     post:
       operationId: postViewerNotificationsIdRead
       tags: [viewer]
-      summary: "Đánh dấu đã đọc thông báo"
-      x-permission: "viewer:read"
-      x-spec-ref: "§2.5"
+      summary: 'Đánh dấu đã đọc thông báo'
+      x-permission: 'viewer:read'
+      x-spec-ref: '§2.5'
       x-detail-cp: CP12
-      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -8253,14 +8253,14 @@ paths:
     post:
       operationId: postWebhooksSepay
       tags: [webhooks]
-      summary: "Webhook SePay — xác thực API key + thời gian trước khi chiếm khóa inbox; trùng hoặc không khớp VA vẫn trả 200"
+      summary: 'Webhook SePay — xác thực API key + thời gian trước khi chiếm khóa inbox; trùng hoặc không khớp VA vẫn trả 200'
       security:
         - sepayWebhook: []
-      x-permission: "webhook:sepay"
-      x-spec-ref: "§13.4"
+      x-permission: 'webhook:sepay'
+      x-spec-ref: '§13.4'
       x-detail-cp: CP08
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -8291,14 +8291,14 @@ paths:
     post:
       operationId: postWebhooksCourierProvider
       tags: [webhooks]
-      summary: "Webhook 3PL — secret riêng từng đối tác; trạng thái có tiền (COD) phải đối chiếu track() trước khi đổi"
+      summary: 'Webhook 3PL — secret riêng từng đối tác; trạng thái có tiền (COD) phải đối chiếu track() trước khi đổi'
       security:
         - courierWebhook: []
-      x-permission: "webhook:courier"
-      x-spec-ref: "§13.6"
+      x-permission: 'webhook:courier'
+      x-spec-ref: '§13.6'
       x-detail-cp: CP15
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:
@@ -8322,20 +8322,21 @@ paths:
     get:
       operationId: getHealth
       tags: [system]
-      summary: "Kiểm tra sống"
+      summary: 'Kiểm tra sống'
       security: []
-      x-permission: "public"
-      x-spec-ref: "§3.6"
+      x-permission: 'public'
+      x-spec-ref: '§3.6'
       x-detail-cp: CP02
+      x-implemented: CP02
       parameters:
-        - $ref: "#/components/parameters/RequestId"
+        - $ref: '#/components/parameters/RequestId'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/HealthStatus'
         '400':
           $ref: '#/components/responses/BadRequest'
         '429':
@@ -8388,49 +8389,49 @@ components:
         format: uuid
   responses:
     BadRequest:
-      description: "Yêu cầu không hợp lệ"
+      description: 'Yêu cầu không hợp lệ'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     Unauthorized:
-      description: "Chưa xác thực / cần 2FA"
+      description: 'Chưa xác thực / cần 2FA'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     Forbidden:
-      description: "Không có quyền / cần step-up"
+      description: 'Không có quyền / cần step-up'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     NotFound:
-      description: "Không tìm thấy"
+      description: 'Không tìm thấy'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     Conflict:
-      description: "Xung đột phiên bản / idempotency / trạng thái"
+      description: 'Xung đột phiên bản / idempotency / trạng thái'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     Unprocessable:
-      description: "Vi phạm quy tắc nghiệp vụ"
+      description: 'Vi phạm quy tắc nghiệp vụ'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     TooManyRequests:
-      description: "Vượt giới hạn tần suất"
+      description: 'Vượt giới hạn tần suất'
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     ServiceUnavailable:
-      description: "Thiếu cấu hình hoặc đối tác không sẵn sàng — không phải bằng chứng thất bại thanh toán"
+      description: 'Thiếu cấu hình hoặc đối tác không sẵn sàng — không phải bằng chứng thất bại thanh toán'
       content:
         application/json:
           schema:
@@ -8450,6 +8451,25 @@ components:
     Uuid:
       type: string
       format: uuid
+    HealthStatus:
+      type: object
+      required: [status, checks]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          const: ok
+        checks:
+          type: object
+          required: [db, redis]
+          additionalProperties: false
+          properties:
+            db:
+              type: string
+              enum: [ok, down]
+            redis:
+              type: string
+              enum: [ok, down]
     PendingBody:
       type: object
       description: Khung — schema chi tiết được định nghĩa ở CP ghi trong x-detail-cp của route.
@@ -8568,91 +8588,91 @@ components:
       type: string
       description: Mã quyền SPEC §19.6 + §21.8; x-added-outside-spec là mã bổ sung đã được Tiến duyệt (NC-08).
       enum:
-        - "auth:*"
-        - "catalog:read"
-        - "catalog:write"
-        - "price:read"
-        - "price:write"
-        - "purchase_price:read"
-        - "purchase_price:write"
-        - "supplier:read"
-        - "supplier:write"
-        - "receipt:create"
-        - "receipt:read"
-        - "batch:read"
-        - "batch:cost_write"
-        - "stock:read"
-        - "stock:adjust"
-        - "transfer:create"
-        - "transfer:ship"
-        - "transfer:receive"
-        - "stocktake:create"
-        - "stocktake:approve"
-        - "spoilage:create"
-        - "spoilage:approve"
-        - "ripeness:check"
-        - "markdown:approve"
-        - "pos:sell"
-        - "pos:void_line"
-        - "pos:void_sale"
-        - "pos:refund"
-        - "pos:discount"
-        - "pos:manual_weight"
-        - "pos:no_sale_open"
-        - "shift:open"
-        - "shift:close"
-        - "day:close"
-        - "cash:movement"
-        - "cash:approve"
-        - "app_order:fulfill"
-        - "app_order:manage"
-        - "wholesale:read"
-        - "wholesale:write"
-        - "wholesale:fulfill"
-        - "receivable:write"
-        - "deal:read"
-        - "deal:write"
-        - "notify:send"
-        - "zone:write"
-        - "store:write"
-        - "device:write"
-        - "customer:read_masked"
-        - "customer:read_full"
-        - "customer:export"
-        - "staff:write"
-        - "role:assign"
-        - "report:read"
-        - "report:export"
-        - "publish:manage"
-        - "viewer_profile:write"
-        - "period:lock"
-        - "audit:read"
-        - "shipper:deliver"
-        - "cod:remit"
-        - "viewer:read"
-        - "unit:write"
-        - "po:write"
-        - "po:approve"
-        - "reorder:write"
-        - "internal_use:create"
-        - "internal_use:approve"
-        - "barcode_rule:write"
-        - "badge:issue"
-        - "return:create"
-        - "phone_order:create"
-        - "lock_date:write"
-        - "cash_account:write"
-        - "import:run"
-        - "plu:export"
-        - "document:cancel"
-        - "customer:self"
-        - "settings:write"
-        - "payment:reconcile"
-        - "processing:create"
-        - "complaint:resolve"
+        - 'auth:*'
+        - 'catalog:read'
+        - 'catalog:write'
+        - 'price:read'
+        - 'price:write'
+        - 'purchase_price:read'
+        - 'purchase_price:write'
+        - 'supplier:read'
+        - 'supplier:write'
+        - 'receipt:create'
+        - 'receipt:read'
+        - 'batch:read'
+        - 'batch:cost_write'
+        - 'stock:read'
+        - 'stock:adjust'
+        - 'transfer:create'
+        - 'transfer:ship'
+        - 'transfer:receive'
+        - 'stocktake:create'
+        - 'stocktake:approve'
+        - 'spoilage:create'
+        - 'spoilage:approve'
+        - 'ripeness:check'
+        - 'markdown:approve'
+        - 'pos:sell'
+        - 'pos:void_line'
+        - 'pos:void_sale'
+        - 'pos:refund'
+        - 'pos:discount'
+        - 'pos:manual_weight'
+        - 'pos:no_sale_open'
+        - 'shift:open'
+        - 'shift:close'
+        - 'day:close'
+        - 'cash:movement'
+        - 'cash:approve'
+        - 'app_order:fulfill'
+        - 'app_order:manage'
+        - 'wholesale:read'
+        - 'wholesale:write'
+        - 'wholesale:fulfill'
+        - 'receivable:write'
+        - 'deal:read'
+        - 'deal:write'
+        - 'notify:send'
+        - 'zone:write'
+        - 'store:write'
+        - 'device:write'
+        - 'customer:read_masked'
+        - 'customer:read_full'
+        - 'customer:export'
+        - 'staff:write'
+        - 'role:assign'
+        - 'report:read'
+        - 'report:export'
+        - 'publish:manage'
+        - 'viewer_profile:write'
+        - 'period:lock'
+        - 'audit:read'
+        - 'shipper:deliver'
+        - 'cod:remit'
+        - 'viewer:read'
+        - 'unit:write'
+        - 'po:write'
+        - 'po:approve'
+        - 'reorder:write'
+        - 'internal_use:create'
+        - 'internal_use:approve'
+        - 'barcode_rule:write'
+        - 'badge:issue'
+        - 'return:create'
+        - 'phone_order:create'
+        - 'lock_date:write'
+        - 'cash_account:write'
+        - 'import:run'
+        - 'plu:export'
+        - 'document:cancel'
+        - 'customer:self'
+        - 'settings:write'
+        - 'payment:reconcile'
+        - 'processing:create'
+        - 'complaint:resolve'
       x-added-outside-spec:
-        - "customer:self"
-        - "settings:write"
-        - "payment:reconcile"
-        - "processing:create"
-        - "complaint:resolve"
+        - 'customer:self'
+        - 'settings:write'
+        - 'payment:reconcile'
+        - 'processing:create'
+        - 'complaint:resolve'

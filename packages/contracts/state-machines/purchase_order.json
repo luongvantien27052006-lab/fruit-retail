@@ -5,128 +5,75 @@
   "service": "PurchaseOrderStateMachine",
   "events_table": "audit.logs",
   "initial": "DRAFT",
-  "terminal": [
-    "CLOSED",
-    "CANCELLED"
-  ],
-  "states": [
-    "DRAFT",
-    "SENT",
-    "CANCELLED",
-    "PARTIALLY_RECEIVED",
-    "RECEIVED",
-    "CLOSED"
-  ],
+  "terminal": ["CLOSED", "CANCELLED"],
+  "states": ["DRAFT", "SENT", "CANCELLED", "PARTIALLY_RECEIVED", "RECEIVED", "CLOSED"],
   "transitions": [
     {
       "from": "DRAFT",
       "to": "SENT",
-      "actors": [
-        "MASTER",
-        "WAREHOUSE"
-      ],
+      "actors": ["MASTER", "WAREHOUSE"],
       "note": "Sau khi duyệt (po:approve); không tự gửi NCC",
       "effects": []
     },
     {
       "from": "DRAFT",
       "to": "CANCELLED",
-      "actors": [
-        "MASTER",
-        "WAREHOUSE"
-      ],
+      "actors": ["MASTER", "WAREHOUSE"],
       "note": "",
       "effects": []
     },
     {
       "from": "SENT",
       "to": "PARTIALLY_RECEIVED",
-      "actors": [
-        "WAREHOUSE"
-      ],
+      "actors": ["WAREHOUSE"],
       "note": "",
       "effects": []
     },
     {
       "from": "SENT",
       "to": "RECEIVED",
-      "actors": [
-        "WAREHOUSE"
-      ],
+      "actors": ["WAREHOUSE"],
       "note": "",
       "effects": []
     },
     {
       "from": "SENT",
       "to": "CANCELLED",
-      "actors": [
-        "MASTER"
-      ],
+      "actors": ["MASTER"],
       "note": "",
-      "effects": [
-        "REQUIRE_REASON"
-      ]
+      "effects": ["REQUIRE_REASON"]
     },
     {
       "from": "PARTIALLY_RECEIVED",
       "to": "RECEIVED",
-      "actors": [
-        "WAREHOUSE"
-      ],
+      "actors": ["WAREHOUSE"],
       "note": "",
       "effects": []
     },
     {
       "from": "PARTIALLY_RECEIVED",
       "to": "CLOSED",
-      "actors": [
-        "MASTER"
-      ],
+      "actors": ["MASTER"],
       "note": "Đóng phần thiếu",
-      "effects": [
-        "REQUIRE_REASON"
-      ]
+      "effects": ["REQUIRE_REASON"]
     },
     {
       "from": "RECEIVED",
       "to": "CLOSED",
-      "actors": [
-        "MASTER",
-        "SYSTEM"
-      ],
+      "actors": ["MASTER", "SYSTEM"],
       "note": "",
       "effects": []
     }
   ],
   "test_vectors": {
     "valid": [
-      [
-        "DRAFT",
-        "SENT",
-        "PARTIALLY_RECEIVED",
-        "RECEIVED",
-        "CLOSED"
-      ],
-      [
-        "DRAFT",
-        "SENT",
-        "PARTIALLY_RECEIVED",
-        "CLOSED"
-      ]
+      ["DRAFT", "SENT", "PARTIALLY_RECEIVED", "RECEIVED", "CLOSED"],
+      ["DRAFT", "SENT", "PARTIALLY_RECEIVED", "CLOSED"]
     ],
     "invalid": [
-      [
-        "DRAFT",
-        "RECEIVED"
-      ],
-      [
-        "CLOSED",
-        "SENT"
-      ],
-      [
-        "RECEIVED",
-        "CANCELLED"
-      ]
+      ["DRAFT", "RECEIVED"],
+      ["CLOSED", "SENT"],
+      ["RECEIVED", "CANCELLED"]
     ],
     "actor_invalid": []
   }

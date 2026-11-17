@@ -5,7 +5,9 @@
   "description": "Hợp đồng API (OpenAPI 3.1) và sự kiện — nguồn duy nhất (ADR-004, ADR-007)",
   "scripts": {
     "lint": "redocly lint openapi.yaml --format=stylish",
-    "lint:events": "node scripts/check-events.mjs"
+    "lint:events": "node scripts/check-events.mjs",
+    "lint:state-machines": "node scripts/check-state-machines.mjs",
+    "check": "pnpm run lint && pnpm run lint:events && pnpm run lint:state-machines"
   },
   "devDependencies": {
     "@redocly/cli": "2.79.0",

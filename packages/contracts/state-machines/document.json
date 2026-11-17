@@ -1,0 +1,64 @@
+{
+  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard từ file này.",
+  "machine": "document",
+  "spec_ref": "§21.3.2 (nhận hàng, trả NCC, kiểm kê, hủy, dùng nội bộ, sơ chế, đóng gói, lắp giỏ)",
+  "service": "DocumentLifecycle",
+  "events_table": "audit.logs",
+  "initial": "DRAFT",
+  "terminal": [
+    "CANCELLED"
+  ],
+  "states": [
+    "DRAFT",
+    "COMPLETED",
+    "CANCELLED"
+  ],
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "COMPLETED",
+      "actors": [
+        "CREATOR",
+        "APPROVER"
+      ],
+      "note": "Ghi sổ kho; vượt hạn mức cần người duyệt khác người tạo"
+    },
+    {
+      "from": "COMPLETED",
+      "to": "CANCELLED",
+      "actors": [
+        "PERMITTED"
+      ],
+      "note": "Bút toán đảo; chặn khi hàng đã xuất tiếp hoặc kỳ đã khóa"
+    }
+  ],
+  "notes": "DRAFT chỉ xóa vật lý bởi chính người tạo (không phải chuyển trạng thái).",
+  "test_vectors": {
+    "valid": [
+      [
+        "DRAFT",
+        "COMPLETED",
+        "CANCELLED"
+      ],
+      [
+        "DRAFT",
+        "COMPLETED"
+      ]
+    ],
+    "invalid": [
+      [
+        "DRAFT",
+        "CANCELLED"
+      ],
+      [
+        "CANCELLED",
+        "COMPLETED"
+      ],
+      [
+        "COMPLETED",
+        "DRAFT"
+      ]
+    ],
+    "actor_invalid": []
+  }
+}

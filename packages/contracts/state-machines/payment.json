@@ -1,0 +1,110 @@
+{
+  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard từ file này.",
+  "machine": "payment",
+  "spec_ref": "§13.4, ADR-009",
+  "service": "PaymentStateMachine",
+  "events_table": "audit.logs",
+  "initial": "PENDING",
+  "terminal": [
+    "SUCCEEDED",
+    "EXPIRED",
+    "CANCELLED"
+  ],
+  "states": [
+    "PENDING",
+    "SUCCEEDED",
+    "EXPIRED",
+    "CANCELLED",
+    "UNKNOWN"
+  ],
+  "transitions": [
+    {
+      "from": "PENDING",
+      "to": "SUCCEEDED",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "Webhook/đối soát khớp VA"
+    },
+    {
+      "from": "PENDING",
+      "to": "EXPIRED",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": ""
+    },
+    {
+      "from": "PENDING",
+      "to": "CANCELLED",
+      "actors": [
+        "SYSTEM",
+        "STORE",
+        "MASTER"
+      ],
+      "note": ""
+    },
+    {
+      "from": "PENDING",
+      "to": "UNKNOWN",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "Timeout gọi SePay"
+    },
+    {
+      "from": "UNKNOWN",
+      "to": "SUCCEEDED",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "Tra cứu lại đối tác"
+    },
+    {
+      "from": "UNKNOWN",
+      "to": "EXPIRED",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "Tra cứu lại đối tác"
+    }
+  ],
+  "test_vectors": {
+    "valid": [
+      [
+        "PENDING",
+        "SUCCEEDED"
+      ],
+      [
+        "PENDING",
+        "UNKNOWN",
+        "SUCCEEDED"
+      ],
+      [
+        "PENDING",
+        "EXPIRED"
+      ]
+    ],
+    "invalid": [
+      [
+        "SUCCEEDED",
+        "EXPIRED"
+      ],
+      [
+        "UNKNOWN",
+        "CANCELLED"
+      ],
+      [
+        "EXPIRED",
+        "SUCCEEDED"
+      ]
+    ],
+    "actor_invalid": [
+      [
+        "PENDING",
+        "SUCCEEDED",
+        "STORE"
+      ]
+    ]
+  }
+}

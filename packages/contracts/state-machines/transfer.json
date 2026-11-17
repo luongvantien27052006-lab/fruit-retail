@@ -1,0 +1,109 @@
+{
+  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard từ file này.",
+  "machine": "transfer",
+  "spec_ref": "§5.10",
+  "service": "TransferStateMachine",
+  "events_table": "transfer_events (đề xuất)",
+  "initial": "DRAFT",
+  "terminal": [
+    "CLOSED",
+    "CANCELLED"
+  ],
+  "states": [
+    "DRAFT",
+    "PICKING",
+    "CANCELLED",
+    "IN_TRANSIT",
+    "RECEIVED",
+    "CLOSED"
+  ],
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "PICKING",
+      "actors": [
+        "WAREHOUSE"
+      ],
+      "note": ""
+    },
+    {
+      "from": "DRAFT",
+      "to": "CANCELLED",
+      "actors": [
+        "WAREHOUSE",
+        "MASTER"
+      ],
+      "note": ""
+    },
+    {
+      "from": "PICKING",
+      "to": "IN_TRANSIT",
+      "actors": [
+        "WAREHOUSE"
+      ],
+      "note": "TRANSFER_OUT"
+    },
+    {
+      "from": "PICKING",
+      "to": "CANCELLED",
+      "actors": [
+        "WAREHOUSE",
+        "MASTER"
+      ],
+      "note": ""
+    },
+    {
+      "from": "IN_TRANSIT",
+      "to": "RECEIVED",
+      "actors": [
+        "STORE"
+      ],
+      "note": "TRANSFER_IN; lệch > ngưỡng bắt buộc ảnh + lý do"
+    },
+    {
+      "from": "RECEIVED",
+      "to": "CLOSED",
+      "actors": [
+        "STORE",
+        "MASTER"
+      ],
+      "note": ""
+    }
+  ],
+  "test_vectors": {
+    "valid": [
+      [
+        "DRAFT",
+        "PICKING",
+        "IN_TRANSIT",
+        "RECEIVED",
+        "CLOSED"
+      ],
+      [
+        "DRAFT",
+        "CANCELLED"
+      ]
+    ],
+    "invalid": [
+      [
+        "IN_TRANSIT",
+        "CANCELLED"
+      ],
+      [
+        "DRAFT",
+        "IN_TRANSIT"
+      ],
+      [
+        "CLOSED",
+        "RECEIVED"
+      ]
+    ],
+    "actor_invalid": [
+      [
+        "IN_TRANSIT",
+        "RECEIVED",
+        "WAREHOUSE"
+      ]
+    ]
+  }
+}

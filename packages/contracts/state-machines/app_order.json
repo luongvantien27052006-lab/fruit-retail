@@ -1,0 +1,317 @@
+{
+  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard từ file này.",
+  "machine": "app_order",
+  "spec_ref": "§8.3, §8.4, §8.5",
+  "service": "AppOrderStateMachine",
+  "events_table": "app_order_events",
+  "initial": "PLACED",
+  "terminal": [
+    "REJECTED",
+    "CANCELLED",
+    "COMPLETED"
+  ],
+  "states": [
+    "PLACED",
+    "ACCEPTED",
+    "REJECTED",
+    "CANCELLED",
+    "PICKING",
+    "WEIGHED",
+    "AWAITING_CONFIRM",
+    "AWAITING_PAYMENT",
+    "PACKED",
+    "SHIPPER_ASSIGNED",
+    "DELIVERING",
+    "DELIVERED",
+    "DELIVERY_FAILED",
+    "COMPLETED"
+  ],
+  "transitions": [
+    {
+      "from": "PLACED",
+      "to": "ACCEPTED",
+      "actors": [
+        "STORE"
+      ],
+      "note": "Picker/cửa hàng trưởng nhận"
+    },
+    {
+      "from": "PLACED",
+      "to": "REJECTED",
+      "actors": [
+        "STORE"
+      ],
+      "note": "Từ chối: nhả giữ tồn, trả hạn mức, hoàn nếu đã trả"
+    },
+    {
+      "from": "PLACED",
+      "to": "CANCELLED",
+      "actors": [
+        "CUSTOMER",
+        "STORE",
+        "SYSTEM"
+      ],
+      "note": "Có lý do"
+    },
+    {
+      "from": "ACCEPTED",
+      "to": "PICKING",
+      "actors": [
+        "STORE"
+      ],
+      "note": ""
+    },
+    {
+      "from": "ACCEPTED",
+      "to": "CANCELLED",
+      "actors": [
+        "CUSTOMER",
+        "STORE",
+        "SYSTEM"
+      ],
+      "note": "Khách chỉ được hủy trước PICKING"
+    },
+    {
+      "from": "PICKING",
+      "to": "WEIGHED",
+      "actors": [
+        "STORE"
+      ],
+      "note": "Cân từng dòng + ảnh → actual_amount"
+    },
+    {
+      "from": "PICKING",
+      "to": "CANCELLED",
+      "actors": [
+        "STORE",
+        "SYSTEM"
+      ],
+      "note": "Có lý do"
+    },
+    {
+      "from": "WEIGHED",
+      "to": "AWAITING_CONFIRM",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "Chỉ khi thiếu hàng"
+    },
+    {
+      "from": "WEIGHED",
+      "to": "AWAITING_PAYMENT",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "payment_mode = PAY_AFTER_WEIGH: tạo VA đúng số tiền thực"
+    },
+    {
+      "from": "WEIGHED",
+      "to": "PACKED",
+      "actors": [
+        "STORE"
+      ],
+      "note": "payment_mode = COD: trừ kho FEFO, nhả giữ tồn, in tem túi"
+    },
+    {
+      "from": "WEIGHED",
+      "to": "CANCELLED",
+      "actors": [
+        "STORE",
+        "SYSTEM"
+      ],
+      "note": "Có lý do"
+    },
+    {
+      "from": "AWAITING_CONFIRM",
+      "to": "AWAITING_PAYMENT",
+      "actors": [
+        "CUSTOMER"
+      ],
+      "note": "Khách nhận phần còn lại, PAY_AFTER_WEIGH"
+    },
+    {
+      "from": "AWAITING_CONFIRM",
+      "to": "PACKED",
+      "actors": [
+        "CUSTOMER"
+      ],
+      "note": "Khách nhận phần còn lại, COD"
+    },
+    {
+      "from": "AWAITING_CONFIRM",
+      "to": "CANCELLED",
+      "actors": [
+        "CUSTOMER",
+        "SYSTEM"
+      ],
+      "note": "Khách hủy hoặc quá hạn"
+    },
+    {
+      "from": "AWAITING_PAYMENT",
+      "to": "PACKED",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "payment.succeeded"
+    },
+    {
+      "from": "AWAITING_PAYMENT",
+      "to": "CANCELLED",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "Quá 30 phút: hàng về kệ, hoàn hạn mức"
+    },
+    {
+      "from": "PACKED",
+      "to": "SHIPPER_ASSIGNED",
+      "actors": [
+        "STORE",
+        "SYSTEM"
+      ],
+      "note": ""
+    },
+    {
+      "from": "SHIPPER_ASSIGNED",
+      "to": "DELIVERING",
+      "actors": [
+        "SHIPPER",
+        "COURIER"
+      ],
+      "note": ""
+    },
+    {
+      "from": "DELIVERING",
+      "to": "DELIVERED",
+      "actors": [
+        "SHIPPER",
+        "COURIER"
+      ],
+      "note": "Ảnh giao hàng, thu COD"
+    },
+    {
+      "from": "DELIVERING",
+      "to": "DELIVERY_FAILED",
+      "actors": [
+        "SHIPPER",
+        "COURIER"
+      ],
+      "note": "Lý do (Phụ lục D)"
+    },
+    {
+      "from": "DELIVERY_FAILED",
+      "to": "DELIVERING",
+      "actors": [
+        "STORE"
+      ],
+      "note": "Giao lại"
+    },
+    {
+      "from": "DELIVERY_FAILED",
+      "to": "CANCELLED",
+      "actors": [
+        "STORE",
+        "MASTER"
+      ],
+      "note": "Hàng tốt nhập lại kho, hỏng → hủy hàng"
+    },
+    {
+      "from": "DELIVERED",
+      "to": "COMPLETED",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "Hết 24h không khiếu nại"
+    }
+  ],
+  "test_vectors": {
+    "valid": [
+      [
+        "PLACED",
+        "ACCEPTED",
+        "PICKING",
+        "WEIGHED",
+        "AWAITING_PAYMENT",
+        "PACKED",
+        "SHIPPER_ASSIGNED",
+        "DELIVERING",
+        "DELIVERED",
+        "COMPLETED"
+      ],
+      [
+        "PLACED",
+        "ACCEPTED",
+        "PICKING",
+        "WEIGHED",
+        "PACKED",
+        "SHIPPER_ASSIGNED",
+        "DELIVERING",
+        "DELIVERED",
+        "COMPLETED"
+      ],
+      [
+        "PLACED",
+        "ACCEPTED",
+        "PICKING",
+        "WEIGHED",
+        "AWAITING_PAYMENT",
+        "CANCELLED"
+      ],
+      [
+        "PLACED",
+        "REJECTED"
+      ],
+      [
+        "PLACED",
+        "ACCEPTED",
+        "PICKING",
+        "WEIGHED",
+        "AWAITING_CONFIRM",
+        "PACKED",
+        "SHIPPER_ASSIGNED",
+        "DELIVERING",
+        "DELIVERY_FAILED",
+        "DELIVERING",
+        "DELIVERED"
+      ]
+    ],
+    "invalid": [
+      [
+        "PLACED",
+        "WEIGHED"
+      ],
+      [
+        "PICKING",
+        "PACKED"
+      ],
+      [
+        "DELIVERED",
+        "CANCELLED"
+      ],
+      [
+        "COMPLETED",
+        "DELIVERING"
+      ],
+      [
+        "AWAITING_PAYMENT",
+        "SHIPPER_ASSIGNED"
+      ],
+      [
+        "REJECTED",
+        "ACCEPTED"
+      ]
+    ],
+    "actor_invalid": [
+      [
+        "PICKING",
+        "CANCELLED",
+        "CUSTOMER"
+      ],
+      [
+        "AWAITING_PAYMENT",
+        "PACKED",
+        "STORE"
+      ]
+    ]
+  }
+}

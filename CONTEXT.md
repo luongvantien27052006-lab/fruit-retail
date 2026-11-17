@@ -28,8 +28,8 @@ thực sau khi cân, D10).
 
 | # | Vấn đề | Nguồn | Trạng thái |
 |---|---|---|---|
-| NC-01 | Thư mục ADR: SPEC §19.5 ghi `docs/adr/`, KẾ HOẠCH ghi `docs/engineering/decisions/` | §19.5 vs KẾ HOẠCH CP01 | **needs confirmation** — chốt ở CP01 |
-| NC-02 | Nguồn token thiết kế (vị trí file token, công cụ sinh) — SPEC không quy định | §18.5, §19.1 | **needs confirmation** — chốt ở CP01 |
+| NC-01 | Thư mục ADR: SPEC §19.5 ghi `docs/adr/`, KẾ HOẠCH ghi `docs/engineering/decisions/` | §19.5 vs KẾ HOẠCH CP01 | **Đã quyết:** `docs/engineering/decisions/` (Tiến, 2026-11-17, ADR-001) |
+| NC-02 | Nguồn token thiết kế (vị trí file token, công cụ sinh) — SPEC không quy định | §18.5, §19.1 | **needs confirmation** — dời tới CP có UI đầu tiên (CP07/CP10); CP01 không chặn |
 | NC-03 | Mã đơn app: §12.1 ví dụ `APP-251117-0007` (theo ngày), §21.3.14 quy định ngẫu nhiên `APP-7KQ2XH9M` | §12.1 vs §21.3.14 | Tạm theo §21.3.14 (§21 thắng thân bài); xác nhận ở CP01 |
 | NC-04 | §1.2 dẫn tới "§7.8" không tồn tại (SPEC chỉ có tới §7.7) | §1.2 | Hiểu là §7.7; xác nhận |
 | NC-05 | H1 và H5 ở §1.3 trùng nội dung "Đăng ký điểm bán" | §1.3 | Coi là một mục; **đã quyết HOÃN** (2026-11-17) |
@@ -37,3 +37,4 @@ thực sau khi cân, D10).
 | NC-07 | §7.6 "Đăng ký điểm bán" | §7.6 | **Đã quyết: HOÃN** (Tiến, 2026-11-17) |
 | NC-08 | SPEC §19.6/§21.8 thiếu mã quyền cho: khách tự thao tác (`customer:self`), cấu hình hệ thống (`settings:write`), khớp tay giao dịch ngân hàng (`payment:reconcile`), phiếu sơ chế (`processing:create`), xử lý khiếu nại (`complaint:resolve`) | §19.6, §21.8, §10.1 | Đề xuất trong `openapi.yaml` (`x-proposed`) — **needs confirmation** |
 | NC-09 | Một số route cần cho màn hình nhưng không có trong §13.2 (đánh dấu `x-not-in-spec-13-2` trong OpenAPI), ví dụ `GET /app/orders`, `POST /pos/receipts/{id}/complete` | §13.2 vs §7.2, §21.3.2 | Đề xuất; xác nhận khi duyệt CP01 |
+| NC-10 | §12.3 `reporting.live_sales_hourly` có `cogs_amount`, mâu thuẫn FR-INV-11 / D14 (viewer không thấy giá vốn ngoài snapshot) | §12.3 vs §2.5, D14 | Đề xuất tách cột giá vốn sang bảng chỉ Master đọc (ERD §2.3) — **needs confirmation** |

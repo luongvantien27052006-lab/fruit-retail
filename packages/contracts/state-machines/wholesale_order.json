@@ -1,0 +1,174 @@
+{
+  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard từ file này.",
+  "machine": "wholesale_order",
+  "spec_ref": "§9.2",
+  "service": "WholesaleOrderStateMachine",
+  "events_table": "wholesale_order_events (đề xuất)",
+  "initial": "DRAFT",
+  "terminal": [
+    "PAID",
+    "CANCELLED"
+  ],
+  "states": [
+    "DRAFT",
+    "CONFIRMED",
+    "CANCELLED",
+    "PICKING",
+    "READY",
+    "DELIVERING",
+    "DELIVERED",
+    "PARTIALLY_PAID",
+    "PAID"
+  ],
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "CONFIRMED",
+      "actors": [
+        "MASTER"
+      ],
+      "note": ""
+    },
+    {
+      "from": "DRAFT",
+      "to": "CANCELLED",
+      "actors": [
+        "MASTER"
+      ],
+      "note": ""
+    },
+    {
+      "from": "CONFIRMED",
+      "to": "PICKING",
+      "actors": [
+        "STORE",
+        "WAREHOUSE"
+      ],
+      "note": ""
+    },
+    {
+      "from": "CONFIRMED",
+      "to": "CANCELLED",
+      "actors": [
+        "MASTER"
+      ],
+      "note": "Nhả giữ tồn"
+    },
+    {
+      "from": "PICKING",
+      "to": "READY",
+      "actors": [
+        "STORE",
+        "WAREHOUSE"
+      ],
+      "note": "Cân thực → tiền theo số thực (T14)"
+    },
+    {
+      "from": "PICKING",
+      "to": "CANCELLED",
+      "actors": [
+        "MASTER"
+      ],
+      "note": ""
+    },
+    {
+      "from": "READY",
+      "to": "DELIVERING",
+      "actors": [
+        "STORE",
+        "SHIPPER",
+        "COURIER"
+      ],
+      "note": ""
+    },
+    {
+      "from": "READY",
+      "to": "CANCELLED",
+      "actors": [
+        "MASTER"
+      ],
+      "note": "Hàng về kho"
+    },
+    {
+      "from": "DELIVERING",
+      "to": "DELIVERED",
+      "actors": [
+        "SHIPPER",
+        "COURIER"
+      ],
+      "note": "Ghi công nợ INVOICE"
+    },
+    {
+      "from": "DELIVERED",
+      "to": "PARTIALLY_PAID",
+      "actors": [
+        "MASTER"
+      ],
+      "note": "Ghi PAYMENT < còn nợ"
+    },
+    {
+      "from": "DELIVERED",
+      "to": "PAID",
+      "actors": [
+        "MASTER"
+      ],
+      "note": ""
+    },
+    {
+      "from": "PARTIALLY_PAID",
+      "to": "PAID",
+      "actors": [
+        "MASTER"
+      ],
+      "note": ""
+    }
+  ],
+  "test_vectors": {
+    "valid": [
+      [
+        "DRAFT",
+        "CONFIRMED",
+        "PICKING",
+        "READY",
+        "DELIVERING",
+        "DELIVERED",
+        "PAID"
+      ],
+      [
+        "DRAFT",
+        "CONFIRMED",
+        "PICKING",
+        "READY",
+        "DELIVERING",
+        "DELIVERED",
+        "PARTIALLY_PAID",
+        "PAID"
+      ],
+      [
+        "DRAFT",
+        "CANCELLED"
+      ]
+    ],
+    "invalid": [
+      [
+        "DRAFT",
+        "PICKING"
+      ],
+      [
+        "DELIVERING",
+        "CANCELLED"
+      ],
+      [
+        "PAID",
+        "PARTIALLY_PAID"
+      ]
+    ],
+    "actor_invalid": [
+      [
+        "DRAFT",
+        "CONFIRMED",
+        "STORE"
+      ]
+    ]
+  }
+}

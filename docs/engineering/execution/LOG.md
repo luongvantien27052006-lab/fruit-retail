@@ -13,3 +13,5 @@
 | 2026-11-17 | CP00 | Tiến xác nhận CP00 ĐẠT (yêu cầu "bắt đầu làm CP01"). Commit f9ea35f, aa318ab. |
 | 2026-11-17 | — | Tiến cấp remote `origin` = github.com/luongvantien27052006-lab/fruit-retail (repo trống); từ nay code đẩy lên đây. |
 | 2026-11-17 | CP01 | Mở CP01. |
+| 2026-11-17 | CP01 | Tiến chốt: ADR ở `docs/engineering/decisions/`, Prisma theo SPEC, worker là entry 2 của `apps/api`, Node 24 LTS. Tiến cho phép tự cài thư viện chính chủ khi cần. |
+| 2026-11-17 | CP01 | Ghi ADR-001…010, versions.json, openapi.yaml (189 thao tác), 24 schema sự kiện, 7 máy trạng thái + 50 vector, ERD, screens.md. Kiểm `pnpm --dir packages/contracts run check` exit 0. CP01 → CHỜ REVIEW. |

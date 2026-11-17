@@ -20,7 +20,11 @@ describe('lineAmount — FR-INV-03, Phụ lục A', () => {
   });
   it.each(v.lineAmountRejects)('$id từ chối ($error)', (c) => {
     expect(() => lineAmount(BigInt(c.pricePerKg), c.grams)).toThrowError(MoneyWeightError);
-    try { lineAmount(BigInt(c.pricePerKg), c.grams); } catch (e) { expect((e as MoneyWeightError).code).toBe(c.error); }
+    try {
+      lineAmount(BigInt(c.pricePerKg), c.grams);
+    } catch (e) {
+      expect((e as MoneyWeightError).code).toBe(c.error);
+    }
   });
 });
 

@@ -22,7 +22,8 @@ const INT64_MIN = -9_223_372_036_854_775_808n;
 const WIRE_RE = /^-?(0|[1-9][0-9]{0,17})$/;
 
 function assertGrams(grams: number): bigint {
-  if (!Number.isSafeInteger(grams)) throw new MoneyWeightError('NOT_INTEGER', `Khối lượng phải là số nguyên gram: ${grams}`);
+  if (!Number.isSafeInteger(grams))
+    throw new MoneyWeightError('NOT_INTEGER', `Khối lượng phải là số nguyên gram: ${grams}`);
   if (grams < 0) throw new MoneyWeightError('NEGATIVE', `Khối lượng âm: ${grams}`);
   return BigInt(grams);
 }
@@ -76,7 +77,8 @@ export function formatKg(grams: number): string {
 
 /** Chuỗi API → bigint (ADR-016). Từ chối số thực, mũ, khoảng trắng, quá 18 chữ số. */
 export function fromWire(wire: string): bigint {
-  if (typeof wire !== 'string' || !WIRE_RE.test(wire)) throw new MoneyWeightError('INVALID_WIRE', `Chuỗi tiền không hợp lệ: "${String(wire)}"`);
+  if (typeof wire !== 'string' || !WIRE_RE.test(wire))
+    throw new MoneyWeightError('INVALID_WIRE', `Chuỗi tiền không hợp lệ: "${String(wire)}"`);
   return BigInt(wire);
 }
 

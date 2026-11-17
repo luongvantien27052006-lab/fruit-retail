@@ -23,8 +23,13 @@ export interface ApplyOptions {
   log?: (msg: string) => void;
 }
 
-export async function applySqlMigrations({ url, dir, env, log = console.log }: ApplyOptions): Promise<{ applied: string[] }> {
-  const missing = Object.values(ROLE_PASSWORD_ENV).filter((k) => !env[k] || env[k]!.length < 12);
+export async function applySqlMigrations({
+  url,
+  dir,
+  env,
+  log = console.log,
+}: ApplyOptions): Promise<{ applied: string[] }> {
+  const missing = Object.values(ROLE_PASSWORD_ENV).filter((k) => (env[k] ?? '').length < 12);
   if (missing.length) throw new Error(`Thiếu hoặc quá ngắn (< 12 ký tự) mật khẩu role: ${missing.join(', ')}`);
 
   const files = readdirSync(dir)
@@ -40,14 +45,18 @@ export async function applySqlMigrations({ url, dir, env, log = console.log }: A
     const hasTable = await client.query(`SELECT to_regclass('integration.sql_migrations') IS NOT NULL AS ok`);
     const done = new Map<string, string>();
     if (hasTable.rows[0].ok) {
-      for (const r of (await client.query('SELECT file, sha256 FROM integration.sql_migrations')).rows) done.set(r.file, r.sha256);
+      for (const r of (await client.query('SELECT file, sha256 FROM integration.sql_migrations')).rows)
+        done.set(r.file, r.sha256);
     }
     for (const f of files) {
       const sql = readFileSync(new URL(f, dir), 'utf8');
       const sha = createHash('sha256').update(sql).digest('hex');
       const prev = done.get(f);
       if (prev) {
-        if (prev !== sha) throw new Error(`File ${f} đã áp nhưng sha256 thay đổi (${prev.slice(0, 12)}… → ${sha.slice(0, 12)}…). Sửa bằng file mới, không sửa file cũ.`);
+        if (prev !== sha)
+          throw new Error(
+            `File ${f} đã áp nhưng sha256 thay đổi (${prev.slice(0, 12)}… → ${sha.slice(0, 12)}…). Sửa bằng file mới, không sửa file cũ.`,
+          );
         continue;
       }
       await client.query('BEGIN');
@@ -57,7 +66,7 @@ export async function applySqlMigrations({ url, dir, env, log = console.log }: A
         await client.query('COMMIT');
       } catch (e) {
         await client.query('ROLLBACK');
-        throw new Error(`Áp ${f} thất bại: ${e instanceof Error ? e.message : String(e)}`);
+        throw new Error(`Áp ${f} thất bại: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
       }
       applied.push(f);
       log(`[sql] đã áp ${f}`);

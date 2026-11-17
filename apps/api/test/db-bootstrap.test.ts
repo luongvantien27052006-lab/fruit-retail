@@ -1,13 +1,14 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { copyFileSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applySqlMigrations, ROLE_PASSWORD_ENV } from '../src/db/sql-migrations';
 
 // Migration nền CP02 (ADR-011, ADR-017) chạy trên PostgreSQL + PostGIS THẬT.
-const SQL_DIR = new URL('../../../infra/sql/', import.meta.url);
+const SQL_DIR = pathToFileURL(resolve(process.cwd(), '../../infra/sql') + '/');
 const passwords = Object.fromEntries(Object.values(ROLE_PASSWORD_ENV).map((k) => [k, `test-${k.toLowerCase()}-pw`]));
 
 describe('infra/sql bootstrap', () => {
@@ -25,7 +26,7 @@ describe('infra/sql bootstrap', () => {
   const roleUrl = (role: string) => {
     const u = new URL(ownerUrl);
     u.username = role;
-    u.password = passwords[ROLE_PASSWORD_ENV[role as keyof typeof ROLE_PASSWORD_ENV]]!;
+    u.password = passwords[ROLE_PASSWORD_ENV[role as keyof typeof ROLE_PASSWORD_ENV]] ?? '';
     return u.toString();
   };
 
@@ -39,14 +40,21 @@ describe('infra/sql bootstrap', () => {
   });
 
   it('tạo đủ extension', async () => {
-    const rows = await q(`SELECT extname FROM pg_extension WHERE extname = ANY($1) ORDER BY 1`, [['pg_trgm', 'pgcrypto', 'postgis', 'unaccent']]);
+    const rows = await q(`SELECT extname FROM pg_extension WHERE extname = ANY($1) ORDER BY 1`, [
+      ['pg_trgm', 'pgcrypto', 'postgis', 'unaccent'],
+    ]);
     expect(rows.map((r) => r.extname)).toEqual(['pg_trgm', 'pgcrypto', 'postgis', 'unaccent']);
   });
 
   it('tạo đủ schema và 5 role đăng nhập, không role nào BYPASSRLS/SUPERUSER', async () => {
-    const s = await q(`SELECT nspname FROM pg_namespace WHERE nspname = ANY($1) ORDER BY 1`, [['audit', 'core', 'integration', 'reporting', 'reporting_private']]);
+    const s = await q(`SELECT nspname FROM pg_namespace WHERE nspname = ANY($1) ORDER BY 1`, [
+      ['audit', 'core', 'integration', 'reporting', 'reporting_private'],
+    ]);
     expect(s).toHaveLength(5);
-    const r = await q(`SELECT rolname, rolcanlogin, rolbypassrls, rolsuper FROM pg_roles WHERE rolname = ANY($1) ORDER BY 1`, [Object.keys(ROLE_PASSWORD_ENV)]);
+    const r = await q(
+      `SELECT rolname, rolcanlogin, rolbypassrls, rolsuper FROM pg_roles WHERE rolname = ANY($1) ORDER BY 1`,
+      [Object.keys(ROLE_PASSWORD_ENV)],
+    );
     expect(r.map((x) => x.rolname)).toEqual(Object.keys(ROLE_PASSWORD_ENV).sort());
     for (const x of r) expect([x.rolcanlogin, x.rolbypassrls, x.rolsuper]).toEqual([true, false, false]);
   });
@@ -94,15 +102,21 @@ describe('infra/sql bootstrap', () => {
   });
 
   it('chạy lại là idempotent; file đã áp mà bị sửa → từ chối', async () => {
-    await expect(applySqlMigrations({ url: ownerUrl, dir: SQL_DIR, env: passwords, log: () => undefined })).resolves.toEqual({ applied: [] });
+    await expect(
+      applySqlMigrations({ url: ownerUrl, dir: SQL_DIR, env: passwords, log: () => undefined }),
+    ).resolves.toEqual({ applied: [] });
     const tmp = mkdtempSync(join(tmpdir(), 'sql-'));
     for (const f of readdirSync(SQL_DIR)) if (f.endsWith('.sql')) copyFileSync(new URL(f, SQL_DIR), join(tmp, f));
     writeFileSync(join(tmp, '000_bootstrap.sql'), '-- sửa ngầm\nSELECT 1;\n');
-    await expect(applySqlMigrations({ url: ownerUrl, dir: new URL(`file:///${tmp.replace(/\\/g, '/')}/`), env: passwords, log: () => undefined })).rejects.toThrow(/sha256/);
+    await expect(
+      applySqlMigrations({ url: ownerUrl, dir: pathToFileURL(tmp + '/'), env: passwords, log: () => undefined }),
+    ).rejects.toThrow(/sha256/);
   });
 
   it('thiếu mật khẩu role → dừng, không đặt mật khẩu mặc định', async () => {
-    const { PG_APP_RW_PASSWORD: _omit, ...missing } = passwords;
-    await expect(applySqlMigrations({ url: ownerUrl, dir: SQL_DIR, env: missing, log: () => undefined })).rejects.toThrow(/PG_APP_RW_PASSWORD/);
+    const missing = Object.fromEntries(Object.entries(passwords).filter(([k]) => k !== 'PG_APP_RW_PASSWORD'));
+    await expect(
+      applySqlMigrations({ url: ownerUrl, dir: SQL_DIR, env: missing, log: () => undefined }),
+    ).rejects.toThrow(/PG_APP_RW_PASSWORD/);
   });
 });

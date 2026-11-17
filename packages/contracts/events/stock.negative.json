@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/stock.negative.json",
+  "title": "stock.negative",
+  "description": "Tồn âm tạm ở cửa hàng — cảnh báo (SPEC §13.3). Chi tiết hoàn thiện ở CP06.",
+  "x-detail-cp": "CP06",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "stock.negative"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "location_id",
+        "batch_id",
+        "sku_id",
+        "on_hand_g",
+        "on_hand_units",
+        "source_type",
+        "source_id"
+      ],
+      "properties": {
+        "location_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sku_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "on_hand_g": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "on_hand_units": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_type": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

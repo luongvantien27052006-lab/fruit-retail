@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/app_order.status_changed.json",
+  "title": "app_order.status_changed",
+  "description": "Đổi trạng thái đơn app (SPEC §13.3). Chi tiết hoàn thiện ở CP14.",
+  "x-detail-cp": "CP14",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "app_order.status_changed"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "order_id",
+        "store_id",
+        "from_status",
+        "to_status",
+        "actor_id",
+        "reason"
+      ],
+      "properties": {
+        "order_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "store_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "from_status": {
+          "type": "string"
+        },
+        "to_status": {
+          "type": "string"
+        },
+        "actor_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

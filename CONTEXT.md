@@ -35,3 +35,5 @@ thực sau khi cân, D10).
 | NC-05 | H1 và H5 ở §1.3 trùng nội dung "Đăng ký điểm bán" | §1.3 | Coi là một mục; **đã quyết HOÃN** (2026-11-17) |
 | NC-06 | Bảng quyết định §1.4 không có D6, D16 | §1.4 | Xác nhận đây là số bị bỏ, không phải quyết định bị mất |
 | NC-07 | §7.6 "Đăng ký điểm bán" | §7.6 | **Đã quyết: HOÃN** (Tiến, 2026-11-17) |
+| NC-08 | SPEC §19.6/§21.8 thiếu mã quyền cho: khách tự thao tác (`customer:self`), cấu hình hệ thống (`settings:write`), khớp tay giao dịch ngân hàng (`payment:reconcile`), phiếu sơ chế (`processing:create`), xử lý khiếu nại (`complaint:resolve`) | §19.6, §21.8, §10.1 | Đề xuất trong `openapi.yaml` (`x-proposed`) — **needs confirmation** |
+| NC-09 | Một số route cần cho màn hình nhưng không có trong §13.2 (đánh dấu `x-not-in-spec-13-2` trong OpenAPI), ví dụ `GET /app/orders`, `POST /pos/receipts/{id}/complete` | §13.2 vs §7.2, §21.3.2 | Đề xuất; xác nhận khi duyệt CP01 |

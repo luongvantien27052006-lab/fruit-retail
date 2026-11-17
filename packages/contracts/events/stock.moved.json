@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/stock.moved.json",
+  "title": "stock.moved",
+  "description": "Phát sinh kho (SPEC §13.3). Chi tiết hoàn thiện ở CP06.",
+  "x-detail-cp": "CP06",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "stock.moved"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "movement_id",
+        "location_id",
+        "batch_id",
+        "sku_id",
+        "movement_type",
+        "qty_g",
+        "qty_units"
+      ],
+      "properties": {
+        "movement_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "location_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sku_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "movement_type": {
+          "type": "string"
+        },
+        "qty_g": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "qty_units": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

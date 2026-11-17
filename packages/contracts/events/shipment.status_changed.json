@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/shipment.status_changed.json",
+  "title": "shipment.status_changed",
+  "description": "Đổi trạng thái giao (SPEC §13.3). Chi tiết hoàn thiện ở CP15.",
+  "x-detail-cp": "CP15",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "shipment.status_changed"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "shipment_id",
+        "ref_type",
+        "ref_id",
+        "from_status",
+        "to_status"
+      ],
+      "properties": {
+        "shipment_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "ref_type": {
+          "type": "string"
+        },
+        "ref_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "from_status": {
+          "type": "string"
+        },
+        "to_status": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

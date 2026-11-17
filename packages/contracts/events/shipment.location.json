@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/shipment.location.json",
+  "title": "shipment.location",
+  "description": "Vị trí shipper (SPEC §13.3). Chi tiết hoàn thiện ở CP15.",
+  "x-detail-cp": "CP15",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "shipment.location"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "shipment_id",
+        "lat",
+        "lng",
+        "at"
+      ],
+      "properties": {
+        "shipment_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "lat": {
+          "type": "number"
+        },
+        "lng": {
+          "type": "number"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

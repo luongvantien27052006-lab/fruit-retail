@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/device.calibration_due.json",
+  "title": "device.calibration_due",
+  "description": "Cân sắp hết hạn kiểm định (SPEC §13.3). Chi tiết hoàn thiện ở CP07.",
+  "x-detail-cp": "CP07",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "device.calibration_due"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "device_id",
+        "store_id",
+        "calibration_expires_at"
+      ],
+      "properties": {
+        "device_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "store_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "calibration_expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

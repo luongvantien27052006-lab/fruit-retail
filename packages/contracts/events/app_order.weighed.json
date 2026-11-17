@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/app_order.weighed.json",
+  "title": "app_order.weighed",
+  "description": "Đã cân — push ảnh cân + số tiền thực, tạo VA nếu trả sau khi cân (SPEC §13.3). Chi tiết hoàn thiện ở CP14.",
+  "x-detail-cp": "CP14",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "app_order.weighed"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "order_id",
+        "actual_subtotal",
+        "total_amount",
+        "payment_mode"
+      ],
+      "properties": {
+        "order_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actual_subtotal": {
+          "type": "string",
+          "pattern": "^-?[0-9]{1,19}$"
+        },
+        "total_amount": {
+          "type": "string",
+          "pattern": "^-?[0-9]{1,19}$"
+        },
+        "payment_mode": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

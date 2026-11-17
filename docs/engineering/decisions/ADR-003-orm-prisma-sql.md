@@ -1,6 +1,6 @@
 # ADR-003: Prisma cho bảng/truy vấn thường + SQL thủ công cho PostGIS, trigger, RLS, role
 
-- Trạng thái: accepted
+- Trạng thái: accepted — phần "4 Prisma Client" và vị trí SQL tay được làm rõ bởi ADR-011, ADR-017
 - Ngày: 2026-11-17 · Người quyết: Tiến · Căn cứ SPEC: §3.3, §12, §19.2, §19.5
 
 ## Bối cảnh

@@ -1,9 +1,9 @@
 {
-  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard từ file này.",
+  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard + hiệu ứng từ file này.",
   "machine": "wholesale_order",
-  "spec_ref": "§9.2",
+  "spec_ref": "§9.1–§9.5",
   "service": "WholesaleOrderStateMachine",
-  "events_table": "wholesale_order_events (đề xuất)",
+  "events_table": "audit.logs",
   "initial": "DRAFT",
   "terminal": [
     "PAID",
@@ -27,7 +27,10 @@
       "actors": [
         "MASTER"
       ],
-      "note": ""
+      "note": "",
+      "effects": [
+        "RESERVE_STOCK"
+      ]
     },
     {
       "from": "DRAFT",
@@ -35,7 +38,10 @@
       "actors": [
         "MASTER"
       ],
-      "note": ""
+      "note": "",
+      "effects": [
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "CONFIRMED",
@@ -44,7 +50,8 @@
         "STORE",
         "WAREHOUSE"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
     },
     {
       "from": "CONFIRMED",
@@ -52,7 +59,12 @@
       "actors": [
         "MASTER"
       ],
-      "note": "Nhả giữ tồn"
+      "note": "",
+      "effects": [
+        "RELEASE_HOLD",
+        "REFUND_DEPOSIT_IF_PAID",
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "PICKING",
@@ -61,7 +73,10 @@
         "STORE",
         "WAREHOUSE"
       ],
-      "note": "Cân thực → tiền theo số thực (T14)"
+      "note": "Tiền theo cân thực (T14)",
+      "effects": [
+        "COMPUTE_ACTUAL_AMOUNT"
+      ]
     },
     {
       "from": "PICKING",
@@ -69,7 +84,12 @@
       "actors": [
         "MASTER"
       ],
-      "note": ""
+      "note": "",
+      "effects": [
+        "RELEASE_HOLD",
+        "REFUND_DEPOSIT_IF_PAID",
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "READY",
@@ -79,7 +99,25 @@
         "SHIPPER",
         "COURIER"
       ],
-      "note": ""
+      "note": "",
+      "effects": [
+        "DEDUCT_STOCK_FEFO",
+        "RELEASE_HOLD"
+      ]
+    },
+    {
+      "from": "READY",
+      "to": "DELIVERED",
+      "actors": [
+        "STORE"
+      ],
+      "note": "Khách tự lấy (§9.1)",
+      "effects": [
+        "DEDUCT_STOCK_FEFO",
+        "RELEASE_HOLD",
+        "POST_RECEIVABLE"
+      ],
+      "guard": "fulfillment_type = PICKUP"
     },
     {
       "from": "READY",
@@ -87,42 +125,76 @@
       "actors": [
         "MASTER"
       ],
-      "note": "Hàng về kho"
+      "note": "Chưa trừ kho",
+      "effects": [
+        "RELEASE_HOLD",
+        "REFUND_DEPOSIT_IF_PAID",
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "DELIVERING",
       "to": "DELIVERED",
       "actors": [
         "SHIPPER",
+        "COURIER",
+        "STORE"
+      ],
+      "note": "",
+      "effects": [
+        "POST_RECEIVABLE",
+        "POD_PHOTO"
+      ]
+    },
+    {
+      "from": "DELIVERING",
+      "to": "READY",
+      "actors": [
+        "STORE",
+        "SHIPPER",
         "COURIER"
       ],
-      "note": "Ghi công nợ INVOICE"
+      "note": "Giao thất bại, hàng về",
+      "effects": [
+        "RETURN_STOCK_OR_SPOIL",
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "DELIVERED",
       "to": "PARTIALLY_PAID",
       "actors": [
-        "MASTER"
+        "MASTER",
+        "STORE",
+        "SYSTEM"
       ],
-      "note": "Ghi PAYMENT < còn nợ"
+      "note": "Thu một phần (VA SePay / phiếu thu)",
+      "effects": []
     },
     {
       "from": "DELIVERED",
       "to": "PAID",
       "actors": [
-        "MASTER"
+        "MASTER",
+        "STORE",
+        "SYSTEM"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
     },
     {
       "from": "PARTIALLY_PAID",
       "to": "PAID",
       "actors": [
-        "MASTER"
+        "MASTER",
+        "STORE",
+        "SYSTEM"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
     }
   ],
+  "notes": "Điểm trừ kho SALE_WHOLESALE: READY→DELIVERING (hoặc READY→DELIVERED khi khách tự lấy).",
   "test_vectors": {
     "valid": [
       [
@@ -140,8 +212,18 @@
         "PICKING",
         "READY",
         "DELIVERING",
+        "READY",
+        "DELIVERING",
         "DELIVERED",
         "PARTIALLY_PAID",
+        "PAID"
+      ],
+      [
+        "DRAFT",
+        "CONFIRMED",
+        "PICKING",
+        "READY",
+        "DELIVERED",
         "PAID"
       ],
       [

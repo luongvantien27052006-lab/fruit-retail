@@ -47,7 +47,7 @@
         },
         "total_amount": {
           "type": "string",
-          "pattern": "^-?[0-9]{1,19}$"
+          "pattern": "^-?[0-9]{1,18}$"
         },
         "weight_g": {
           "type": "integer",
@@ -57,7 +57,9 @@
           "type": "boolean"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
-  }
+  },
+  "x-audience": "internal:reporting,pos-control",
+  "x-sensitivity": "internal"
 }

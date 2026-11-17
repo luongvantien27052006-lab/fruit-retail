@@ -6,8 +6,14 @@ info:
   description: |
     API của hệ thống chuỗi bán lẻ hoa quả (SPEC v3.2 §13). Tiền là chuỗi số nguyên VND, khối lượng là gram nguyên.
     `x-permission`: mã quyền §19.6/§21.8; `public` = không cần đăng nhập; `auth:*` = mọi người dùng đã đăng nhập;
-    `customer:self`, `settings:write`, `payment:reconcile`, `processing:create`, `complaint:resolve` là mã bổ sung ngoài SPEC, Tiến duyệt 2026-11-17 (CONTEXT NC-08);
-    `approval:by-type` = quyền duyệt tương ứng loại yêu cầu; `webhook:*` = xác thực chữ ký/API key của đối tác.
+    `customer:self`, `settings:write`, `payment:reconcile`, `processing:create`, `complaint:resolve` là mã bổ sung ngoài SPEC, Tiến duyệt 2026-11-17 (CONTEXT NC-08); `mfa:challenge` = token thử thách 2FA 5 phút;
+    `approval:by-type` = quyền theo loại yêu cầu (xem x-permission-map); `webhook:*` = xác thực của đối tác (security scheme riêng).
+    Phần mở rộng: x-step-up (cần xác thực lại 2FA ≤ 5 phút), x-master-only, x-scope (store = chỉ trong cửa hàng được giao),
+    x-assignable-roles, x-permission-by-code (quyền theo mã báo cáo), x-conditional-permissions (quyền con theo nội dung request,
+    server kiểm cả trong /pos/sync/upload), x-permission-map (loại yêu cầu duyệt → mã quyền).
+    Quy ước lỗi phạm vi: tài nguyên ngoài phạm vi cửa hàng/chủ sở hữu → 404 RESOURCE_NOT_FOUND (không lộ tồn tại);
+    403 ACTION_FORBIDDEN chỉ khi bản thân route/hành động bị cấm với vai trò (ví dụ viewer gọi /admin/* — T16).
+    Mọi thao tác ghi từ POS/app/admin có Idempotency-Key (§13.1).
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -37,6 +43,8 @@ tags:
     description: "Admin Chỉ Xem — chỉ đọc (§2.5)"
   - name: webhooks
     description: "Webhook đối tác"
+  - name: files
+    description: "File (ADR-014)"
   - name: system
     description: "Hệ thống"
 paths:
@@ -44,13 +52,14 @@ paths:
     post:
       operationId: postAuthOtpRequest
       tags: [auth]
-      summary: "Gửi OTP đăng nhập khách (SEC6)"
+      summary: "Gửi OTP đăng nhập khách (SEC6) — giới hạn theo SĐT/thiết bị/IP"
       security: []
       x-permission: "public"
       x-spec-ref: "§2.4"
       x-detail-cp: CP03
       parameters:
         - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/DeviceId"
       requestBody:
         required: true
         content:
@@ -66,6 +75,10 @@ paths:
                 $ref: '#/components/schemas/PendingBody'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
         '422':
@@ -85,6 +98,7 @@ paths:
       x-detail-cp: CP03
       parameters:
         - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/DeviceId"
       requestBody:
         required: true
         content:
@@ -100,6 +114,10 @@ paths:
                 $ref: '#/components/schemas/PendingBody'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
         '422':
@@ -112,7 +130,7 @@ paths:
     post:
       operationId: postAuthLogin
       tags: [auth]
-      summary: "Đăng nhập Master/Viewer bằng mật khẩu (bước 1)"
+      summary: "Đăng nhập Master/Viewer bằng mật khẩu (bước 1) → mfa_challenge"
       security: []
       x-permission: "public"
       x-spec-ref: "§2.4"
@@ -134,6 +152,10 @@ paths:
                 $ref: '#/components/schemas/PendingBody'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
         '422':
@@ -146,9 +168,10 @@ paths:
     post:
       operationId: postAuth2faVerify
       tags: [auth]
-      summary: "Xác minh TOTP sau login (SEC1)"
-      security: []
-      x-permission: "public"
+      summary: "Xác minh TOTP sau login (SEC1) — cần mfa_challenge 5 phút, 1 lần"
+      security:
+        - mfaChallenge: []
+      x-permission: "mfa:challenge"
       x-spec-ref: "§2.4"
       x-detail-cp: CP03
       parameters:
@@ -168,6 +191,168 @@ paths:
                 $ref: '#/components/schemas/PendingBody'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /auth/2fa/recover:
+    post:
+      operationId: postAuth2faRecover
+      tags: [auth]
+      summary: "Đăng nhập bằng mã khôi phục (dùng 1 lần)"
+      security:
+        - mfaChallenge: []
+      x-permission: "mfa:challenge"
+      x-spec-ref: "§2.4"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PendingBody'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /auth/2fa/setup:
+    post:
+      operationId: postAuth2faSetup
+      tags: [auth]
+      summary: "Bắt đầu đăng ký TOTP (bắt buộc lần đầu với Master/Viewer)"
+      x-permission: "auth:*"
+      x-spec-ref: "§2.4"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PendingBody'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /auth/2fa/confirm:
+    post:
+      operationId: postAuth2faConfirm
+      tags: [auth]
+      summary: "Xác nhận đăng ký TOTP, trả mã khôi phục"
+      x-permission: "auth:*"
+      x-spec-ref: "§2.4"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PendingBody'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /auth/2fa/recovery-codes:
+    post:
+      operationId: postAuth2faRecoveryCodes
+      tags: [auth]
+      summary: "Sinh lại mã khôi phục"
+      x-permission: "auth:*"
+      x-step-up: true
+      x-spec-ref: "§2.4"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PendingBody'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
         '422':
@@ -180,13 +365,14 @@ paths:
     post:
       operationId: postAuthPin
       tags: [auth]
-      summary: "Nhân viên đăng nhập mã NV + PIN trên thiết bị đã kích hoạt (SEC3)"
+      summary: "Nhân viên đăng nhập mã NV + PIN trên thiết bị đã kích hoạt (SEC3) — ký nonce bằng khóa thiết bị"
       security: []
       x-permission: "public"
       x-spec-ref: "§2.4"
       x-detail-cp: CP03
       parameters:
         - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/DeviceId"
       requestBody:
         required: true
         content:
@@ -202,6 +388,51 @@ paths:
                 $ref: '#/components/schemas/PendingBody'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /auth/devices/register:
+    post:
+      operationId: postAuthDevicesRegister
+      tags: [auth]
+      summary: "Thiết bị POS/tablet đăng ký khóa công khai (PENDING chờ kích hoạt)"
+      security: []
+      x-permission: "public"
+      x-spec-ref: "§2.4"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PendingBody'
+      responses:
+        '201':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
         '422':
@@ -251,13 +482,14 @@ paths:
     post:
       operationId: postAuthRefresh
       tags: [auth]
-      summary: "Xoay vòng refresh token (SEC4)"
+      summary: "Xoay vòng refresh token theo họ (SEC4); staff bắt buộc X-Device-Id"
       security: []
       x-permission: "public"
       x-spec-ref: "§2.4"
       x-detail-cp: CP03
       parameters:
         - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/DeviceId"
       requestBody:
         required: true
         content:
@@ -273,6 +505,10 @@ paths:
                 $ref: '#/components/schemas/PendingBody'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
         '422':
@@ -285,7 +521,7 @@ paths:
     post:
       operationId: postAuthLogout
       tags: [auth]
-      summary: "Thu hồi phiên"
+      summary: "Thu hồi phiên hiện tại"
       x-permission: "auth:*"
       x-spec-ref: "§2.4"
       x-detail-cp: CP03
@@ -314,6 +550,196 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /auth/sessions:
+    get:
+      operationId: getAuthSessions
+      tags: [auth]
+      summary: "Danh sách phiên của chính mình theo thiết bị (SEC4)"
+      x-permission: "auth:*"
+      x-spec-ref: "§2.4"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /auth/sessions/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      operationId: deleteAuthSessionsId
+      tags: [auth]
+      summary: "Thu hồi một phiên của chính mình"
+      x-permission: "auth:*"
+      x-spec-ref: "§2.4"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        '204':
+          description: Thành công
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /files/presign:
+    post:
+      operationId: postFilesPresign
+      tags: [files]
+      summary: "Xin presigned PUT (khai kind, mime, bytes, sha256, captured_at)"
+      x-permission: "auth:*"
+      x-spec-ref: "§3.5"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PendingBody'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /files/{id}/complete:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: postFilesIdComplete
+      tags: [files]
+      summary: "Xác nhận upload — server tự tính sha256, cảnh báo trùng"
+      x-permission: "auth:*"
+      x-spec-ref: "§3.5"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PendingBody'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /files/{id}/download-url:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getFilesIdDownloadUrl
+      tags: [files]
+      summary: "Presigned GET 60 giây sau khi kiểm quyền theo owner"
+      x-permission: "auth:*"
+      x-spec-ref: "§3.5"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '503':
@@ -613,7 +1039,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PendingBody'
       responses:
-        '201':
+        '200':
           description: Thành công
           content:
             application/json:
@@ -811,6 +1237,7 @@ paths:
       x-detail-cp: CP14
       x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RequestId"
       requestBody:
         required: true
@@ -850,6 +1277,7 @@ paths:
       x-spec-ref: "§7.7"
       x-detail-cp: CP14
       parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RequestId"
       requestBody:
         required: true
@@ -887,6 +1315,7 @@ paths:
       x-spec-ref: "§7.7"
       x-detail-cp: CP14
       parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RequestId"
       responses:
         '204':
@@ -914,6 +1343,7 @@ paths:
       x-spec-ref: "§13.5"
       x-detail-cp: CP14
       parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RequestId"
       requestBody:
         required: true
@@ -1123,6 +1553,10 @@ paths:
       tags: [pos]
       summary: "Chốt hóa đơn (server tính tiền)"
       x-permission: "pos:sell"
+      x-conditional-permissions:
+        "line.weight_source=MANUAL": "pos:manual_weight (người duyệt tại chỗ: thẻ + PIN quản lý)"
+        "line.discount_amount>0": "pos:discount (trong hạn mức §2.3; dưới giá sàn chỉ Master)"
+        "line.voided_after_weigh": "pos:void_line (ghi log đặc biệt)"
       x-spec-ref: "§6.3"
       x-detail-cp: CP07
       parameters:
@@ -1148,6 +1582,160 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /pos/approvals:
+    get:
+      operationId: getPosApprovals
+      tags: [pos]
+      summary: "Yêu cầu chờ duyệt trong hạn mức của cửa hàng (cửa hàng trưởng)"
+      x-permission: "approval:by-type"
+      x-permission-map:
+        "SPOILAGE": "spoilage:approve"
+        "STOCKTAKE_ADJUST": "stocktake:approve"
+        "INTERNAL_USE": "internal_use:approve"
+        "MARKDOWN": "markdown:approve"
+        "CASH_DIFFERENCE": "cash:approve"
+        "SALE_VOID": "pos:void_sale"
+        "REFUND": "pos:refund"
+        "PO": "po:approve"
+      x-spec-ref: "§2.3"
+      x-detail-cp: CP06
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /pos/approvals/{id}/approve:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: postPosApprovalsIdApprove
+      tags: [pos]
+      summary: "Cửa hàng trưởng duyệt trong hạn mức; người duyệt ≠ người tạo"
+      x-permission: "approval:by-type"
+      x-permission-map:
+        "SPOILAGE": "spoilage:approve"
+        "STOCKTAKE_ADJUST": "stocktake:approve"
+        "INTERNAL_USE": "internal_use:approve"
+        "MARKDOWN": "markdown:approve"
+        "CASH_DIFFERENCE": "cash:approve"
+        "SALE_VOID": "pos:void_sale"
+        "REFUND": "pos:refund"
+        "PO": "po:approve"
+      x-spec-ref: "§2.3"
+      x-detail-cp: CP06
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PendingBody'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /pos/approvals/{id}/reject:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: postPosApprovalsIdReject
+      tags: [pos]
+      summary: "Cửa hàng trưởng từ chối"
+      x-permission: "approval:by-type"
+      x-permission-map:
+        "SPOILAGE": "spoilage:approve"
+        "STOCKTAKE_ADJUST": "stocktake:approve"
+        "INTERNAL_USE": "internal_use:approve"
+        "MARKDOWN": "markdown:approve"
+        "CASH_DIFFERENCE": "cash:approve"
+        "SALE_VOID": "pos:void_sale"
+        "REFUND": "pos:refund"
+        "PO": "po:approve"
+      x-spec-ref: "§2.3"
+      x-detail-cp: CP06
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PendingBody'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
         '422':
@@ -1375,6 +1963,9 @@ paths:
       tags: [pos]
       summary: "Thu/chi tại cửa hàng"
       x-permission: "cash:movement"
+      x-conditional-permissions:
+        "type=NO_SALE_OPEN": "pos:no_sale_open (PIN cửa hàng trưởng + lý do)"
+        "cần duyệt": "cash:approve"
       x-spec-ref: "§6.10"
       x-detail-cp: CP09
       parameters:
@@ -1444,8 +2035,14 @@ paths:
     post:
       operationId: postPosSyncUpload
       tags: [pos]
-      summary: "Đồng bộ giao dịch offline theo client_txn_id"
+      summary: "Đồng bộ giao dịch offline theo client_txn_id — server kiểm lại mọi quyền con của từng giao dịch"
       x-permission: "pos:sell"
+      x-conditional-permissions:
+        "line.weight_source=MANUAL": "pos:manual_weight (người duyệt tại chỗ: thẻ + PIN quản lý)"
+        "line.discount_amount>0": "pos:discount (trong hạn mức §2.3; dưới giá sàn chỉ Master)"
+        "line.voided_after_weigh": "pos:void_line (ghi log đặc biệt)"
+        "type=NO_SALE_OPEN": "pos:no_sale_open (PIN cửa hàng trưởng + lý do)"
+        "cần duyệt": "cash:approve"
       x-spec-ref: "§6.12"
       x-detail-cp: CP09
       parameters:
@@ -2022,6 +2619,8 @@ paths:
       tags: [inventory]
       summary: "Phiếu nhận hàng NCC (DRAFT)"
       x-permission: "receipt:create"
+      x-conditional-permissions:
+        "có trường giá nhập (invoice_price_*)": "purchase_price:write"
       x-spec-ref: "§5.3"
       x-detail-cp: CP05
       parameters:
@@ -2068,6 +2667,8 @@ paths:
       tags: [inventory]
       summary: "Hoàn thành phiếu nhận, tạo lô"
       x-permission: "receipt:create"
+      x-conditional-permissions:
+        "có trường giá nhập (invoice_price_*)": "purchase_price:write"
       x-spec-ref: "§21.3.2"
       x-detail-cp: CP05
       x-not-in-spec-13-2: true  # đã duyệt NC-09
@@ -2082,7 +2683,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PendingBody'
       responses:
-        '201':
+        '200':
           description: Thành công
           content:
             application/json:
@@ -2354,7 +2955,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PendingBody'
       responses:
-        '201':
+        '200':
           description: Thành công
           content:
             application/json:
@@ -2870,6 +3471,7 @@ paths:
       x-spec-ref: "§8.7"
       x-detail-cp: CP15
       parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/DeviceId"
       requestBody:
@@ -4054,8 +4656,10 @@ paths:
     get:
       operationId: getAdminStaff
       tags: [admin]
-      summary: "Danh sách nhân viên"
+      summary: "Danh sách nhân viên (không gồm tài khoản admin)"
       x-permission: "staff:write"
+      x-scope: store
+      x-assignable-roles: "MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)"
       x-spec-ref: "§4.8"
       x-detail-cp: CP03
       parameters:
@@ -4080,8 +4684,10 @@ paths:
     post:
       operationId: postAdminStaff
       tags: [admin]
-      summary: "Tạo nhân viên"
+      summary: "Tạo nhân viên (không gồm tài khoản admin)"
       x-permission: "staff:write"
+      x-scope: store
+      x-assignable-roles: "MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)"
       x-spec-ref: "§4.8"
       x-detail-cp: CP03
       parameters:
@@ -4125,8 +4731,10 @@ paths:
     get:
       operationId: getAdminStaffId
       tags: [admin]
-      summary: "Chi tiết nhân viên"
+      summary: "Chi tiết nhân viên (không gồm tài khoản admin)"
       x-permission: "staff:write"
+      x-scope: store
+      x-assignable-roles: "MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)"
       x-spec-ref: "§4.8"
       x-detail-cp: CP03
       parameters:
@@ -4153,8 +4761,10 @@ paths:
     patch:
       operationId: patchAdminStaffId
       tags: [admin]
-      summary: "Sửa nhân viên"
+      summary: "Sửa nhân viên (không gồm tài khoản admin)"
       x-permission: "staff:write"
+      x-scope: store
+      x-assignable-roles: "MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)"
       x-spec-ref: "§4.8"
       x-detail-cp: CP03
       parameters:
@@ -4610,8 +5220,8 @@ paths:
     get:
       operationId: getAdminCashAccounts
       tags: [admin]
-      summary: "Danh sách quỹ tiền"
-      x-permission: "report:read"
+      summary: "Danh sách quỹ tiền (số tài khoản luôn che trong response)"
+      x-permission: "cash_account:write"
       x-spec-ref: "§21.3.15"
       x-detail-cp: CP09
       parameters:
@@ -4636,7 +5246,7 @@ paths:
     post:
       operationId: postAdminCashAccounts
       tags: [admin]
-      summary: "Tạo quỹ tiền"
+      summary: "Tạo quỹ tiền (số tài khoản luôn che trong response)"
       x-permission: "cash_account:write"
       x-spec-ref: "§21.3.15"
       x-detail-cp: CP09
@@ -4681,8 +5291,8 @@ paths:
     get:
       operationId: getAdminCashAccountsId
       tags: [admin]
-      summary: "Chi tiết quỹ tiền"
-      x-permission: "report:read"
+      summary: "Chi tiết quỹ tiền (số tài khoản luôn che trong response)"
+      x-permission: "cash_account:write"
       x-spec-ref: "§21.3.15"
       x-detail-cp: CP09
       parameters:
@@ -4709,7 +5319,7 @@ paths:
     patch:
       operationId: patchAdminCashAccountsId
       tags: [admin]
-      summary: "Sửa quỹ tiền"
+      summary: "Sửa quỹ tiền (số tài khoản luôn che trong response)"
       x-permission: "cash_account:write"
       x-spec-ref: "§21.3.15"
       x-detail-cp: CP09
@@ -5213,8 +5823,11 @@ paths:
     post:
       operationId: postAdminRoleAssignments
       tags: [admin]
-      summary: "Gán vai trò theo phạm vi"
+      summary: "Gán vai trò theo phạm vi (không gán MASTER_ADMIN/VIEW_ONLY_ADMIN ở đây)"
       x-permission: "role:assign"
+      x-step-up: true
+      x-scope: store
+      x-assignable-roles: "MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)"
       x-spec-ref: "§2.1"
       x-detail-cp: CP03
       parameters:
@@ -5260,9 +5873,13 @@ paths:
       tags: [admin]
       summary: "Gỡ vai trò"
       x-permission: "role:assign"
+      x-step-up: true
+      x-scope: store
+      x-assignable-roles: "MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)"
       x-spec-ref: "§2.1"
       x-detail-cp: CP03
       parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RequestId"
       responses:
         '204':
@@ -5287,8 +5904,8 @@ paths:
     put:
       operationId: putAdminApprovalLimits
       tags: [admin]
-      summary: "Cấu hình hạn mức duyệt"
-      x-permission: "role:assign"
+      summary: "Cấu hình hạn mức duyệt (chỉ Master)"
+      x-permission: "settings:write"
       x-step-up: true
       x-spec-ref: "§2.3"
       x-detail-cp: CP03
@@ -5322,6 +5939,360 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /admin/admin-accounts:
+    post:
+      operationId: postAdminAdminAccounts
+      tags: [admin]
+      summary: "Tạo tài khoản MASTER_ADMIN / VIEW_ONLY_ADMIN (chỉ Master, bắt buộc 2FA lần đầu)"
+      x-permission: "staff:write"
+      x-step-up: true
+      x-master-only: true
+      x-spec-ref: "§2.4 SEC2"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PendingBody'
+      responses:
+        '201':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/users/{id}/lock:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: postAdminUsersIdLock
+      tags: [admin]
+      summary: "Khóa tài khoản (thu hồi mọi phiên); admin cần step-up; chặn khóa Master cuối cùng"
+      x-permission: "staff:write"
+      x-step-up: true
+      x-spec-ref: "§2.4 SEC2"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PendingBody'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/users/{id}/unlock:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: postAdminUsersIdUnlock
+      tags: [admin]
+      summary: "Mở khóa tài khoản"
+      x-permission: "staff:write"
+      x-step-up: true
+      x-spec-ref: "§2.4 SEC2"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PendingBody'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/users/{id}/2fa/reset:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: postAdminUsersId2faReset
+      tags: [admin]
+      summary: "Reset 2FA của người khác (chỉ Master)"
+      x-permission: "staff:write"
+      x-step-up: true
+      x-master-only: true
+      x-spec-ref: "§2.4"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PendingBody'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/users/{id}/sessions:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getAdminUsersIdSessions
+      tags: [admin]
+      summary: "Phiên đăng nhập của một tài khoản"
+      x-permission: "staff:write"
+      x-master-only: true
+      x-spec-ref: "§10.1 mục 14"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/sessions/{id}/revoke:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: postAdminSessionsIdRevoke
+      tags: [admin]
+      summary: "Thu hồi phiên/thiết bị"
+      x-permission: "staff:write"
+      x-master-only: true
+      x-spec-ref: "§2.4 SEC4"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PendingBody'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/users/{id}/viewer-profiles:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: putAdminUsersIdViewerProfiles
+      tags: [admin]
+      summary: "Gán hồ sơ hiển thị cho tài khoản viewer"
+      x-permission: "viewer_profile:write"
+      x-step-up: true
+      x-spec-ref: "§10.3"
+      x-detail-cp: CP12
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PendingBody'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/pos-devices:
+    get:
+      operationId: getAdminPosDevices
+      tags: [admin]
+      summary: "Thiết bị chờ kích hoạt / đã kích hoạt"
+      x-permission: "device:write"
+      x-scope: store
+      x-spec-ref: "§2.4"
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /admin/pos-devices/{id}/activate:
     parameters:
       - name: id
@@ -5347,7 +6318,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PendingBody'
       responses:
-        '201':
+        '200':
           description: Thành công
           content:
             application/json:
@@ -5394,7 +6365,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PendingBody'
       responses:
-        '201':
+        '200':
           description: Thành công
           content:
             application/json:
@@ -5629,7 +6600,7 @@ paths:
     get:
       operationId: getAdminCustomers
       tags: [admin]
-      summary: "Danh sách khách app"
+      summary: "Danh sách khách app (SĐT che)"
       x-permission: "customer:read_masked"
       x-spec-ref: "§10.1"
       x-detail-cp: CP14
@@ -5648,6 +6619,93 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/customers/{id}/contact:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getAdminCustomersIdContact
+      tags: [admin]
+      summary: "Xem SĐT/địa chỉ đầy đủ (ghi audit mỗi lần)"
+      x-permission: "customer:read_full"
+      x-master-only: true
+      x-spec-ref: "§14, FR-INV-19"
+      x-detail-cp: CP14
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/customers/{id}/lock:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: postAdminCustomersIdLock
+      tags: [admin]
+      summary: "Khóa tài khoản khách"
+      x-permission: "customer:read_full"
+      x-master-only: true
+      x-spec-ref: "§10.1 mục 13"
+      x-detail-cp: CP14
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PendingBody'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '503':
@@ -5793,8 +6851,16 @@ paths:
     get:
       operationId: getAdminReportsCode
       tags: [admin]
-      summary: "Báo cáo R01–R24"
+      summary: "Báo cáo R01–R24 — quyền theo mã (x-permission-by-code); thiếu purchase_price:read thì không có cột giá vốn"
       x-permission: "report:read"
+      x-scope: store
+      x-permission-by-code:
+        "default": "report:read"
+        "R01,R06,R07,R08,R10,R15,R17,R19,R20,R21": "purchase_price:read"
+        "R12": "wholesale:read"
+        "R16": "supplier:read"
+        "R22": "cash_account:write"
+        "R23": "stock:read"
       x-spec-ref: "§11.2"
       x-detail-cp: CP10
       parameters:
@@ -5822,8 +6888,16 @@ paths:
     post:
       operationId: postAdminExports
       tags: [admin]
-      summary: "Xuất Excel/PDF"
+      summary: "Xuất Excel/PDF báo cáo — cùng quyền theo mã như /admin/reports; KHÔNG xuất danh sách khách (đi qua /admin/customers/export)"
       x-permission: "report:export"
+      x-scope: store
+      x-permission-by-code:
+        "default": "report:read"
+        "R01,R06,R07,R08,R10,R15,R17,R19,R20,R21": "purchase_price:read"
+        "R12": "wholesale:read"
+        "R16": "supplier:read"
+        "R22": "cash_account:write"
+        "R23": "stock:read"
       x-spec-ref: "§11"
       x-detail-cp: CP10
       parameters:
@@ -5946,7 +7020,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PendingBody'
       responses:
-        '201':
+        '200':
           description: Thành công
           content:
             application/json:
@@ -5993,7 +7067,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PendingBody'
       responses:
-        '201':
+        '200':
           description: Thành công
           content:
             application/json:
@@ -6117,7 +7191,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PendingBody'
       responses:
-        '201':
+        '200':
           description: Thành công
           content:
             application/json:
@@ -6409,8 +7483,17 @@ paths:
     post:
       operationId: postAdminApprovalsIdApprove
       tags: [admin]
-      summary: "Duyệt yêu cầu (quyền theo loại)"
+      summary: "Master duyệt yêu cầu vượt hạn mức (quyền theo loại; người duyệt ≠ người tạo)"
       x-permission: "approval:by-type"
+      x-permission-map:
+        "SPOILAGE": "spoilage:approve"
+        "STOCKTAKE_ADJUST": "stocktake:approve"
+        "INTERNAL_USE": "internal_use:approve"
+        "MARKDOWN": "markdown:approve"
+        "CASH_DIFFERENCE": "cash:approve"
+        "SALE_VOID": "pos:void_sale"
+        "REFUND": "pos:refund"
+        "PO": "po:approve"
       x-spec-ref: "§2.3"
       x-detail-cp: CP06
       parameters:
@@ -6456,8 +7539,17 @@ paths:
     post:
       operationId: postAdminApprovalsIdReject
       tags: [admin]
-      summary: "Từ chối yêu cầu"
+      summary: "Master từ chối yêu cầu"
       x-permission: "approval:by-type"
+      x-permission-map:
+        "SPOILAGE": "spoilage:approve"
+        "STOCKTAKE_ADJUST": "stocktake:approve"
+        "INTERNAL_USE": "internal_use:approve"
+        "MARKDOWN": "markdown:approve"
+        "CASH_DIFFERENCE": "cash:approve"
+        "SALE_VOID": "pos:void_sale"
+        "REFUND": "pos:refund"
+        "PO": "po:approve"
       x-spec-ref: "§2.3"
       x-detail-cp: CP06
       parameters:
@@ -6518,7 +7610,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PendingBody'
       responses:
-        '201':
+        '200':
           description: Thành công
           content:
             application/json:
@@ -6640,7 +7732,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PendingBody'
       responses:
-        '201':
+        '200':
           description: Thành công
           content:
             application/json:
@@ -6688,7 +7780,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PendingBody'
       responses:
-        '201':
+        '200':
           description: Thành công
           content:
             application/json:
@@ -6765,7 +7857,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PendingBody'
       responses:
-        '201':
+        '200':
           description: Thành công
           content:
             application/json:
@@ -6804,7 +7896,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PendingBody'
       responses:
-        '201':
+        '200':
           description: Thành công
           content:
             application/json:
@@ -7022,6 +8114,48 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /viewer/snapshots/{id}/sections/{section}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: section
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [sales, inventory, purchase, price_spread, delivery, pnl]
+    get:
+      operationId: getViewerSnapshotsIdSectionsSection
+      tags: [viewer]
+      summary: "Một phần của snapshot (sales, inventory, purchase, price_spread, delivery, pnl) theo hồ sơ"
+      x-permission: "viewer:read"
+      x-spec-ref: "§10.5"
+      x-detail-cp: CP12
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /viewer/files/{id}/download:
     parameters:
       - name: id
@@ -7119,8 +8253,9 @@ paths:
     post:
       operationId: postWebhooksSepay
       tags: [webhooks]
-      summary: "Webhook SePay (API key + chống replay, inbox unique)"
-      security: []
+      summary: "Webhook SePay — xác thực API key + thời gian trước khi chiếm khóa inbox; trùng hoặc không khớp VA vẫn trả 200"
+      security:
+        - sepayWebhook: []
       x-permission: "webhook:sepay"
       x-spec-ref: "§13.4"
       x-detail-cp: CP08
@@ -7143,12 +8278,6 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/Unprocessable'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
   /webhooks/courier/{provider}:
@@ -7158,11 +8287,13 @@ paths:
         required: true
         schema:
           type: string
+          enum: [ahamove]
     post:
       operationId: postWebhooksCourierProvider
       tags: [webhooks]
-      summary: "Webhook 3PL (Ahamove)"
-      security: []
+      summary: "Webhook 3PL — secret riêng từng đối tác; trạng thái có tiền (COD) phải đối chiếu track() trước khi đổi"
+      security:
+        - courierWebhook: []
       x-permission: "webhook:courier"
       x-spec-ref: "§13.6"
       x-detail-cp: CP15
@@ -7185,14 +8316,6 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/Unprocessable'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
   /health:
@@ -7225,7 +8348,21 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Access token 15 phút (SEC4)
+      description: Access token 15 phút, EdDSA (SEC4, ADR-012)
+    mfaChallenge:
+      type: http
+      scheme: bearer
+      description: Token thử thách 2FA từ /auth/login, 5 phút, dùng 1 lần (ADR-012)
+    sepayWebhook:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: API key webhook SePay theo tài liệu SePay; kiểm thời gian chống replay (§13.4, ADR-009)
+    courierWebhook:
+      type: apiKey
+      in: header
+      name: X-Webhook-Signature
+      description: Chữ ký/secret riêng từng đối tác 3PL (§13.6)
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -7301,7 +8438,7 @@ components:
   schemas:
     VndAmount:
       type: string
-      pattern: '^-?[0-9]{1,19}$'
+      pattern: '^-?[0-9]{1,18}$'
       format: vnd
       description: Tiền VND nguyên, chuỗi (FR-INV-01). Sinh ra bigint (TS) / int (Dart).
       examples: ['114950']
@@ -7357,6 +8494,12 @@ components:
         - PRICE_BELOW_FLOOR
         - PAYMENT_NOT_CONFIRMED
         - IMPORT_VALIDATION_FAILED
+        - TWO_FACTOR_ENROLLMENT_REQUIRED
+        - SESSION_REVOKED
+        - DEVICE_REVOKED
+        - LAST_MASTER_REQUIRED
+        - WEBHOOK_SIGNATURE_INVALID
+        - MFA_CHALLENGE_INVALID
         - RATE_LIMITED
         - OTP_RATE_LIMITED
         - CONFIGURATION_NOT_READY
@@ -7398,6 +8541,12 @@ components:
         PRICE_BELOW_FLOOR: 422
         PAYMENT_NOT_CONFIRMED: 422
         IMPORT_VALIDATION_FAILED: 422
+        TWO_FACTOR_ENROLLMENT_REQUIRED: 403
+        SESSION_REVOKED: 401
+        DEVICE_REVOKED: 403
+        LAST_MASTER_REQUIRED: 422
+        WEBHOOK_SIGNATURE_INVALID: 401
+        MFA_CHALLENGE_INVALID: 401
         RATE_LIMITED: 429
         OTP_RATE_LIMITED: 429
         CONFIGURATION_NOT_READY: 503

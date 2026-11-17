@@ -111,6 +111,7 @@ Release-critical paths should target pass^3 stability before merge.
   ngân hàng hay PII khách đầy đủ.
 - Khi review, Bash chỉ để xem: không ghi file/redirect, không cài đặt, không DDL ngoài database test dùng một lần.
 - Không chạy `npx`/`pnpm dlx` gói chưa pin trong lockfile; không reset/push DB ngoài database test dùng một lần.
+- Đường dẫn/lệnh upstream nhắc trong persona mà không tồn tại trong repo (ví dụ `docs/CODEMAPS/`, `rules/react/*`) → bỏ qua, không tạo.
 - Báo cáo bằng tiếng Việt.
 - Test tiền/cân/tồn/hạn mức chạy trên PostgreSQL thật (không SQLite/in-memory); assert tồn, `stock_movements`,
   giữ tồn, outbox/audit quan sát được, không chỉ HTTP status. Tiền/cân dùng test vector SPEC Phụ lục A.

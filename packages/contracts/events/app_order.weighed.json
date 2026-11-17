@@ -32,17 +32,19 @@
         },
         "actual_subtotal": {
           "type": "string",
-          "pattern": "^-?[0-9]{1,19}$"
+          "pattern": "^-?[0-9]{1,18}$"
         },
         "total_amount": {
           "type": "string",
-          "pattern": "^-?[0-9]{1,19}$"
+          "pattern": "^-?[0-9]{1,18}$"
         },
         "payment_mode": {
           "type": "string"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
-  }
+  },
+  "x-audience": "internal:notify,payments",
+  "x-sensitivity": "internal"
 }

@@ -112,3 +112,24 @@ chung (mục 0) + nhánh riêng của màn.
 | V03 | Đơn hàng | `/viewer/orders` | Khách luôn che | CP12 |
 | V04 | Tồn kho | `/viewer/stock` | Chỉ số lượng | CP12 |
 | V05 | Báo cáo đã phát hành | `/viewer/snapshots*`, `POST /viewer/files/{id}/download` | Snapshot bị thu hồi → hiện "đã thu hồi" + phiên bản thay thế | CP12 |
+
+## 6. Bổ sung theo review CP01 (2026-11-17)
+
+| # | Màn / nhánh | Nội dung | Nguồn | CP |
+|---|---|---|---|---|
+| P15 | Treo hóa đơn | Treo/gọi lại hóa đơn; tự hủy sau N giờ (cấu hình), có log | §6.7 | CP07 |
+| P16 | Kiểm tra thiết bị | Trạng thái cân (ổn định/0/mất kết nối), máy in (hết giấy, lỗi, mất kết nối), két; in thử; lỗi máy in không chặn chốt hóa đơn nhưng hiện đỏ + cho in lại | §6.13, ADR-008 | CP07 |
+| P17 | Tạm dừng nhận đơn app | Tự chuyển `PAUSED` khi POS mất kết nối > 2 phút; cửa hàng trưởng bật/tắt tay | §6.12, §4.6 | CP14 |
+| P18 | Duyệt tại chỗ | Thẻ + PIN quản lý cho hủy hóa đơn, cân tay, mở két, giảm giá; route `/pos/approvals/*` | §21.3.9, §2.3 | CP08 |
+| T09 | Duyệt giảm giá cận hạn | Cửa hàng trưởng ≤ 20%; dưới giá sàn chỉ Master (`PRICE_BELOW_FLOOR`) | §5.8 | CP17 |
+| T10 | Phiếu lắp giỏ / đóng gói | Chọn công thức, cân thành phần, ATP giỏ + "nút cổ chai" (T41) | §5.11, §21.3.18 | CP17 |
+| T02+ | Soạn đơn app — nhánh thêm | `DELIVERY_FAILED`: giao lại / nhập lại kho / hủy hàng; 3PL không tìm được tài xế → về `PACKED`, gán lại | §8.7 | CP15 |
+| P14+ | Đơn điện thoại — nhánh thêm | Giờ lấy/giao, PICKUP hay DELIVERY, gửi link theo dõi; quá giờ lấy N giờ → nhắc, quá hạn → hủy, nhả tồn | §21.3.12 | CP14 |
+| U04/U07+ | App — nhánh thêm | Vùng giao tắt, ngoài giờ nhận đơn, khung giờ hết năng lực, cửa hàng `PAUSED`, COD bị tắt cho mặt hàng/giá trị cao | §8.2, §7.3 | CP14 |
+| U08+ | Thanh toán VietQR | Nhắc sau 10 phút; tiền về sau khi đơn đã hủy → thông báo "sẽ hoàn tiền" (payment `LATE_RECEIVED`) | §8.4, §6.6 | CP14 |
+| U10+ | Thiếu hàng | Đếm ngược 10 phút; hết giờ mặc định giao phần còn lại | §8.5 | CP14 |
+| U12+ | Khiếu nại | Khách chọn hoàn chuyển khoản hoặc giao bù lần sau | §8.8 | CP14 |
+| A14+ | Khách hàng app | Xem SĐT đầy đủ (ghi audit), khóa tài khoản khách | §10.1 mục 13, §14 | CP14 |
+| A15+ | Tài khoản admin | Tạo Master/Viewer (`/admin/admin-accounts`), khóa/mở, reset 2FA, phiên & thiết bị — đều step-up; chặn khóa Master cuối cùng (`LAST_MASTER_REQUIRED`, §2.1 "tối thiểu 2 Master") | §2.1, §2.4 | CP03 |
+| A19 | Đặt hàng nhập & bổ sung hàng | PO nháp/gửi/nhận thiếu; màn Bổ sung hàng (SKU dưới min → phiếu điều chuyển nháp / PO nháp, không tự gửi) | §21.3.6 | CP18 |
+| A01+ | Đăng ký 2FA lần đầu | Bắt buộc với Master/Viewer; hiện mã khôi phục 1 lần | §2.4 SEC1, ADR-012 | CP03 |

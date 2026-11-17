@@ -1,9 +1,9 @@
 {
-  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard từ file này.",
+  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard + hiệu ứng từ file này.",
   "machine": "transfer",
-  "spec_ref": "§5.10",
+  "spec_ref": "§5.10, §21.3.2",
   "service": "TransferStateMachine",
-  "events_table": "transfer_events (đề xuất)",
+  "events_table": "audit.logs",
   "initial": "DRAFT",
   "terminal": [
     "CLOSED",
@@ -24,7 +24,8 @@
       "actors": [
         "WAREHOUSE"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
     },
     {
       "from": "DRAFT",
@@ -33,7 +34,8 @@
         "WAREHOUSE",
         "MASTER"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
     },
     {
       "from": "PICKING",
@@ -41,7 +43,10 @@
       "actors": [
         "WAREHOUSE"
       ],
-      "note": "TRANSFER_OUT"
+      "note": "TRANSFER_OUT",
+      "effects": [
+        "POST_MOVEMENTS"
+      ]
     },
     {
       "from": "PICKING",
@@ -50,7 +55,8 @@
         "WAREHOUSE",
         "MASTER"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
     },
     {
       "from": "IN_TRANSIT",
@@ -58,7 +64,24 @@
       "actors": [
         "STORE"
       ],
-      "note": "TRANSFER_IN; lệch > ngưỡng bắt buộc ảnh + lý do"
+      "note": "TRANSFER_IN; lệch > ngưỡng bắt buộc ảnh + lý do",
+      "effects": [
+        "POST_MOVEMENTS"
+      ]
+    },
+    {
+      "from": "IN_TRANSIT",
+      "to": "CANCELLED",
+      "actors": [
+        "WAREHOUSE",
+        "MASTER"
+      ],
+      "note": "Hàng không đi / mất: đảo TRANSFER_OUT",
+      "effects": [
+        "REVERSE_MOVEMENTS",
+        "REQUIRE_REASON"
+      ],
+      "guard": "kỳ chưa khóa"
     },
     {
       "from": "RECEIVED",
@@ -67,7 +90,21 @@
         "STORE",
         "MASTER"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
+    },
+    {
+      "from": "RECEIVED",
+      "to": "CANCELLED",
+      "actors": [
+        "MASTER"
+      ],
+      "note": "Đảo toàn bộ",
+      "effects": [
+        "REVERSE_MOVEMENTS",
+        "REQUIRE_REASON"
+      ],
+      "guard": "hàng nhận chưa xuất tiếp và kỳ chưa khóa (§21.3.2)"
     }
   ],
   "test_vectors": {
@@ -82,13 +119,22 @@
       [
         "DRAFT",
         "CANCELLED"
-      ]
-    ],
-    "invalid": [
+      ],
       [
+        "DRAFT",
+        "PICKING",
         "IN_TRANSIT",
         "CANCELLED"
       ],
+      [
+        "DRAFT",
+        "PICKING",
+        "IN_TRANSIT",
+        "RECEIVED",
+        "CANCELLED"
+      ]
+    ],
+    "invalid": [
       [
         "DRAFT",
         "IN_TRANSIT"
@@ -96,6 +142,10 @@
       [
         "CLOSED",
         "RECEIVED"
+      ],
+      [
+        "CLOSED",
+        "CANCELLED"
       ]
     ],
     "actor_invalid": [
@@ -103,6 +153,11 @@
         "IN_TRANSIT",
         "RECEIVED",
         "WAREHOUSE"
+      ],
+      [
+        "RECEIVED",
+        "CANCELLED",
+        "STORE"
       ]
     ]
   }

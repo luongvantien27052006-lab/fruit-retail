@@ -36,7 +36,9 @@
           "type": "string"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
-  }
+  },
+  "x-audience": "internal:deals",
+  "x-sensitivity": "internal"
 }

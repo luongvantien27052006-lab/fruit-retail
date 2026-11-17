@@ -263,6 +263,7 @@ Refer to the `flutter-dart-code-review` skill for the comprehensive review check
   ngân hàng hay PII khách đầy đủ.
 - Khi review, Bash chỉ để xem: không ghi file/redirect, không cài đặt, không DDL ngoài database test dùng một lần.
 - Không chạy `npx`/`pnpm dlx` gói chưa pin trong lockfile; không reset/push DB ngoài database test dùng một lần.
+- Đường dẫn/lệnh upstream nhắc trong persona mà không tồn tại trong repo (ví dụ `docs/CODEMAPS/`, `rules/react/*`) → bỏ qua, không tạo.
 - Báo cáo bằng tiếng Việt.
 - `staff_app` có 3 chế độ (counter Windows, tablet, shipper); POS offline dùng drift + `client_txn_id` UUID v7;
   lỗi cân/máy in/két phải hiện cho người dùng, không nuốt.

@@ -43,7 +43,9 @@
           "minimum": 0
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
-  }
+  },
+  "x-audience": "internal:reporting,publish",
+  "x-sensitivity": "internal"
 }

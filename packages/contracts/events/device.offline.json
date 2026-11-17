@@ -38,7 +38,9 @@
           "format": "date-time"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
-  }
+  },
+  "x-audience": "internal:master-alert",
+  "x-sensitivity": "internal"
 }

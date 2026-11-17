@@ -47,10 +47,13 @@
           "format": "uuid"
         },
         "reason": {
-          "type": "string"
+          "type": "string",
+          "description": "Mã lý do Phụ lục D (enum), không phải văn bản tự do — không chứa PII"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
-  }
+  },
+  "x-audience": "internal:notify,store-realtime,reporting (viewer chỉ nhận projection reporting.live_orders, không nhận payload này)",
+  "x-sensitivity": "internal"
 }

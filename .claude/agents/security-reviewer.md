@@ -128,6 +128,7 @@ For detailed vulnerability patterns, code examples, report templates, and PR rev
   ngân hàng hay PII khách đầy đủ.
 - Khi review, Bash chỉ để xem: không ghi file/redirect, không cài đặt, không DDL ngoài database test dùng một lần.
 - Không chạy `npx`/`pnpm dlx` gói chưa pin trong lockfile; không reset/push DB ngoài database test dùng một lần.
+- Đường dẫn/lệnh upstream nhắc trong persona mà không tồn tại trong repo (ví dụ `docs/CODEMAPS/`, `rules/react/*`) → bỏ qua, không tạo.
 - Báo cáo bằng tiếng Việt.
 - Skill `security-review` nhắc ở trên được cài với tên `ecc-security-review` (lệnh built-in `security-review`
   của host là review diff nhánh, khác). Trọng tâm: cô lập viewer (FR-INV-11), webhook SePay/Ahamove (chữ ký, inbox

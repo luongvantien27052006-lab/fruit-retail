@@ -1,30 +1,85 @@
 {
-  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard từ file này.",
+  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard + hiệu ứng từ file này.",
   "machine": "payment",
-  "spec_ref": "§13.4, ADR-009",
+  "spec_ref": "§6.6, §13.4, ADR-009",
   "service": "PaymentStateMachine",
   "events_table": "audit.logs",
-  "initial": "PENDING",
+  "initial": "CREATED",
   "terminal": [
     "SUCCEEDED",
-    "EXPIRED",
-    "CANCELLED"
+    "LATE_RECEIVED",
+    "FAILED"
   ],
   "states": [
+    "CREATED",
     "PENDING",
+    "UNKNOWN",
+    "PENDING_VERIFY",
+    "CANCELLED",
     "SUCCEEDED",
     "EXPIRED",
-    "CANCELLED",
-    "UNKNOWN"
+    "LATE_RECEIVED",
+    "FAILED"
   ],
   "transitions": [
+    {
+      "from": "CREATED",
+      "to": "PENDING",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "SePay trả VA",
+      "effects": []
+    },
+    {
+      "from": "CREATED",
+      "to": "UNKNOWN",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "Timeout khi tạo VA",
+      "effects": []
+    },
+    {
+      "from": "CREATED",
+      "to": "PENDING_VERIFY",
+      "actors": [
+        "STORE"
+      ],
+      "note": "Chuyển khoản thủ công / mất mạng, thu ngân xác nhận bằng mắt",
+      "effects": [
+        "REQUIRE_PROOF_PHOTO"
+      ]
+    },
+    {
+      "from": "UNKNOWN",
+      "to": "PENDING",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "Tra cứu lại thấy VA đã tạo",
+      "effects": []
+    },
+    {
+      "from": "UNKNOWN",
+      "to": "CANCELLED",
+      "actors": [
+        "SYSTEM",
+        "STORE"
+      ],
+      "note": "Tra cứu lại: không có VA, hoặc đã hủy được VA",
+      "effects": [
+        "CANCEL_VA"
+      ]
+    },
     {
       "from": "PENDING",
       "to": "SUCCEEDED",
       "actors": [
         "SYSTEM"
       ],
-      "note": "Webhook/đối soát khớp VA"
+      "note": "Webhook/đối soát khớp VA",
+      "effects": []
     },
     {
       "from": "PENDING",
@@ -32,7 +87,10 @@
       "actors": [
         "SYSTEM"
       ],
-      "note": ""
+      "note": "",
+      "effects": [
+        "CANCEL_VA"
+      ]
     },
     {
       "from": "PENDING",
@@ -42,47 +100,86 @@
         "STORE",
         "MASTER"
       ],
-      "note": ""
+      "note": "",
+      "effects": [
+        "CANCEL_VA"
+      ]
     },
     {
-      "from": "PENDING",
-      "to": "UNKNOWN",
+      "from": "EXPIRED",
+      "to": "LATE_RECEIVED",
       "actors": [
         "SYSTEM"
       ],
-      "note": "Timeout gọi SePay"
+      "note": "Tiền về sau khi hết hạn",
+      "effects": [
+        "CREATE_REFUND_OBLIGATION"
+      ]
     },
     {
-      "from": "UNKNOWN",
+      "from": "CANCELLED",
+      "to": "LATE_RECEIVED",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "Tiền về sau khi hủy (thu thừa §6.6)",
+      "effects": [
+        "CREATE_REFUND_OBLIGATION"
+      ]
+    },
+    {
+      "from": "PENDING_VERIFY",
       "to": "SUCCEEDED",
       "actors": [
-        "SYSTEM"
+        "STORE_MANAGER",
+        "MASTER"
       ],
-      "note": "Tra cứu lại đối tác"
+      "note": "Đối soát app ngân hàng khớp",
+      "effects": [],
+      "guard": "người đối soát ≠ thu ngân xác nhận"
     },
     {
-      "from": "UNKNOWN",
-      "to": "EXPIRED",
+      "from": "PENDING_VERIFY",
+      "to": "FAILED",
       "actors": [
-        "SYSTEM"
+        "STORE_MANAGER",
+        "MASTER"
       ],
-      "note": "Tra cứu lại đối tác"
+      "note": "Không thấy tiền",
+      "effects": [
+        "REQUIRE_REASON"
+      ]
     }
   ],
+  "notes": "Áp cho mọi lần thu chuyển khoản (POS/app/sỉ). Tiền mặt ghi thẳng SUCCEEDED khi chốt hóa đơn. va_status (CREATING/ACTIVE/CANCELLED) lưu tách cột.",
   "test_vectors": {
     "valid": [
       [
+        "CREATED",
         "PENDING",
         "SUCCEEDED"
       ],
       [
-        "PENDING",
+        "CREATED",
         "UNKNOWN",
+        "PENDING",
         "SUCCEEDED"
       ],
       [
+        "CREATED",
+        "UNKNOWN",
+        "CANCELLED"
+      ],
+      [
+        "CREATED",
         "PENDING",
-        "EXPIRED"
+        "EXPIRED",
+        "LATE_RECEIVED"
+      ],
+      [
+        "CREATED",
+        "PENDING_VERIFY",
+        "SUCCEEDED"
       ]
     ],
     "invalid": [
@@ -91,17 +188,22 @@
         "EXPIRED"
       ],
       [
-        "UNKNOWN",
-        "CANCELLED"
-      ],
-      [
         "EXPIRED",
         "SUCCEEDED"
+      ],
+      [
+        "PENDING_VERIFY",
+        "PENDING"
       ]
     ],
     "actor_invalid": [
       [
         "PENDING",
+        "SUCCEEDED",
+        "STORE"
+      ],
+      [
+        "PENDING_VERIFY",
         "SUCCEEDED",
         "STORE"
       ]

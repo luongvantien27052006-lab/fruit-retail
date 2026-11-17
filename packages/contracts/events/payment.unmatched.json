@@ -31,14 +31,16 @@
         },
         "amount": {
           "type": "string",
-          "pattern": "^-?[0-9]{1,19}$"
+          "pattern": "^-?[0-9]{1,18}$"
         },
         "txn_at": {
           "type": "string",
           "format": "date-time"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
-  }
+  },
+  "x-audience": "internal:master-alert (không chứa số tài khoản/tên người chuyển)",
+  "x-sensitivity": "restricted"
 }

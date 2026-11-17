@@ -1,0 +1,30 @@
+{
+  "$comment": "Từ vựng hiệu ứng chuyển trạng thái — mọi effects trong máy phải thuộc danh sách này.",
+  "effects": {
+    "RESERVE_STOCK": "Giữ tồn (stock_availability + stock_reservations)",
+    "RELEASE_HOLD": "Nhả giữ tồn",
+    "RESERVE_QUOTA": "Trừ hạn mức mặt hàng đẩy (deal, vùng, khách)",
+    "RETURN_QUOTA": "Hoàn hạn mức mặt hàng đẩy (một lần, gắn transition)",
+    "COMPUTE_ACTUAL_AMOUNT": "Tính tiền thực theo cân (money_weight)",
+    "ADJUST_LINES": "Điều chỉnh dòng theo phần còn lại khi thiếu hàng",
+    "CREATE_VA": "Tạo VA SePay đúng số tiền thực (sau commit)",
+    "CANCEL_VA": "Hủy VA phía SePay (sau commit)",
+    "REFUND_IF_PAID": "Nếu đã thu tiền → tạo refund (REQUESTED)",
+    "REFUND_DEPOSIT_IF_PAID": "Nếu đã cọc → tạo refund cọc",
+    "DEDUCT_STOCK_FEFO": "Trừ kho thật theo FEFO (bỏ lô qua stop_sell_app_date)",
+    "PRINT_BAG_LABEL": "In tem túi (số tiền thực)",
+    "RETURN_STOCK_OR_SPOIL": "Hàng tốt nhập lại kho (đảo) / hỏng → phiếu hủy",
+    "CANCEL_COURIER": "Hủy đơn 3PL (sau commit)",
+    "COLLECT_COD": "Ghi thu COD vào sổ shipper",
+    "POD_PHOTO": "Bắt buộc ảnh giao hàng",
+    "COLLECT_CASH_AT_PICKUP": "Thu tiền mặt tại quầy khi lấy",
+    "POST_RECEIVABLE": "Ghi công nợ INVOICE khách sỉ",
+    "POST_MOVEMENTS": "Ghi sổ kho của chứng từ",
+    "REVERSE_MOVEMENTS": "Ghi bút toán đảo toàn bộ",
+    "REQUIRE_REASON": "Bắt buộc lý do (mã Phụ lục D)",
+    "CREATE_REFUND_OBLIGATION": "Ghi nghĩa vụ hoàn tiền thu thừa",
+    "RESOLVE_REFUND": "Tạo refund theo khiếu nại",
+    "RESOLVE_REPLACEMENT": "Ghi giao bù ở đơn sau (không phải ví/credit)",
+    "REQUIRE_PROOF_PHOTO": "Bắt buộc ảnh chứng từ chuyển khoản"
+  }
+}

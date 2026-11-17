@@ -14,8 +14,8 @@ Chủ dự án: Tiến (fullstack, một mình). Làm việc và báo cáo bằn
 | Nhật ký (chỉ thêm) | `docs/engineering/execution/LOG.md` |
 | Bằng chứng từng CP | `docs/engineering/execution/checkpoints/CPxx.md` |
 | Lệnh build/test thật | `docs/engineering/execution/command-catalog.md` (tạo ở CP02) |
-| ADR | thư mục chốt ở CP01 (xem `CONTEXT.md` NC-01); `docs/engineering/architecture/versions.json` |
-| Hợp đồng API/sự kiện | `packages/contracts/openapi.yaml`, `packages/contracts/events/` (CP01) |
+| ADR | `docs/engineering/decisions/` (NC-01 đã quyết); `docs/engineering/architecture/versions.json` |
+| Hợp đồng API/sự kiện/trạng thái/realtime | `packages/contracts/{openapi.yaml, events/, state-machines/, realtime/}` — kiểm: `pnpm --dir packages/contracts run check` |
 | Thuật ngữ & điểm cần xác nhận | `CONTEXT.md` |
 | Sổ TEST-ID | `TESTS.md` |
 | Sổ hồi quy module | `REGRESSION.md` |

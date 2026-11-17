@@ -57,7 +57,9 @@
           "format": "uuid"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
-  }
+  },
+  "x-audience": "internal:master-alert",
+  "x-sensitivity": "restricted"
 }

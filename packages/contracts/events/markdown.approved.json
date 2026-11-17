@@ -36,14 +36,16 @@
         },
         "price_per_kg": {
           "type": "string",
-          "pattern": "^-?[0-9]{1,19}$"
+          "pattern": "^-?[0-9]{1,18}$"
         },
         "price_per_unit": {
           "type": "string",
-          "pattern": "^-?[0-9]{1,19}$"
+          "pattern": "^-?[0-9]{1,18}$"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
-  }
+  },
+  "x-audience": "internal:pricing",
+  "x-sensitivity": "internal"
 }

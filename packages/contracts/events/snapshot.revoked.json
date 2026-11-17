@@ -37,7 +37,9 @@
           "type": "string"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
-  }
+  },
+  "x-audience": "internal:viewer-notify",
+  "x-sensitivity": "internal"
 }

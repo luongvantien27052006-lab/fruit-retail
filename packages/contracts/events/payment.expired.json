@@ -39,10 +39,12 @@
         },
         "amount": {
           "type": "string",
-          "pattern": "^-?[0-9]{1,19}$"
+          "pattern": "^-?[0-9]{1,18}$"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
-  }
+  },
+  "x-audience": "internal:orders",
+  "x-sensitivity": "restricted"
 }

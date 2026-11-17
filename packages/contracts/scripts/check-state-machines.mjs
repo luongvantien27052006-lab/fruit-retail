@@ -8,8 +8,18 @@ const err = (m) => {
   console.error('FAIL ' + m);
   fail++;
 };
-for (const f of readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+const EFFECTS = new Set(Object.keys(JSON.parse(readFileSync(new URL('_effects.json', dir), 'utf8')).effects));
+for (const f of readdirSync(dir).filter((x) => x.endsWith('.json') && !x.startsWith('_'))) {
   const m = JSON.parse(readFileSync(new URL(f, dir), 'utf8'));
+  for (const t of m.transitions) {
+    if (!Array.isArray(t.effects)) err(`${f}: ${t.from}→${t.to} thiếu mảng effects`);
+    else for (const e of t.effects) if (!EFFECTS.has(e)) err(`${f}: ${t.from}→${t.to} effect lạ ${e}`);
+  }
+  const cancels = m.transitions.filter((t) => t.to === 'CANCELLED' || t.to === 'REJECTED');
+  if (m.machine === 'app_order') for (const t of cancels) {
+    if (!t.effects.includes('REQUIRE_REASON')) err(`${f}: ${t.from}→${t.to} hủy phải có REQUIRE_REASON`);
+    if (!t.effects.includes('RETURN_QUOTA') && t.from !== 'DELIVERY_FAILED') err(`${f}: ${t.from}→${t.to} hủy phải hoàn hạn mức`);
+  }
   const S = new Set(m.states);
   const key = (a, b) => `${a}>${b}`;
   const T = new Map(m.transitions.map((t) => [key(t.from, t.to), t]));

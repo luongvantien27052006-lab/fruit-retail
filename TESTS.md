@@ -51,7 +51,7 @@ mã nguồn.
 | TEST-POS-007 | SPEC §21.7-T35 | Đóng ca chênh 50.000đ (ngưỡng 20.000đ) | Khóa đóng ca đến khi cửa hàng trưởng duyệt + lý do | integration | CP08 | missing | — |
 | TEST-PAY-003 | SPEC §21.7-T36 | Đối chiếu QR khi đóng ca | Số thực tế QR tự lấy từ SePay, khớp hệ thống | integration | CP08 | missing | — |
 | TEST-POS-008 | SPEC §21.7-T37 | Khách đổi 0,5 kg cam lấy 0,6 kg quýt trong 1 màn hình | Tính đúng chênh lệch; cam trả mặc định ghi hủy | unit, integration | CP09 | missing | — |
-| TEST-APPORD-004 | SPEC §21.7-T38 | Tạo đơn đặt qua điện thoại, giữ 2 kg xoài | Tồn khả dụng giảm 2 kg; đơn vào hàng đợi soạn | integration | CP14 | missing | — |
+| TEST-APPORD-004 | SPEC §21.7-T38 | Tạo đơn đặt qua điện thoại, giữ 2 kg xoài | Tồn khả dụng giảm 2 kg; đơn vào hàng đợi soạn (mâu thuẫn ×1,1 của §8.3 — chờ NC-12, không nới assertion) | integration | CP14 | missing | — |
 | TEST-CORE-001 | SPEC §21.7-T39 | Cố sửa ngày hóa đơn về hôm qua | Không có chức năng; API từ chối | integration | CP08 | missing | — |
 | TEST-CAT-002 | SPEC §21.7-T40 | Nhập Excel 200 SKU, 3 dòng trùng mã vạch, chọn "bỏ qua" | 197 dòng nhập, báo cáo 3 dòng bị bỏ | integration | CP04 | missing | — |
 | TEST-CAT-003 | SPEC §21.7-T41 | Giỏ quà cần 3 táo/giỏ, còn 10 táo; thành phần khác dư | ATP giỏ = 3, báo "nút cổ chai: táo" | unit | CP13 | missing | — |

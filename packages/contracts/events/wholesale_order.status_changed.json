@@ -41,7 +41,9 @@
           "format": "uuid"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
-  }
+  },
+  "x-audience": "internal:reporting,receivables",
+  "x-sensitivity": "internal"
 }

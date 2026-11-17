@@ -13,7 +13,7 @@ python ".claude/skills/ui-ux-pro-max/scripts/search.py" "data table keyboard foc
 python ".claude/skills/ui-ux-pro-max/scripts/search.py" "error summary validation" --domain ux
 ```
 
-`--stack flutter` and `--stack nextjs` are explicit; never default mobile to html-tailwind. For a genuinely new design direction, `--design-system -f markdown` gives recommendations on stdout. Do not use `--persist` or `--force` against this repo: tokens and P01 UX artifacts already exist. Save any proposal in the assigned task evidence/design decision path after comparison, not as a new authoritative design-system tree.
+`--stack flutter` and `--stack nextjs` are explicit; never default mobile to html-tailwind. For a genuinely new design direction, `--design-system -f markdown` gives recommendations on stdout. Do not use `--persist` or `--force` against this repo: UX artifacts live in `docs/engineering/ux/` and the token source is pending (CONTEXT NC-02). Save any proposal in the assigned task evidence/design decision path after comparison, not as a new authoritative design-system tree.
 
 Use 2–5 terms with one intent. Check returned category/platform/content; retry once with a narrower query when empty or off-topic, then label fallback honestly. Search ranking and examples are advisory and may be stale; validate implementation APIs against installed versions and official docs. Do not replace a project rule with an upstream search preference. For native details read `references/pro-rules.md`; for a specific concern read the relevant section of `references/quick-reference.md`. Do not load all CSVs into context.
 

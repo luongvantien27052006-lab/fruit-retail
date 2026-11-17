@@ -7,7 +7,8 @@
     "lint": "redocly lint openapi.yaml --format=stylish",
     "lint:events": "node scripts/check-events.mjs",
     "lint:state-machines": "node scripts/check-state-machines.mjs",
-    "check": "pnpm run lint && pnpm run lint:events && pnpm run lint:state-machines"
+    "check": "pnpm run lint && pnpm run lint:events && pnpm run lint:state-machines && pnpm run lint:spec-coverage",
+    "lint:spec-coverage": "node scripts/check-spec-coverage.mjs"
   },
   "devDependencies": {
     "@redocly/cli": "2.79.0",

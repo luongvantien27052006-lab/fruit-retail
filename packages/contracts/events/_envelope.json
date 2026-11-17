@@ -37,5 +37,6 @@
       "type": "object"
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "description": "Mọi sự kiện chỉ đi giữa API/worker (outbox → BullMQ). KHÔNG đẩy thô ra Socket.IO; realtime theo packages/contracts/realtime/rooms.json (ADR-013)."
 }

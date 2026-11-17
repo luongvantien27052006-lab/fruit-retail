@@ -1,6 +1,6 @@
 # ADR-006: 4 schema, 4 role DB, RLS cho Admin Chỉ Xem
 
-- Trạng thái: accepted
+- Trạng thái: accepted — phần role, RLS, trigger snapshots **superseded by ADR-011**
 - Ngày: 2026-11-17 · Người quyết: phiên điều phối (theo SPEC) · Căn cứ SPEC: §2.5, §3.3, §12.3, §12.4, §19.4
 
 ## Bối cảnh

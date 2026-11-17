@@ -32,7 +32,9 @@
           "type": "string"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
-  }
+  },
+  "x-audience": "internal:notify",
+  "x-sensitivity": "internal"
 }

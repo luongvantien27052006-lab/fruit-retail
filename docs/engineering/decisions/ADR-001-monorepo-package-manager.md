@@ -1,6 +1,6 @@
 # ADR-001: Monorepo, package manager và thư mục ADR
 
-- Trạng thái: accepted
+- Trạng thái: accepted — "mỗi app giữ pubspec.lock" sửa bởi ADR-017
 - Ngày: 2026-11-17 · Người quyết: Tiến · Căn cứ SPEC: §19.1, §19.5
 
 ## Bối cảnh

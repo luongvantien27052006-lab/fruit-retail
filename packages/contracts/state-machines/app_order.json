@@ -1,7 +1,7 @@
 {
-  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard từ file này.",
+  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard + hiệu ứng từ file này.",
   "machine": "app_order",
-  "spec_ref": "§8.3, §8.4, §8.5",
+  "spec_ref": "§8.3, §8.4, §8.5, §8.7, §21.3.12",
   "service": "AppOrderStateMachine",
   "events_table": "app_order_events",
   "initial": "PLACED",
@@ -19,8 +19,10 @@
     "WEIGHED",
     "AWAITING_CONFIRM",
     "AWAITING_PAYMENT",
+    "READY_TO_PACK",
     "PACKED",
     "SHIPPER_ASSIGNED",
+    "PICKED_UP",
     "DELIVERING",
     "DELIVERED",
     "DELIVERY_FAILED",
@@ -33,7 +35,8 @@
       "actors": [
         "STORE"
       ],
-      "note": "Picker/cửa hàng trưởng nhận"
+      "note": "Picker/cửa hàng trưởng nhận",
+      "effects": []
     },
     {
       "from": "PLACED",
@@ -41,7 +44,13 @@
       "actors": [
         "STORE"
       ],
-      "note": "Từ chối: nhả giữ tồn, trả hạn mức, hoàn nếu đã trả"
+      "note": "Cửa hàng từ chối",
+      "effects": [
+        "RELEASE_HOLD",
+        "RETURN_QUOTA",
+        "REFUND_IF_PAID",
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "PLACED",
@@ -49,9 +58,15 @@
       "actors": [
         "CUSTOMER",
         "STORE",
-        "SYSTEM"
+        "SYSTEM",
+        "MASTER"
       ],
-      "note": "Có lý do"
+      "note": "",
+      "effects": [
+        "RELEASE_HOLD",
+        "RETURN_QUOTA",
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "ACCEPTED",
@@ -59,7 +74,8 @@
       "actors": [
         "STORE"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
     },
     {
       "from": "ACCEPTED",
@@ -67,9 +83,15 @@
       "actors": [
         "CUSTOMER",
         "STORE",
-        "SYSTEM"
+        "SYSTEM",
+        "MASTER"
       ],
-      "note": "Khách chỉ được hủy trước PICKING"
+      "note": "Khách chỉ được hủy trước PICKING",
+      "effects": [
+        "RELEASE_HOLD",
+        "RETURN_QUOTA",
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "PICKING",
@@ -77,16 +99,25 @@
       "actors": [
         "STORE"
       ],
-      "note": "Cân từng dòng + ảnh → actual_amount"
+      "note": "Cân từng dòng + ảnh",
+      "effects": [
+        "COMPUTE_ACTUAL_AMOUNT"
+      ]
     },
     {
       "from": "PICKING",
       "to": "CANCELLED",
       "actors": [
         "STORE",
-        "SYSTEM"
+        "SYSTEM",
+        "MASTER"
       ],
-      "note": "Có lý do"
+      "note": "",
+      "effects": [
+        "RELEASE_HOLD",
+        "RETURN_QUOTA",
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "WEIGHED",
@@ -94,7 +125,9 @@
       "actors": [
         "SYSTEM"
       ],
-      "note": "Chỉ khi thiếu hàng"
+      "note": "",
+      "effects": [],
+      "guard": "có dòng thiếu hàng"
     },
     {
       "from": "WEIGHED",
@@ -102,65 +135,130 @@
       "actors": [
         "SYSTEM"
       ],
-      "note": "payment_mode = PAY_AFTER_WEIGH: tạo VA đúng số tiền thực"
+      "note": "",
+      "effects": [
+        "CREATE_VA"
+      ],
+      "guard": "payment_mode = PAY_AFTER_WEIGH và không thiếu hàng"
     },
     {
       "from": "WEIGHED",
-      "to": "PACKED",
+      "to": "READY_TO_PACK",
       "actors": [
-        "STORE"
+        "SYSTEM"
       ],
-      "note": "payment_mode = COD: trừ kho FEFO, nhả giữ tồn, in tem túi"
+      "note": "",
+      "effects": [],
+      "guard": "payment_mode = COD hoặc (PICKUP và trả khi lấy), không thiếu hàng"
     },
     {
       "from": "WEIGHED",
       "to": "CANCELLED",
       "actors": [
         "STORE",
-        "SYSTEM"
+        "SYSTEM",
+        "MASTER"
       ],
-      "note": "Có lý do"
+      "note": "",
+      "effects": [
+        "RELEASE_HOLD",
+        "RETURN_QUOTA",
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "AWAITING_CONFIRM",
       "to": "AWAITING_PAYMENT",
       "actors": [
-        "CUSTOMER"
+        "CUSTOMER",
+        "SYSTEM"
       ],
-      "note": "Khách nhận phần còn lại, PAY_AFTER_WEIGH"
+      "note": "Khách nhận phần còn lại, hoặc hết 10 phút → mặc định giao phần còn lại (§8.5)",
+      "effects": [
+        "ADJUST_LINES",
+        "CREATE_VA"
+      ],
+      "guard": "payment_mode = PAY_AFTER_WEIGH"
     },
     {
       "from": "AWAITING_CONFIRM",
-      "to": "PACKED",
+      "to": "READY_TO_PACK",
       "actors": [
-        "CUSTOMER"
+        "CUSTOMER",
+        "SYSTEM"
       ],
-      "note": "Khách nhận phần còn lại, COD"
+      "note": "Như trên",
+      "effects": [
+        "ADJUST_LINES"
+      ],
+      "guard": "payment_mode = COD hoặc trả khi lấy"
     },
     {
       "from": "AWAITING_CONFIRM",
       "to": "CANCELLED",
       "actors": [
         "CUSTOMER",
-        "SYSTEM"
+        "MASTER"
       ],
-      "note": "Khách hủy hoặc quá hạn"
+      "note": "Khách chọn hủy",
+      "effects": [
+        "RELEASE_HOLD",
+        "RETURN_QUOTA",
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "AWAITING_PAYMENT",
-      "to": "PACKED",
+      "to": "READY_TO_PACK",
       "actors": [
         "SYSTEM"
       ],
-      "note": "payment.succeeded"
+      "note": "payment.succeeded",
+      "effects": []
     },
     {
       "from": "AWAITING_PAYMENT",
       "to": "CANCELLED",
       "actors": [
-        "SYSTEM"
+        "SYSTEM",
+        "MASTER"
       ],
-      "note": "Quá 30 phút: hàng về kệ, hoàn hạn mức"
+      "note": "Quá 30 phút chưa trả: hàng về kệ",
+      "effects": [
+        "CANCEL_VA",
+        "RELEASE_HOLD",
+        "RETURN_QUOTA",
+        "REFUND_IF_PAID",
+        "REQUIRE_REASON"
+      ]
+    },
+    {
+      "from": "READY_TO_PACK",
+      "to": "PACKED",
+      "actors": [
+        "STORE"
+      ],
+      "note": "Picker đóng gói (§8.3: PACKED do Picker)",
+      "effects": [
+        "DEDUCT_STOCK_FEFO",
+        "RELEASE_HOLD",
+        "PRINT_BAG_LABEL"
+      ]
+    },
+    {
+      "from": "READY_TO_PACK",
+      "to": "CANCELLED",
+      "actors": [
+        "STORE",
+        "MASTER"
+      ],
+      "note": "",
+      "effects": [
+        "RELEASE_HOLD",
+        "RETURN_QUOTA",
+        "REFUND_IF_PAID",
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "PACKED",
@@ -169,7 +267,37 @@
         "STORE",
         "SYSTEM"
       ],
-      "note": ""
+      "note": "",
+      "effects": [],
+      "guard": "fulfillment_type = DELIVERY"
+    },
+    {
+      "from": "PACKED",
+      "to": "PICKED_UP",
+      "actors": [
+        "STORE"
+      ],
+      "note": "Khách lấy tại cửa hàng",
+      "effects": [
+        "COLLECT_CASH_AT_PICKUP"
+      ],
+      "guard": "fulfillment_type = PICKUP"
+    },
+    {
+      "from": "PACKED",
+      "to": "CANCELLED",
+      "actors": [
+        "STORE",
+        "SYSTEM",
+        "MASTER"
+      ],
+      "note": "Quá giờ lấy (PHONE/PICKUP) hoặc Master can thiệp",
+      "effects": [
+        "RETURN_STOCK_OR_SPOIL",
+        "RETURN_QUOTA",
+        "REFUND_IF_PAID",
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "SHIPPER_ASSIGNED",
@@ -178,7 +306,21 @@
         "SHIPPER",
         "COURIER"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
+    },
+    {
+      "from": "SHIPPER_ASSIGNED",
+      "to": "PACKED",
+      "actors": [
+        "STORE",
+        "SYSTEM",
+        "COURIER"
+      ],
+      "note": "3PL không tìm được tài xế / hủy — gán lại",
+      "effects": [
+        "CANCEL_COURIER"
+      ]
     },
     {
       "from": "DELIVERING",
@@ -187,7 +329,11 @@
         "SHIPPER",
         "COURIER"
       ],
-      "note": "Ảnh giao hàng, thu COD"
+      "note": "",
+      "effects": [
+        "POD_PHOTO",
+        "COLLECT_COD"
+      ]
     },
     {
       "from": "DELIVERING",
@@ -196,15 +342,19 @@
         "SHIPPER",
         "COURIER"
       ],
-      "note": "Lý do (Phụ lục D)"
+      "note": "",
+      "effects": [
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "DELIVERY_FAILED",
-      "to": "DELIVERING",
+      "to": "SHIPPER_ASSIGNED",
       "actors": [
         "STORE"
       ],
-      "note": "Giao lại"
+      "note": "Giao lại",
+      "effects": []
     },
     {
       "from": "DELIVERY_FAILED",
@@ -213,7 +363,12 @@
         "STORE",
         "MASTER"
       ],
-      "note": "Hàng tốt nhập lại kho, hỏng → hủy hàng"
+      "note": "",
+      "effects": [
+        "RETURN_STOCK_OR_SPOIL",
+        "REFUND_IF_PAID",
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "DELIVERED",
@@ -221,9 +376,22 @@
       "actors": [
         "SYSTEM"
       ],
-      "note": "Hết 24h không khiếu nại"
+      "note": "Hết 24h",
+      "effects": [],
+      "guard": "không có khiếu nại đang mở (complaint ở trạng thái chưa kết thúc chặn COMPLETED)"
+    },
+    {
+      "from": "PICKED_UP",
+      "to": "COMPLETED",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "Hết 24h",
+      "effects": [],
+      "guard": "không có khiếu nại đang mở"
     }
   ],
+  "notes": "PLACED có hiệu ứng RESERVE_STOCK (×1,1) + RESERVE_QUOTA khi tạo đơn. channel PHONE dùng chung máy, PLACED do STORE tạo. fulfillment_type PICKUP đi PACKED→PICKED_UP.",
   "test_vectors": {
     "valid": [
       [
@@ -232,6 +400,7 @@
         "PICKING",
         "WEIGHED",
         "AWAITING_PAYMENT",
+        "READY_TO_PACK",
         "PACKED",
         "SHIPPER_ASSIGNED",
         "DELIVERING",
@@ -243,6 +412,7 @@
         "ACCEPTED",
         "PICKING",
         "WEIGHED",
+        "READY_TO_PACK",
         "PACKED",
         "SHIPPER_ASSIGNED",
         "DELIVERING",
@@ -267,12 +437,36 @@
         "PICKING",
         "WEIGHED",
         "AWAITING_CONFIRM",
+        "AWAITING_PAYMENT",
+        "READY_TO_PACK",
+        "PACKED",
+        "SHIPPER_ASSIGNED",
         "PACKED",
         "SHIPPER_ASSIGNED",
         "DELIVERING",
         "DELIVERY_FAILED",
+        "SHIPPER_ASSIGNED",
         "DELIVERING",
         "DELIVERED"
+      ],
+      [
+        "PLACED",
+        "ACCEPTED",
+        "PICKING",
+        "WEIGHED",
+        "READY_TO_PACK",
+        "PACKED",
+        "PICKED_UP",
+        "COMPLETED"
+      ],
+      [
+        "PLACED",
+        "ACCEPTED",
+        "PICKING",
+        "WEIGHED",
+        "READY_TO_PACK",
+        "PACKED",
+        "CANCELLED"
       ]
     ],
     "invalid": [
@@ -294,11 +488,15 @@
       ],
       [
         "AWAITING_PAYMENT",
-        "SHIPPER_ASSIGNED"
+        "PACKED"
       ],
       [
         "REJECTED",
         "ACCEPTED"
+      ],
+      [
+        "WEIGHED",
+        "PACKED"
       ]
     ],
     "actor_invalid": [
@@ -308,8 +506,18 @@
         "CUSTOMER"
       ],
       [
-        "AWAITING_PAYMENT",
+        "READY_TO_PACK",
         "PACKED",
+        "SYSTEM"
+      ],
+      [
+        "READY_TO_PACK",
+        "PACKED",
+        "CUSTOMER"
+      ],
+      [
+        "AWAITING_PAYMENT",
+        "READY_TO_PACK",
         "STORE"
       ]
     ]

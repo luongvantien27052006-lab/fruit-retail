@@ -45,7 +45,9 @@
           "type": "string"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
-  }
+  },
+  "x-audience": "internal:orders,notify",
+  "x-sensitivity": "internal"
 }

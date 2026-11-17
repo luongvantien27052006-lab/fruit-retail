@@ -1,5 +1,5 @@
 {
-  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard từ file này.",
+  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard + hiệu ứng từ file này.",
   "machine": "purchase_order",
   "spec_ref": "§21.3.6",
   "service": "PurchaseOrderStateMachine",
@@ -25,7 +25,8 @@
         "MASTER",
         "WAREHOUSE"
       ],
-      "note": "Sau khi duyệt (po:approve); không tự gửi NCC"
+      "note": "Sau khi duyệt (po:approve); không tự gửi NCC",
+      "effects": []
     },
     {
       "from": "DRAFT",
@@ -34,7 +35,8 @@
         "MASTER",
         "WAREHOUSE"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
     },
     {
       "from": "SENT",
@@ -42,7 +44,8 @@
       "actors": [
         "WAREHOUSE"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
     },
     {
       "from": "SENT",
@@ -50,7 +53,8 @@
       "actors": [
         "WAREHOUSE"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
     },
     {
       "from": "SENT",
@@ -58,7 +62,10 @@
       "actors": [
         "MASTER"
       ],
-      "note": ""
+      "note": "",
+      "effects": [
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "PARTIALLY_RECEIVED",
@@ -66,7 +73,8 @@
       "actors": [
         "WAREHOUSE"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
     },
     {
       "from": "PARTIALLY_RECEIVED",
@@ -74,7 +82,10 @@
       "actors": [
         "MASTER"
       ],
-      "note": "Đóng phần thiếu"
+      "note": "Đóng phần thiếu",
+      "effects": [
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "RECEIVED",
@@ -83,7 +94,8 @@
         "MASTER",
         "SYSTEM"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
     }
   ],
   "test_vectors": {

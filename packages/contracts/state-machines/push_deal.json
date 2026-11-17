@@ -1,5 +1,5 @@
 {
-  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard từ file này.",
+  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard + hiệu ứng từ file này.",
   "machine": "push_deal",
   "spec_ref": "§7.3",
   "service": "PushDealStateMachine",
@@ -24,7 +24,8 @@
       "actors": [
         "MASTER"
       ],
-      "note": "Kiểm tồn khả dụng ≥ hạn mức, giữ hạn mức, lên lịch push"
+      "note": "Kiểm tồn khả dụng ≥ hạn mức, lên lịch push",
+      "effects": []
     },
     {
       "from": "DRAFT",
@@ -32,7 +33,8 @@
       "actors": [
         "MASTER"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
     },
     {
       "from": "SCHEDULED",
@@ -40,7 +42,8 @@
       "actors": [
         "SYSTEM"
       ],
-      "note": "Đến starts_at"
+      "note": "Đến starts_at",
+      "effects": []
     },
     {
       "from": "SCHEDULED",
@@ -48,7 +51,8 @@
       "actors": [
         "MASTER"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
     },
     {
       "from": "LIVE",
@@ -56,7 +60,8 @@
       "actors": [
         "SYSTEM"
       ],
-      "note": "sold ≥ quota"
+      "note": "sold ≥ quota",
+      "effects": []
     },
     {
       "from": "LIVE",
@@ -65,7 +70,8 @@
         "SYSTEM",
         "MASTER"
       ],
-      "note": "Hết ends_at hoặc Master kết thúc"
+      "note": "Hết ends_at hoặc Master kết thúc",
+      "effects": []
     },
     {
       "from": "SOLD_OUT",
@@ -73,7 +79,8 @@
       "actors": [
         "SYSTEM"
       ],
-      "note": "Hạn mức được hoàn (đơn hủy) trước ends_at"
+      "note": "Hạn mức được hoàn trước ends_at",
+      "effects": []
     },
     {
       "from": "SOLD_OUT",
@@ -82,7 +89,8 @@
         "SYSTEM",
         "MASTER"
       ],
-      "note": ""
+      "note": "",
+      "effects": []
     }
   ],
   "test_vectors": {

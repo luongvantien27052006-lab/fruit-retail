@@ -1,6 +1,6 @@
 # ADR-010: Phiên bản công cụ
 
-- Trạng thái: accepted (dòng phiên bản); bản vá chính xác pin ở CP02 bằng lockfile/image digest
+- Trạng thái: accepted (dòng phiên bản); lý do Redis + cấu hình sửa bởi ADR-017; bản vá chính xác pin ở CP02
 - Ngày: 2026-11-17 · Người quyết: Tiến (Node), phiên điều phối (còn lại) · Căn cứ SPEC: §19.2, §19.3
 
 ## Bối cảnh

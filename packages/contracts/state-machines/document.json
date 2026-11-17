@@ -1,7 +1,7 @@
 {
-  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard từ file này.",
+  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard + hiệu ứng từ file này.",
   "machine": "document",
-  "spec_ref": "§21.3.2 (nhận hàng, trả NCC, kiểm kê, hủy, dùng nội bộ, sơ chế, đóng gói, lắp giỏ)",
+  "spec_ref": "§21.3.2, §5.9, §5.7, §14 F4",
   "service": "DocumentLifecycle",
   "events_table": "audit.logs",
   "initial": "DRAFT",
@@ -10,18 +10,55 @@
   ],
   "states": [
     "DRAFT",
+    "PENDING_APPROVAL",
     "COMPLETED",
     "CANCELLED"
   ],
   "transitions": [
     {
       "from": "DRAFT",
+      "to": "PENDING_APPROVAL",
+      "actors": [
+        "CREATOR"
+      ],
+      "note": "Gửi duyệt",
+      "effects": [],
+      "guard": "doc_type = SPOILAGE, hoặc vượt hạn mức (§2.3)"
+    },
+    {
+      "from": "DRAFT",
       "to": "COMPLETED",
       "actors": [
-        "CREATOR",
+        "CREATOR"
+      ],
+      "note": "Tự hoàn thành",
+      "effects": [
+        "POST_MOVEMENTS"
+      ],
+      "guard": "doc_type ≠ SPOILAGE và trong hạn mức"
+    },
+    {
+      "from": "PENDING_APPROVAL",
+      "to": "COMPLETED",
+      "actors": [
         "APPROVER"
       ],
-      "note": "Ghi sổ kho; vượt hạn mức cần người duyệt khác người tạo"
+      "note": "Duyệt",
+      "effects": [
+        "POST_MOVEMENTS"
+      ],
+      "guard": "approver ≠ creator và trong hạn mức của approver"
+    },
+    {
+      "from": "PENDING_APPROVAL",
+      "to": "DRAFT",
+      "actors": [
+        "APPROVER"
+      ],
+      "note": "Trả lại để sửa",
+      "effects": [
+        "REQUIRE_REASON"
+      ]
     },
     {
       "from": "COMPLETED",
@@ -29,10 +66,15 @@
       "actors": [
         "PERMITTED"
       ],
-      "note": "Bút toán đảo; chặn khi hàng đã xuất tiếp hoặc kỳ đã khóa"
+      "note": "Hủy chứng từ",
+      "effects": [
+        "REVERSE_MOVEMENTS",
+        "REQUIRE_REASON"
+      ],
+      "guard": "hàng chưa xuất tiếp, kỳ chưa khóa, có quyền document:cancel"
     }
   ],
-  "notes": "DRAFT chỉ xóa vật lý bởi chính người tạo (không phải chuyển trạng thái).",
+  "notes": "Áp cho nhận hàng, trả NCC, kiểm kê, hủy hàng, dùng nội bộ, sơ chế, đóng gói, lắp giỏ. DRAFT chỉ xóa vật lý bởi người tạo; PENDING_APPROVAL không sửa/xóa. Phiếu hủy hàng (SPOILAGE) LUÔN đi qua PENDING_APPROVAL (§5.9).",
   "test_vectors": {
     "valid": [
       [
@@ -42,7 +84,16 @@
       ],
       [
         "DRAFT",
+        "PENDING_APPROVAL",
         "COMPLETED"
+      ],
+      [
+        "DRAFT",
+        "PENDING_APPROVAL",
+        "DRAFT",
+        "PENDING_APPROVAL",
+        "COMPLETED",
+        "CANCELLED"
       ]
     ],
     "invalid": [
@@ -57,8 +108,18 @@
       [
         "COMPLETED",
         "DRAFT"
+      ],
+      [
+        "PENDING_APPROVAL",
+        "CANCELLED"
       ]
     ],
-    "actor_invalid": []
+    "actor_invalid": [
+      [
+        "PENDING_APPROVAL",
+        "COMPLETED",
+        "CREATOR"
+      ]
+    ]
   }
 }

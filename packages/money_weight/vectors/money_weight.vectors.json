@@ -1,17 +1,83 @@
 {
   "$comment": "Bộ test vector DÙNG CHUNG cho Dart và TS (FR-INV-03, SPEC Phụ lục A). Tiền và giá là chuỗi số nguyên VND; khối lượng gram nguyên.",
   "lineAmount": [
-    { "id": "A1", "source": "Phụ lục A", "pricePerKg": "95000", "grams": 1210, "expected": "114950" },
-    { "id": "A2", "source": "Phụ lục A", "pricePerKg": "320000", "grams": 845, "expected": "270400" },
-    { "id": "A3", "source": "Phụ lục A", "pricePerKg": "45000", "grams": 1237, "expected": "55665" },
-    { "id": "T10", "source": "§17 T10", "pricePerKg": "95000", "grams": 3840, "expected": "364800" },
-    { "id": "T11", "source": "§17 T11", "pricePerKg": "320000", "grams": 1210, "expected": "387200" },
-    { "id": "T14", "source": "§17 T14", "pricePerKg": "32000", "grams": 20300, "expected": "649600" },
-    { "id": "E0", "source": "biên 0 g", "pricePerKg": "95000", "grams": 0, "expected": "0" },
-    { "id": "E1", "source": "biên 1 g", "pricePerKg": "1000", "grams": 1, "expected": "1" },
-    { "id": "E2", "source": "0,499 đ làm tròn xuống", "pricePerKg": "499", "grams": 1, "expected": "0" },
-    { "id": "E3", "source": "0,5 đ làm tròn lên (HALF_UP)", "pricePerKg": "500", "grams": 1, "expected": "1" },
-    { "id": "E4", "source": "1,5 đ → 2", "pricePerKg": "1500", "grams": 1, "expected": "2" },
+    {
+      "id": "A1",
+      "source": "Phụ lục A",
+      "pricePerKg": "95000",
+      "grams": 1210,
+      "expected": "114950"
+    },
+    {
+      "id": "A2",
+      "source": "Phụ lục A",
+      "pricePerKg": "320000",
+      "grams": 845,
+      "expected": "270400"
+    },
+    {
+      "id": "A3",
+      "source": "Phụ lục A",
+      "pricePerKg": "45000",
+      "grams": 1237,
+      "expected": "55665"
+    },
+    {
+      "id": "T10",
+      "source": "§17 T10",
+      "pricePerKg": "95000",
+      "grams": 3840,
+      "expected": "364800"
+    },
+    {
+      "id": "T11",
+      "source": "§17 T11",
+      "pricePerKg": "320000",
+      "grams": 1210,
+      "expected": "387200"
+    },
+    {
+      "id": "T14",
+      "source": "§17 T14",
+      "pricePerKg": "32000",
+      "grams": 20300,
+      "expected": "649600"
+    },
+    {
+      "id": "E0",
+      "source": "biên 0 g",
+      "pricePerKg": "95000",
+      "grams": 0,
+      "expected": "0"
+    },
+    {
+      "id": "E1",
+      "source": "biên 1 g",
+      "pricePerKg": "1000",
+      "grams": 1,
+      "expected": "1"
+    },
+    {
+      "id": "E2",
+      "source": "0,499 đ làm tròn xuống",
+      "pricePerKg": "499",
+      "grams": 1,
+      "expected": "0"
+    },
+    {
+      "id": "E3",
+      "source": "0,5 đ làm tròn lên (HALF_UP)",
+      "pricePerKg": "500",
+      "grams": 1,
+      "expected": "1"
+    },
+    {
+      "id": "E4",
+      "source": "1,5 đ → 2",
+      "pricePerKg": "1500",
+      "grams": 1,
+      "expected": "2"
+    },
     {
       "id": "E5",
       "source": "giá trị lớn ~10^10 (Phụ lục A)",
@@ -25,40 +91,187 @@
       "pricePerKg": "9000000000",
       "grams": 2000000,
       "expected": "18000000000000"
+    },
+    {
+      "id": "E7",
+      "source": "gram tối đa int32",
+      "pricePerKg": "1000",
+      "grams": 2147483647,
+      "expected": "2147483647"
     }
   ],
   "lineAmountRejects": [
-    { "id": "R1", "pricePerKg": "-1", "grams": 100, "error": "NEGATIVE" },
-    { "id": "R2", "pricePerKg": "1000", "grams": -1, "error": "NEGATIVE" },
-    { "id": "R3", "pricePerKg": "1000", "grams": 1.5, "error": "NOT_INTEGER" }
+    {
+      "id": "R1",
+      "pricePerKg": "-1",
+      "grams": 100,
+      "error": "NEGATIVE"
+    },
+    {
+      "id": "R2",
+      "pricePerKg": "1000",
+      "grams": -1,
+      "error": "NEGATIVE"
+    },
+    {
+      "id": "R3",
+      "pricePerKg": "1000",
+      "grams": 1.5,
+      "error": "NOT_INTEGER"
+    },
+    {
+      "id": "R4",
+      "pricePerKg": "1000",
+      "grams": 2147483648,
+      "error": "OUT_OF_RANGE",
+      "note": "gram vượt INTEGER (int32) — FR-INV-02"
+    },
+    {
+      "id": "R5",
+      "pricePerKg": "999999999999999999",
+      "grams": 2000000000,
+      "error": "OUT_OF_RANGE",
+      "note": "kết quả vượt int64"
+    }
   ],
   "unitsAmount": [
-    { "id": "U1", "pricePerUnit": "165000", "units": 2, "expected": "330000" },
-    { "id": "U2", "pricePerUnit": "0", "units": 5, "expected": "0" }
+    {
+      "id": "U1",
+      "pricePerUnit": "165000",
+      "units": 2,
+      "expected": "330000"
+    },
+    {
+      "id": "U2",
+      "pricePerUnit": "0",
+      "units": 5,
+      "expected": "0"
+    }
   ],
   "formatVnd": [
-    { "amount": "1250000", "expected": "1.250.000đ" },
-    { "amount": "0", "expected": "0đ" },
-    { "amount": "999", "expected": "999đ" },
-    { "amount": "114950", "expected": "114.950đ" },
-    { "amount": "-5000", "expected": "-5.000đ" },
-    { "amount": "18000000000000", "expected": "18.000.000.000.000đ" }
+    {
+      "amount": "1250000",
+      "expected": "1.250.000đ"
+    },
+    {
+      "amount": "0",
+      "expected": "0đ"
+    },
+    {
+      "amount": "999",
+      "expected": "999đ"
+    },
+    {
+      "amount": "114950",
+      "expected": "114.950đ"
+    },
+    {
+      "amount": "-5000",
+      "expected": "-5.000đ"
+    },
+    {
+      "amount": "18000000000000",
+      "expected": "18.000.000.000.000đ"
+    }
   ],
   "formatKg": [
-    { "grams": 845, "expected": "0,845 kg" },
-    { "grams": 1210, "expected": "1,210 kg" },
-    { "grams": 0, "expected": "0,000 kg" },
-    { "grams": 20300, "expected": "20,300 kg" },
-    { "grams": 5, "expected": "0,005 kg" }
+    {
+      "grams": 845,
+      "expected": "0,845 kg"
+    },
+    {
+      "grams": 1210,
+      "expected": "1,210 kg"
+    },
+    {
+      "grams": 0,
+      "expected": "0,000 kg"
+    },
+    {
+      "grams": 20300,
+      "expected": "20,300 kg"
+    },
+    {
+      "grams": 5,
+      "expected": "0,005 kg"
+    }
   ],
   "wire": [
-    { "wire": "114950", "ok": true },
-    { "wire": "-5000", "ok": true },
-    { "wire": "0", "ok": true },
-    { "wire": "1.5", "ok": false },
-    { "wire": "1e3", "ok": false },
-    { "wire": "", "ok": false },
-    { "wire": " 10", "ok": false },
-    { "wire": "1000000000000000000", "ok": false }
+    {
+      "wire": "114950",
+      "ok": true
+    },
+    {
+      "wire": "-5000",
+      "ok": true
+    },
+    {
+      "wire": "0",
+      "ok": true
+    },
+    {
+      "wire": "1.5",
+      "ok": false
+    },
+    {
+      "wire": "1e3",
+      "ok": false
+    },
+    {
+      "wire": "",
+      "ok": false
+    },
+    {
+      "wire": " 10",
+      "ok": false
+    },
+    {
+      "wire": "1000000000000000000",
+      "ok": false
+    },
+    {
+      "wire": "-0",
+      "ok": false
+    },
+    {
+      "wire": "+5",
+      "ok": false
+    },
+    {
+      "wire": "007",
+      "ok": false
+    },
+    {
+      "wire": "10\n",
+      "ok": false
+    },
+    {
+      "wire": "999999999999999999",
+      "ok": true
+    },
+    {
+      "wire": "-999999999999999999",
+      "ok": true
+    }
+  ],
+  "unitsAmountRejects": [
+    {
+      "id": "UR1",
+      "pricePerUnit": "-1",
+      "units": 2,
+      "error": "NEGATIVE"
+    },
+    {
+      "id": "UR2",
+      "pricePerUnit": "1000",
+      "units": -1,
+      "error": "NEGATIVE"
+    },
+    {
+      "id": "UR3",
+      "pricePerUnit": "999999999999999999",
+      "units": 2000000000,
+      "error": "OUT_OF_RANGE"
+    }
   ]
 }

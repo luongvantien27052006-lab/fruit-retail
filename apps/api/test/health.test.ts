@@ -30,7 +30,7 @@ describe('GET /v1/health', () => {
 
   afterAll(async () => {
     await app?.close();
-    await Promise.all([pg?.stop(), redis?.stop()]);
+    await Promise.allSettled([pg?.stop(), redis?.stop()]);
   });
 
   it('200 khi DB và Redis sống', async () => {
@@ -39,14 +39,32 @@ describe('GET /v1/health', () => {
     expect(res.body).toMatchObject({ status: 'ok', checks: { db: 'ok', redis: 'ok' } });
   });
 
-  it('503 DEPENDENCY_UNAVAILABLE khi Redis chết (không giả thành công)', async () => {
+  it('nhiều request đồng thời lúc vừa khởi động đều 200 (không connect Redis chồng nhau)', async () => {
+    const res = await Promise.all(Array.from({ length: 8 }, () => request(app.getHttpServer()).get('/v1/health')));
+    expect(res.map((r) => r.status)).toEqual(Array(8).fill(200));
+  });
+
+  it('503 DEPENDENCY_UNAVAILABLE khi Redis chết; request_id lấy đúng X-Request-Id hợp lệ', async () => {
     await redis.stop();
-    const res = await request(app.getHttpServer()).get('/v1/health');
+    const res = await request(app.getHttpServer()).get('/v1/health').set('X-Request-Id', 'req-abc-12345');
     expect(res.status).toBe(503);
     expect(res.body).toMatchObject({ code: 'DEPENDENCY_UNAVAILABLE' });
-    expect(res.body.details.checks.redis).toBe('down');
-    expect(res.body.details.checks.db).toBe('ok');
-    expect(typeof res.body.request_id).toBe('string');
+    expect(res.body.details.checks).toEqual({ db: 'ok', redis: 'down' });
+    expect(res.body.request_id).toBe('req-abc-12345');
+  });
+
+  it('X-Request-Id sai dạng bị thay bằng UUID mới', async () => {
+    const res = await request(app.getHttpServer()).get('/v1/health').set('X-Request-Id', 'bad id <script>');
+    expect(res.body.request_id).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('503 khi DB cũng chết (cả hai down), trả trong thời gian giới hạn', async () => {
+    await pg.stop();
+    const t0 = Date.now();
+    const res = await request(app.getHttpServer()).get('/v1/health');
+    expect(res.status).toBe(503);
+    expect(res.body.details.checks).toEqual({ db: 'down', redis: 'down' });
+    expect(Date.now() - t0).toBeLessThan(6_000);
   });
 });
 

@@ -53,6 +53,22 @@ void main() {
     }
   });
 
+  group('unitsAmount rejects', () {
+    for (final c in list('unitsAmountRejects')) {
+      test('${c['id']} từ chối (${c['error']})', () {
+        expect(
+          () => unitsAmount(
+            fromWire(c['pricePerUnit'] as String),
+            c['units'] as int,
+          ),
+          throwsA(
+            isA<MoneyWeightError>().having((e) => e.code, 'code', c['error']),
+          ),
+        );
+      });
+    }
+  });
+
   group('format', () {
     for (final c in list('formatVnd')) {
       test(

@@ -6,6 +6,7 @@ interface V {
   lineAmount: { id: string; pricePerKg: string; grams: number; expected: string }[];
   lineAmountRejects: { id: string; pricePerKg: string; grams: number; error: string }[];
   unitsAmount: { id: string; pricePerUnit: string; units: number; expected: string }[];
+  unitsAmountRejects: { id: string; pricePerUnit: string; units: number; error: string }[];
   formatVnd: { amount: string; expected: string }[];
   formatKg: { grams: number; expected: string }[];
   wire: { wire: string; ok: boolean }[];
@@ -30,6 +31,9 @@ describe('lineAmount — FR-INV-03, Phụ lục A', () => {
 
 describe('unitsAmount', () => {
   it.each(v.unitsAmount)('$id', (c) => expect(unitsAmount(BigInt(c.pricePerUnit), c.units)).toBe(BigInt(c.expected)));
+  it.each(v.unitsAmountRejects)('$id từ chối ($error)', (c) => {
+    expect(() => unitsAmount(BigInt(c.pricePerUnit), c.units)).toThrowError(expect.objectContaining({ code: c.error }));
+  });
 });
 
 describe('formatVnd / formatKg', () => {

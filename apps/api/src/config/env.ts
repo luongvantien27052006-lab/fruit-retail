@@ -28,6 +28,8 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     // Không in giá trị (URL có thể chứa mật khẩu) — FR-INV-18.
     throw new Error(`Cấu hình môi trường không hợp lệ hoặc thiếu: ${fields}`);
   }
+  // Múi giờ process luôn là giờ VN kể cả ngoài Docker (FR-INV-13); lưu DB vẫn là UTC TIMESTAMPTZ.
+  process.env['TZ'] = parsed.data.TZ;
   return parsed.data;
 }
 

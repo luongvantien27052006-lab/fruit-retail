@@ -34,3 +34,6 @@ backups/
 
 # Mã sinh (Prisma, OpenAPI)
 **/src/generated/
+
+# Next.js sinh tự động
+apps/admin-web/next-env.d.ts

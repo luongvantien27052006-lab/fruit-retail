@@ -19,18 +19,22 @@ export class MoneyWeightError extends Error {
 const INT64_MAX = 9_223_372_036_854_775_807n;
 const INT64_MIN = -9_223_372_036_854_775_808n;
 /** Chuỗi truyền qua API: số nguyên, tối đa 18 chữ số (an toàn trong int64), không khoảng trắng, không mũ. */
-const WIRE_RE = /^-?(0|[1-9][0-9]{0,17})$/;
+const WIRE_RE = /^(0|-?[1-9][0-9]{0,17})$/;
+/** Gram tối đa = INTEGER (int32) PostgreSQL (FR-INV-02). */
+const GRAMS_MAX = 2_147_483_647;
 
 function assertGrams(grams: number): bigint {
   if (!Number.isSafeInteger(grams))
     throw new MoneyWeightError('NOT_INTEGER', `Khối lượng phải là số nguyên gram: ${grams}`);
   if (grams < 0) throw new MoneyWeightError('NEGATIVE', `Khối lượng âm: ${grams}`);
+  if (grams > GRAMS_MAX) throw new MoneyWeightError('OUT_OF_RANGE', `Khối lượng vượt int32: ${grams}`);
   return BigInt(grams);
 }
 
 function assertNonNegative(amount: bigint, label: string): void {
   if (typeof amount !== 'bigint') throw new MoneyWeightError('NOT_INTEGER', `${label} phải là bigint`);
   if (amount < 0n) throw new MoneyWeightError('NEGATIVE', `${label} âm: ${amount}`);
+  if (amount > INT64_MAX) throw new MoneyWeightError('OUT_OF_RANGE', `${label} vượt int64`);
 }
 
 function assertRange(v: bigint): bigint {

@@ -20,6 +20,8 @@ export const REDACT_PATHS = [
   '*.account_number',
 ];
 
+export const REQUEST_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
+
 @Module({})
 export class AppModule {
   static forRoot(env: Env): DynamicModule {
@@ -29,9 +31,10 @@ export class AppModule {
         LoggerModule.forRoot({
           pinoHttp: {
             level: env.LOG_LEVEL,
+            // Chỉ nhận X-Request-Id đúng dạng; sai/thiếu thì tạo UUID mới (không để client làm rối truy vết).
             genReqId: (req) => {
               const h = req.headers['x-request-id'];
-              return typeof h === 'string' && h.length <= 128 ? h : randomUUID();
+              return typeof h === 'string' && REQUEST_ID_RE.test(h) ? h : randomUUID();
             },
             redact: REDACT_PATHS,
           },

@@ -27,7 +27,10 @@ class MoneyWeightError implements Exception {
 
 final BigInt _int64Max = BigInt.parse('9223372036854775807');
 final BigInt _int64Min = BigInt.parse('-9223372036854775808');
-final RegExp _wireRe = RegExp(r'^-?(0|[1-9][0-9]{0,17})$');
+final RegExp _wireRe = RegExp(r'^(0|-?[1-9][0-9]{0,17})$');
+
+/// Gram tối đa = INTEGER (int32) PostgreSQL (FR-INV-02).
+const int _gramsMax = 2147483647;
 
 int _assertGrams(num grams) {
   if (grams is! int) {
@@ -40,6 +43,12 @@ int _assertGrams(num grams) {
     throw MoneyWeightError(
       MoneyWeightErrorCode.negative,
       'Khối lượng âm: $grams',
+    );
+  }
+  if (grams > _gramsMax) {
+    throw MoneyWeightError(
+      MoneyWeightErrorCode.outOfRange,
+      'Khối lượng vượt int32: $grams',
     );
   }
   return grams;

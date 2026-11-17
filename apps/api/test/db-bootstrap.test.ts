@@ -1,11 +1,12 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { copyFileSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { applySqlMigrations, ROLE_PASSWORD_ENV } from '../src/db/sql-migrations';
+import { checkAppendOnlyPrivileges } from '../src/db/privilege-checks';
+import { applySqlMigrations, ROLE_PASSWORD_ENV, validateRolePasswords } from '../src/db/sql-migrations';
 
 // Migration nền CP02 (ADR-011, ADR-017) chạy trên PostgreSQL + PostGIS THẬT.
 const SQL_DIR = pathToFileURL(resolve(process.cwd(), '../../infra/sql') + '/');
@@ -111,6 +112,101 @@ describe('infra/sql bootstrap', () => {
     await expect(
       applySqlMigrations({ url: ownerUrl, dir: pathToFileURL(tmp + '/'), env: passwords, log: () => undefined }),
     ).rejects.toThrow(/sha256/);
+  });
+
+  it('extension ở public; app_rw gọi được PostGIS/unaccent; viewer_ro không có USAGE public', async () => {
+    const ext = await q(
+      `SELECT e.extname, n.nspname FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
+                         WHERE e.extname = ANY($1) ORDER BY 1`,
+      [['pg_trgm', 'pgcrypto', 'postgis', 'unaccent']],
+    );
+    expect(ext.map((r) => r.nspname)).toEqual(['public', 'public', 'public', 'public']);
+    await expect(
+      q(`SELECT unaccent('Hoa quả Đà Lạt') AS u, ST_AsText(ST_MakePoint(106.7, 10.8)) AS p`, [], roleUrl('app_rw')),
+    ).resolves.toEqual([{ u: 'Hoa qua Da Lat', p: 'POINT(106.7 10.8)' }]);
+    await expect(q(`SELECT public.unaccent('á')`, [], roleUrl('viewer_ro'))).rejects.toThrow(/permission denied/i);
+  });
+
+  it('PUBLIC không có CONNECT/TEMP trên DB; role ứng dụng không tạo được bảng tạm', async () => {
+    const [r] = await q(`SELECT has_database_privilege('public', current_database(), 'TEMP') AS t,
+                                has_database_privilege('viewer_ro', current_database(), 'TEMP') AS vt,
+                                has_database_privilege('viewer_ro', current_database(), 'CONNECT') AS vc`);
+    expect(r).toEqual({ t: false, vt: false, vc: true });
+  });
+
+  it('projector_rw/viewer không có quyền mặc định trên bảng mới ở core/reporting (ADR-011)', async () => {
+    await q(`CREATE TABLE core._p1(id int); CREATE TABLE reporting._p2(id int)`);
+    const rows =
+      await q(`SELECT r, t, has_table_privilege(r, t, 'SELECT') AS s, has_table_privilege(r, t, 'UPDATE') AS u
+                          FROM unnest(ARRAY['projector_rw','viewer_ro','viewer_act','audit_writer']) r,
+                               unnest(ARRAY['core._p1','reporting._p2']) t`);
+    expect(rows.filter((x) => x.s || x.u)).toEqual([]);
+    await q(`DROP TABLE core._p1; DROP TABLE reporting._p2`);
+  });
+
+  it('function tạo mới cũng không mở EXECUTE cho PUBLIC (default privileges)', async () => {
+    await q(`CREATE FUNCTION core._f() RETURNS int LANGUAGE sql AS 'SELECT 1'`);
+    const [r] = await q(`SELECT has_function_privilege('viewer_ro', 'core._f()', 'EXECUTE') AS v,
+                                has_function_privilege('app_rw', 'core._f()', 'EXECUTE') AS a`);
+    expect(r).toEqual({ v: false, a: false });
+    await q(`DROP FUNCTION core._f()`);
+  });
+
+  it('mật khẩu role lưu dạng SCRAM-SHA-256 (bộ chạy chỉ gửi verifier)', async () => {
+    const rows = await q(`SELECT rolname, left(rolpassword, 14) AS p FROM pg_authid WHERE rolname = ANY($1)`, [
+      Object.keys(ROLE_PASSWORD_ENV),
+    ]);
+    expect(rows).toHaveLength(5);
+    for (const r of rows) expect(r.p).toBe('SCRAM-SHA-256$');
+  });
+
+  it('nội dung 000_bootstrap.sql chạy lại trực tiếp không lỗi (idempotent thật)', async () => {
+    const sql = readFileSync(new URL('000_bootstrap.sql', SQL_DIR), 'utf8');
+    await q(sql); // ném lỗi → test đỏ
+    await q(sql);
+    const [r] = await q(`SELECT count(*)::int AS n FROM integration.sql_migrations`);
+    expect(r.n).toBe(1);
+  });
+
+  it('checkAppendOnlyPrivileges bắt bảng chỉ-thêm quên REVOKE, hết lỗi sau khi REVOKE', async () => {
+    await q(`CREATE TABLE core._ledger(id int);
+             CREATE TRIGGER t BEFORE UPDATE OR DELETE ON core._ledger FOR EACH ROW EXECUTE FUNCTION core.raise_immutable();`);
+    const c = new Client({ connectionString: ownerUrl });
+    await c.connect();
+    try {
+      const before = await checkAppendOnlyPrivileges(c);
+      expect(before).toContainEqual({ table: 'core._ledger', role: 'app_rw', privilege: 'UPDATE' });
+      await c.query(
+        `REVOKE UPDATE, DELETE, TRUNCATE ON core._ledger FROM app_rw, projector_rw, viewer_ro, viewer_act, audit_writer`,
+      );
+      expect(await checkAppendOnlyPrivileges(c)).toEqual([]);
+    } finally {
+      await c.end();
+    }
+    await q(`DROP TABLE core._ledger`);
+  });
+
+  it('file đã áp mà bị xóa khỏi thư mục → từ chối', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'sql-empty-'));
+    await expect(
+      applySqlMigrations({ url: ownerUrl, dir: pathToFileURL(tmp + '/'), env: passwords, log: () => undefined }),
+    ).rejects.toThrow(/không còn trong thư mục/);
+  });
+
+  it('validateRolePasswords: từ chối change-me, trùng nhau, và < 24 ký tự ở staging/production', () => {
+    expect(() => validateRolePasswords({ ...passwords, PG_APP_RW_PASSWORD: 'change-me-app-rw-password' })).toThrow(
+      /change-me/,
+    );
+    expect(() =>
+      validateRolePasswords({ ...passwords, PG_VIEWER_RO_PASSWORD: passwords['PG_APP_RW_PASSWORD'] }),
+    ).toThrow(/trùng/);
+    const short = Object.fromEntries(Object.keys(passwords).map((k, i) => [k, `short-pw-${i}-abcd`]));
+    expect(() => validateRolePasswords(short)).not.toThrow();
+    expect(() => validateRolePasswords({ ...short, NODE_ENV: 'production' })).toThrow(/< 24/);
+    expect(() => validateRolePasswords({ ...passwords, PG_OWNER_PASSWORD: 'change-me-owner-password' })).toThrow(
+      /PG_OWNER_PASSWORD/,
+    );
+    expect(() => validateRolePasswords(passwords)).not.toThrow();
   });
 
   it('thiếu mật khẩu role → dừng, không đặt mật khẩu mặc định', async () => {

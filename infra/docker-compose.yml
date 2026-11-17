@@ -1,11 +1,20 @@
-# docker compose cho dev local (SPEC §19.3, ADR-010/017). Chạy từ gốc repo:
-#   docker compose -f infra/docker-compose.yml --env-file infra/.env up -d --build
-# infra/.env tạo từ infra/.env.example (KHÔNG commit). Production/staging dùng override riêng ở CP02 phần VPS.
+# docker compose cho dev local (SPEC §19.3, ADR-010/011/017). Chạy từ gốc repo:
+#   docker compose -f infra/docker-compose.yml --env-file infra/.env up -d --build --wait
+# infra/.env tạo từ infra/.env.example (KHÔNG commit). Staging/production dùng override riêng (CP02 phần VPS):
+# pin image theo digest, owner không phải superuser cho runtime, HTTPS + HSTS, Redis ACL.
 name: fruit-retail
+
+x-hardening: &hardening
+  security_opt: ['no-new-privileges:true']
+  cap_drop: [ALL]
 
 services:
   postgres:
     image: postgis/postgis:17-3.5
+    # Image cần vài capability để chuyển user/chown thư mục dữ liệu.
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
     environment:
       POSTGRES_DB: fruit
       POSTGRES_USER: owner
@@ -22,22 +31,34 @@ services:
 
   redis:
     image: redis:7.4-alpine
-    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec', '--maxmemory-policy', 'noeviction']
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    # entrypoint của image chown /data rồi hạ quyền xuống user redis → cần CHOWN/SETGID/SETUID.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    command:
+      - sh
+      - -c
+      - exec docker-entrypoint.sh redis-server --appendonly yes --appendfsync everysec --maxmemory-policy noeviction --requirepass "$$REDIS_PASSWORD"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD bắt buộc}
     volumes: [redisdata:/data]
     healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
+      test: ['CMD-SHELL', 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
       interval: 5s
       timeout: 3s
       retries: 20
     restart: unless-stopped
 
   db-bootstrap:
+    <<: *hardening
     build: { context: .., dockerfile: apps/api/Dockerfile }
     image: fruit-retail/api:local
     command: ['node', 'dist/db-bootstrap.js']
     environment:
+      NODE_ENV: development
       DATABASE_URL_MIGRATE: postgresql://owner:${PG_OWNER_PASSWORD}@postgres:5432/fruit
       SQL_DIR: infra/sql
+      PG_OWNER_PASSWORD: ${PG_OWNER_PASSWORD}
       PG_APP_RW_PASSWORD: ${PG_APP_RW_PASSWORD:?bắt buộc}
       PG_PROJECTOR_RW_PASSWORD: ${PG_PROJECTOR_RW_PASSWORD:?bắt buộc}
       PG_VIEWER_RO_PASSWORD: ${PG_VIEWER_RO_PASSWORD:?bắt buộc}
@@ -47,18 +68,19 @@ services:
       postgres: { condition: service_healthy }
     restart: 'no'
 
+  # API: chỉ giữ URL của role nó dùng (app_rw, viewer_ro, viewer_act, audit_writer) — không có projector_rw (ADR-011).
   api:
+    <<: *hardening
     image: fruit-retail/api:local
     command: ['node', 'dist/main.js']
-    environment: &app_env
+    environment:
       NODE_ENV: development
       PORT: '3000'
       DATABASE_URL_APP: postgresql://app_rw:${PG_APP_RW_PASSWORD}@postgres:5432/fruit
-      DATABASE_URL_PROJECTOR: postgresql://projector_rw:${PG_PROJECTOR_RW_PASSWORD}@postgres:5432/fruit
       DATABASE_URL_VIEWER: postgresql://viewer_ro:${PG_VIEWER_RO_PASSWORD}@postgres:5432/fruit
       DATABASE_URL_VIEWER_ACT: postgresql://viewer_act:${PG_VIEWER_ACT_PASSWORD}@postgres:5432/fruit
       DATABASE_URL_AUDIT: postgresql://audit_writer:${PG_AUDIT_WRITER_PASSWORD}@postgres:5432/fruit
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       TZ: Asia/Ho_Chi_Minh
       BUSINESS_DAY_CUTOFF: '04:00'
     depends_on:
@@ -71,24 +93,36 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Worker: app_rw (consumer nghiệp vụ) + projector_rw (projection) — không có URL viewer (ADR-011).
   worker:
+    <<: *hardening
     image: fruit-retail/api:local
     command: ['node', 'dist/worker.js']
-    environment: *app_env
+    environment:
+      NODE_ENV: development
+      DATABASE_URL_APP: postgresql://app_rw:${PG_APP_RW_PASSWORD}@postgres:5432/fruit
+      DATABASE_URL_PROJECTOR: postgresql://projector_rw:${PG_PROJECTOR_RW_PASSWORD}@postgres:5432/fruit
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      TZ: Asia/Ho_Chi_Minh
+      BUSINESS_DAY_CUTOFF: '04:00'
     depends_on:
       db-bootstrap: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
     restart: unless-stopped
 
   admin-web:
+    <<: *hardening
     build: { context: .., dockerfile: apps/admin-web/Dockerfile }
     image: fruit-retail/admin-web:local
     restart: unless-stopped
 
   caddy:
+    <<: *hardening
+    # binary caddy mang file capability cap_net_bind_service → phải giữ lại, nếu không exec bị chặn.
+    cap_add: [NET_BIND_SERVICE]
     image: caddy:2.10-alpine
     ports: ['127.0.0.1:8080:8080']
-    volumes: [./caddy/Caddyfile.local:/etc/caddy/Caddyfile:ro, caddydata:/data]
+    volumes: [./caddy/Caddyfile.local:/etc/caddy/Caddyfile:ro, caddydata:/data, caddyconfig:/config]
     depends_on:
       api: { condition: service_healthy }
     restart: unless-stopped
@@ -97,3 +131,4 @@ volumes:
   pgdata: {}
   redisdata: {}
   caddydata: {}
+  caddyconfig: {}

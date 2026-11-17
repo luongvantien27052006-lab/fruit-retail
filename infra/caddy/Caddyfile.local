@@ -1,16 +1,31 @@
-# Caddy local (HTTP, cổng 8080). Staging/production dùng Caddyfile có domain + HTTPS tự động (CP02 phần VPS).
+# Caddy local (HTTP, cổng 8080). Staging/production dùng Caddyfile có domain + HTTPS tự động + HSTS
+# (Strict-Transport-Security "max-age=31536000; includeSubDomains") — CP02 phần VPS.
+{
+	admin off
+}
+
 :8080 {
 	encode gzip
+	request_body {
+		max_size 10MB
+	}
 	header {
 		-Server
 		X-Content-Type-Options nosniff
 		Referrer-Policy no-referrer
 		X-Frame-Options DENY
+		Cross-Origin-Opener-Policy same-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
 	}
+	# Không tin X-Request-Id từ client ngoài: Caddy đặt mã riêng; API kiểm định dạng (app.module.ts).
 	handle /v1/* {
-		reverse_proxy api:3000
+		reverse_proxy api:3000 {
+			header_up X-Request-Id {http.request.uuid}
+		}
 	}
 	handle {
+		# Next.js chèn script inline khi hydrate → tạm cho 'unsafe-inline'; CP03 chuyển sang CSP nonce trong Next middleware.
+		header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
 		reverse_proxy admin-web:3001
 	}
 }

@@ -1,6 +1,6 @@
 # ADR-008: POS Flutter Windows + SQLite (drift) offline, `client_txn_id` UUID v7
 
-- Trạng thái: **proposed** — chờ Tiến duyệt
+- Trạng thái: accepted (Tiến duyệt 2026-11-17)
 - Ngày: 2026-11-17 · Người đề xuất: phiên điều phối · Căn cứ SPEC: D3, §6.1, §6.12, §6.13, §19.2
 
 ## Bối cảnh

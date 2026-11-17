@@ -134,7 +134,8 @@ Cột bổ sung §21.8: `inventory_batches.alert_date, stop_sell_app_date`; `sto
 
 | Bảng | Ghi | RLS viewer | Ghi chú |
 |---|---|---|---|
-| live_sales_hourly | projector_rw | có | không giá vốn thật cho viewer — cột `cogs_amount` chỉ Master đọc qua view riêng |
+| live_sales_hourly | projector_rw | có | không có cột giá vốn (NC-10) |
+| live_sales_hourly_cost | projector_rw | viewer bị REVOKE | giá vốn theo giờ, chỉ Master đọc (NC-10) |
 | live_store_status | projector_rw | có | |
 | live_orders | projector_rw | có | `customer_masked`, không PII |
 | live_stock | projector_rw | có | chỉ số lượng |
@@ -146,8 +147,8 @@ Cột bổ sung §21.8: `inventory_batches.alert_date, stop_sell_app_date`; `sto
 Function `reporting.allowed_stores(profile_id uuid) RETURNS uuid[]` (SECURITY DEFINER, đọc bản sao hồ sơ trong
 `reporting.viewer_profile_scopes` — **đề xuất thêm** để viewer không cần đọc `core.viewer_profiles`).
 
-Mâu thuẫn cần ghi: `live_sales_hourly.cogs_amount` (§12.3) vs FR-INV-11 "không giá nhập thật trong `live_*`" →
-đề xuất tách `cogs_amount` sang `reporting.live_sales_hourly_cost` chỉ `app_rw`/Master đọc (CONTEXT NC-10).
+Đã quyết (NC-10, Tiến duyệt 2026-11-17): `live_sales_hourly` KHÔNG có `cogs_amount` (lệch §12.3 có chủ đích, vì FR-INV-11) →
+giá vốn nằm ở `reporting.live_sales_hourly_cost`, chỉ `projector_rw` ghi, chỉ Master (`app_rw`) đọc; `viewer_ro` bị REVOKE.
 
 ### 2.4. Schema `audit`, `integration`
 

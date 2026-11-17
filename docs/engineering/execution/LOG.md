@@ -15,3 +15,4 @@
 | 2026-11-17 | CP01 | Mở CP01. |
 | 2026-11-17 | CP01 | Tiến chốt: ADR ở `docs/engineering/decisions/`, Prisma theo SPEC, worker là entry 2 của `apps/api`, Node 24 LTS. Tiến cho phép tự cài thư viện chính chủ khi cần. |
 | 2026-11-17 | CP01 | Ghi ADR-001…010, versions.json, openapi.yaml (189 thao tác), 24 schema sự kiện, 7 máy trạng thái + 50 vector, ERD, screens.md. Kiểm `pnpm --dir packages/contracts run check` exit 0. CP01 → CHỜ REVIEW. |
+| 2026-11-17 | CP01 | Tiến "Duyệt tất cả": ADR-008 accepted; NC-08 (5 mã quyền), NC-09 (route ngoài §13.2), NC-10 (tách giá vốn khỏi `live_sales_hourly`) đã quyết. Kiểm hợp đồng exit 0. Theo yêu cầu của Tiến: chạy review bằng agent trước khi ĐẠT. |

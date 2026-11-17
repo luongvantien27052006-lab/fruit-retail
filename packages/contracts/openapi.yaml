@@ -6,7 +6,7 @@ info:
   description: |
     API của hệ thống chuỗi bán lẻ hoa quả (SPEC v3.2 §13). Tiền là chuỗi số nguyên VND, khối lượng là gram nguyên.
     `x-permission`: mã quyền §19.6/§21.8; `public` = không cần đăng nhập; `auth:*` = mọi người dùng đã đăng nhập;
-    `customer:self`, `settings:write`, `payment:reconcile`, `processing:create`, `complaint:resolve` là mã ĐỀ XUẤT (CONTEXT NC-08);
+    `customer:self`, `settings:write`, `payment:reconcile`, `processing:create`, `complaint:resolve` là mã bổ sung ngoài SPEC, Tiến duyệt 2026-11-17 (CONTEXT NC-08);
     `approval:by-type` = quyền duyệt tương ứng loại yêu cầu; `webhook:*` = xác thực chữ ký/API key của đối tác.
   license:
     name: Proprietary
@@ -393,7 +393,7 @@ paths:
       x-permission: "customer:self"
       x-spec-ref: "§7.2"
       x-detail-cp: CP14
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
@@ -532,7 +532,7 @@ paths:
       x-permission: "customer:self"
       x-spec-ref: "§7.2"
       x-detail-cp: CP14
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
@@ -809,7 +809,7 @@ paths:
       x-permission: "customer:self"
       x-spec-ref: "§13.5"
       x-detail-cp: CP14
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/RequestId"
       requestBody:
@@ -1044,7 +1044,7 @@ paths:
       x-permission: "pos:sell"
       x-spec-ref: "§21.3.9"
       x-detail-cp: CP09
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RequestId"
@@ -1995,7 +1995,7 @@ paths:
       x-permission: "stock:read"
       x-spec-ref: "§5.1"
       x-detail-cp: CP06
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/DeviceId"
@@ -2070,7 +2070,7 @@ paths:
       x-permission: "receipt:create"
       x-spec-ref: "§21.3.2"
       x-detail-cp: CP05
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RequestId"
@@ -2293,7 +2293,7 @@ paths:
       x-permission: "stocktake:create"
       x-spec-ref: "§21.3.3"
       x-detail-cp: CP06
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RequestId"
@@ -2342,7 +2342,7 @@ paths:
       x-permission: "stocktake:create"
       x-spec-ref: "§5.7"
       x-detail-cp: CP06
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RequestId"
@@ -5901,7 +5901,7 @@ paths:
       x-permission: "deal:read"
       x-spec-ref: "§7.3"
       x-detail-cp: CP13
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
@@ -6106,7 +6106,7 @@ paths:
       x-permission: "wholesale:write"
       x-spec-ref: "§9.2"
       x-detail-cp: CP16
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RequestId"
@@ -6154,7 +6154,7 @@ paths:
       x-permission: "receivable:write"
       x-spec-ref: "§9.5"
       x-detail-cp: CP16
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RequestId"
@@ -6195,7 +6195,7 @@ paths:
       x-permission: "app_order:manage"
       x-spec-ref: "§10.1"
       x-detail-cp: CP14
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
@@ -6230,7 +6230,7 @@ paths:
       x-permission: "app_order:manage"
       x-spec-ref: "§10.1"
       x-detail-cp: CP14
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RequestId"
@@ -6278,7 +6278,7 @@ paths:
       x-permission: "complaint:resolve"
       x-spec-ref: "§8.8"
       x-detail-cp: CP14
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RequestId"
@@ -6319,7 +6319,7 @@ paths:
       x-permission: "app_order:manage"
       x-spec-ref: "§8.4"
       x-detail-cp: CP14
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RequestId"
@@ -6365,7 +6365,7 @@ paths:
       x-permission: "payment:reconcile"
       x-spec-ref: "§13.4"
       x-detail-cp: CP08
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RequestId"
@@ -7083,7 +7083,7 @@ paths:
       x-permission: "viewer:read"
       x-spec-ref: "§2.5"
       x-detail-cp: CP12
-      x-not-in-spec-13-2: true
+      x-not-in-spec-13-2: true  # đã duyệt NC-09
       parameters:
         - $ref: "#/components/parameters/RequestId"
       requestBody:
@@ -7417,7 +7417,7 @@ components:
           type: string
     PermissionCode:
       type: string
-      description: Mã quyền SPEC §19.6 + §21.8; x-proposed là mã đề xuất chờ Tiến duyệt (NC-08).
+      description: Mã quyền SPEC §19.6 + §21.8; x-added-outside-spec là mã bổ sung đã được Tiến duyệt (NC-08).
       enum:
         - "auth:*"
         - "catalog:read"
@@ -7501,7 +7501,7 @@ components:
         - "payment:reconcile"
         - "processing:create"
         - "complaint:resolve"
-      x-proposed:
+      x-added-outside-spec:
         - "customer:self"
         - "settings:write"
         - "payment:reconcile"

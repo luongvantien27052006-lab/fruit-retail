@@ -5,3 +5,5 @@ environment:
   sdk: ^3.12.0
 workspace:
   - packages/money_weight/dart
+  - apps/customer_app
+  - apps/staff_app

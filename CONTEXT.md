@@ -45,3 +45,4 @@ thực sau khi cân, D10).
 | NC-15 | H2 (điểm thưởng) vừa "hoãn" (§1.3) vừa "không làm" (D11) | §1.3 vs §1.4 | **Đã quyết theo D11** (§1.4 thắng): không làm |
 | NC-16 | Đơn sỉ: §13.2 ghi `/pos/wholesale-orders/{id}/*` "tương tự" đơn app (có `accept`); máy trạng thái §9.2 không có bước nhận/từ chối → contract dùng `start-picking` thay `accept` | §13.2 vs §9.2 | Theo §9.2; ghi kèm NC-09 |
 | NC-17 | Thanh toán: tiền về sau khi payment đã hủy/hết hạn → `LATE_RECEIVED` + nghĩa vụ hoàn; `PENDING_VERIFY` cho chuyển khoản thủ công/mất mạng | §6.6 | Đã đưa vào máy `payment` (theo §6.6) |
+| NC-18 | Bundle ID / applicationId của 2 app Flutter: đang tạm `vn.fruitretail.customer_app`, `vn.fruitretail.staff_app` | §19.10 ("Bundle ID app người dùng mới") | **needs confirmation** — Tiến chốt trước khi đăng ký Play Console/Firebase (CP13) |

@@ -8,12 +8,14 @@
     "lint:events": "node scripts/check-events.mjs",
     "lint:state-machines": "node scripts/check-state-machines.mjs",
     "check": "pnpm run lint && pnpm run lint:events && pnpm run lint:state-machines && pnpm run lint:spec-coverage",
-    "lint:spec-coverage": "node scripts/check-spec-coverage.mjs"
+    "lint:spec-coverage": "node scripts/check-spec-coverage.mjs",
+    "export:dart": "node scripts/export-for-dart.mjs"
   },
   "devDependencies": {
     "@redocly/cli": "2.79.0",
     "ajv": "8.20.0",
-    "ajv-formats": "3.0.1"
+    "ajv-formats": "3.0.1",
+    "yaml": "2.9.1"
   },
   "type": "module"
 }

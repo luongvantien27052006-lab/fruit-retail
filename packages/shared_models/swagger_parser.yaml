@@ -1,0 +1,10 @@
+swagger_parser:
+  schema_path: .codegen/openapi.dart.yaml
+  output_directory: lib/generated
+  language: dart
+  json_serializer: json_serializable
+  root_client: true
+  root_client_name: FruitApiClient
+  put_clients_in_folder: true
+  enums_to_json: true
+  unknown_enum_value: true

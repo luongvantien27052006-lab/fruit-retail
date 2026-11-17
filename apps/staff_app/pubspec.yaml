@@ -10,6 +10,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_libserialport: ^0.6.0
   money_weight:
     path: ../../packages/money_weight/dart
 
@@ -17,6 +18,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  integration_test:
+    sdk: flutter
 
 flutter:
   uses-material-design: true

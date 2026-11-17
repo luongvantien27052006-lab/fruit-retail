@@ -7,3 +7,4 @@ workspace:
   - packages/money_weight/dart
   - apps/customer_app
   - apps/staff_app
+  - packages/shared_models

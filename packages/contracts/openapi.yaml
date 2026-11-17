@@ -8327,6 +8327,7 @@ paths:
       x-permission: "public"
       x-spec-ref: "§3.6"
       x-detail-cp: CP02
+      x-implemented: CP02
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
@@ -8335,7 +8336,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/HealthStatus'
         '400':
           $ref: '#/components/responses/BadRequest'
         '429':
@@ -8450,6 +8451,25 @@ components:
     Uuid:
       type: string
       format: uuid
+    HealthStatus:
+      type: object
+      required: [status, checks]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          const: ok
+        checks:
+          type: object
+          required: [db, redis]
+          additionalProperties: false
+          properties:
+            db:
+              type: string
+              enum: [ok, down]
+            redis:
+              type: string
+              enum: [ok, down]
     PendingBody:
       type: object
       description: Khung — schema chi tiết được định nghĩa ở CP ghi trong x-detail-cp của route.

@@ -1,0 +1,34 @@
+import { z } from 'zod';
+
+// Biến môi trường §19.4 (+ ADR-011/012). Thiếu biến hạ tầng bắt buộc → dừng khởi động (không fallback, FR-INV-17).
+// Biến của đối tác (SePay, Ahamove, OTP…) không bắt buộc ở đây: thiếu → 503 CONFIGURATION_NOT_READY cho tác vụ mới.
+const schema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'staging', 'production']),
+  PORT: z.coerce.number().int().min(0).max(65535).default(3000),
+  DATABASE_URL_APP: z.string().url(),
+  DATABASE_URL_VIEWER: z.string().url().optional(),
+  DATABASE_URL_VIEWER_ACT: z.string().url().optional(),
+  DATABASE_URL_PROJECTOR: z.string().url().optional(),
+  DATABASE_URL_AUDIT: z.string().url().optional(),
+  REDIS_URL: z.string().url(),
+  TZ: z.literal('Asia/Ho_Chi_Minh').default('Asia/Ho_Chi_Minh'),
+  BUSINESS_DAY_CUTOFF: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+    .default('04:00'),
+  LOG_LEVEL: z.enum(['silent', 'fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+});
+
+export type Env = z.infer<typeof schema>;
+
+export function loadEnv(source: Record<string, string | undefined> = process.env): Env {
+  const parsed = schema.safeParse(source);
+  if (!parsed.success) {
+    const fields = parsed.error.issues.map((i) => i.path.join('.')).join(', ');
+    // Không in giá trị (URL có thể chứa mật khẩu) — FR-INV-18.
+    throw new Error(`Cấu hình môi trường không hợp lệ hoặc thiếu: ${fields}`);
+  }
+  return parsed.data;
+}
+
+export const ENV = Symbol('ENV');

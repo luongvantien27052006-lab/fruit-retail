@@ -4,3 +4,12 @@ packages:
   - packages/contracts
   - packages/money_weight/ts
   - packages/api_client_ts
+
+# Bảo vệ chuỗi cung ứng (pnpm 11): chỉ gói đã phát hành đủ lâu; chỉ cho phép script cài đặt của gói cần thiết.
+allowBuilds:
+  '@prisma/engines': true
+  prisma: true
+  '@swc/core': true
+  cpu-features: false
+  protobufjs: false
+  ssh2: false

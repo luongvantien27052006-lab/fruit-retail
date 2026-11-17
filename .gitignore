@@ -31,3 +31,6 @@ Thumbs.db
 # Dữ liệu khách thật / backup
 backups/
 *.dump
+
+# Mã sinh (Prisma, OpenAPI)
+**/src/generated/

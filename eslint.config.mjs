@@ -8,6 +8,8 @@ export default tseslint.config(
   ...tseslint.configs.strict,
   {
     rules: {
+      // Module NestJS là class có decorator và chỉ có thành viên static (forRoot) — hợp lệ.
+      '@typescript-eslint/no-extraneous-class': ['error', { allowWithDecorator: true }],
       // ADR-016: không monkey-patch BigInt để JSON.stringify; dùng codec của money_weight.
       'no-restricted-syntax': [
         'error',

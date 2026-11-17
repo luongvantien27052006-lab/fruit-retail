@@ -20,3 +20,4 @@
 | 2026-11-17 | CP01 | Tiến quyết: NC-11 mở rộng người tạo ≠ người duyệt; NC-13 COD vượt ≤10% cho qua; NC-12 trả lời "số tồn do người đăng (master) nhập khi đăng sản phẩm" (diễn giải chờ xác nhận). Tiến xác nhận CP01 ĐẠT → merge `feat/cp01-architecture` vào `develop`. |
 | 2026-11-17 | CP01 | Tiến xác nhận diễn giải NC-12 (hệ số giữ tồn là cấu hình, mặc định 1,1 cho đơn app; đơn PHONE giữ đúng số nhập). |
 | 2026-11-18 | — | Cài Node v24.22.3 (MSI chính thức nodejs.org, SHA256 khớp SHASUMS256.txt, chữ ký Authenticode OpenJS hợp lệ) thay Node 22.22.3. Ghi chú: Node 26 là Active LTS, Node 24 là Maintenance — Tiến giữ 24 (sửa thông tin sai trong ADR-010). Kiểm hợp đồng trên Node 24 exit 0. |
+| 2026-11-18 | CP02 | Mở CP02 (Tiến duyệt kế hoạch con 8 lát; CI = GitHub Actions). Lát 1 khung monorepo pnpm + pub workspace; lát 2 `money_weight` TS (38 test) + Dart (37 test) chung vector Phụ lục A — TDD: đỏ trước, xanh sau. ADR-018 chốt TS 6.0.3, NestJS 12, Prisma 7.10.1. |

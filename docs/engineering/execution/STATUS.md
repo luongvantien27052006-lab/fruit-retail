@@ -6,7 +6,7 @@ Trạng thái: `CHƯA MỞ` → `ĐANG LÀM` → `CHỜ REVIEW` → `ĐẠT` (ho
 |---|---|---|---|
 | CP00 | Chuẩn hóa quy trình `.claude` | ĐẠT | Tiến xác nhận 2026-11-17; review agent NOT RUN (chạy ở đầu CP01) — `checkpoints/CP00.md` |
 | CP01 | Quyết định kiến trúc & hợp đồng | ĐẠT | Tiến xác nhận 2026-11-17 sau review agent — `checkpoints/CP01.md` |
-| CP02 | Khung dự án & hạ tầng | CHƯA MỞ | Tiên quyết CP01 đã ĐẠT; cần Node 24, VPS, object storage backup + bucket file ứng dụng |
+| CP02 | Khung dự án & hạ tầng | ĐANG LÀM | Mở 2026-11-18; phần local trước. Staging/backup/giám sát CHẶN: chờ Tiến cấp VPS, domain, object storage backup, Sentry, Telegram |
 | CP03 | Nền tảng: auth, quyền, audit, outbox, file | CHƯA MỞ | |
 | CP04 | Danh mục, đơn vị tính, giá | CHƯA MỞ | Cần dữ liệu thật SKU + giá |
 | CP05 | Mua hàng & lô | CHƯA MỞ | |

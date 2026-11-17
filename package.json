@@ -1,0 +1,26 @@
+{
+  "name": "fruit-retail",
+  "private": true,
+  "description": "Hệ thống chuỗi bán lẻ hoa quả — monorepo (ADR-001)",
+  "packageManager": "pnpm@11.2.2",
+  "engines": {
+    "node": ">=24.22.0 <25"
+  },
+  "scripts": {
+    "lint": "pnpm -r --if-present run lint",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "test": "pnpm -r --if-present run test",
+    "build": "pnpm -r --if-present run build",
+    "check:contracts": "pnpm --filter @fruit/contracts run check",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.2",
+    "eslint": "10.15.0",
+    "prettier": "3.10.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.73.0"
+  }
+}

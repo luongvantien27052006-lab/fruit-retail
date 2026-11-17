@@ -1,41 +1,42 @@
 {
   "$comment": "Nguồn phiên bản duy nhất (ADR-010). 'line' = dòng đã chốt; 'exact' điền ở CP02 từ lockfile/image digest.",
-  "updated": "2026-11-17",
+  "updated": "2026-11-18",
   "runtime": {
     "node": {
       "line": "24",
-      "exact": null,
+      "exact": "24.22.3",
       "local_observed": "24.22.3",
       "note": "Maintenance LTS (Node 26 là Active LTS từ 10/2026); Tiến giữ 24 ngày 2026-11-18; nâng lên 26 = ADR mới"
     },
     "pnpm": {
       "line": "11",
-      "exact": null,
+      "exact": "11.2.2",
       "local_observed": "11.2.2"
     },
     "flutter": {
       "line": "3.44",
-      "exact": null,
+      "exact": "3.44.6",
       "local_observed": "3.44.6"
     },
     "dart": {
       "line": "3.12",
-      "exact": null,
+      "exact": "3.12.2",
       "local_observed": "3.12.2"
     }
   },
   "backend": {
     "typescript": {
-      "line": "latest-stable@CP02",
-      "exact": null
+      "line": "6.0",
+      "exact": "6.0.3",
+      "note": "ADR-018: TS 7 chưa được typescript-eslint hỗ trợ"
     },
     "nestjs": {
-      "line": "11",
+      "line": "12",
       "exact": null
     },
     "prisma": {
-      "line": "latest-major-stable@CP02",
-      "exact": null
+      "line": "7",
+      "exact": "7.10.1"
     },
     "bullmq": {
       "line": "5",
@@ -107,8 +108,8 @@
   },
   "testing": {
     "vitest": {
-      "line": "latest-stable@CP02",
-      "exact": null
+      "line": "5",
+      "exact": "5.1.0"
     },
     "testcontainers": {
       "line": "latest-stable@CP02",
@@ -120,5 +121,11 @@
       "exact": null
     },
     "flutter_test": "sdk"
+  },
+  "tooling": {
+    "eslint": "10.15.0",
+    "typescript-eslint": "8.73.0",
+    "prettier": "3.10.1",
+    "@types/node": "24.19.2"
   }
 }

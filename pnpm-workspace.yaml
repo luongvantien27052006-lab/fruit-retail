@@ -1,0 +1,6 @@
+packages:
+  - apps/api
+  - apps/admin-web
+  - packages/contracts
+  - packages/money_weight/ts
+  - packages/api_client_ts

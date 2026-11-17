@@ -5,7 +5,8 @@
     "node": {
       "line": "24",
       "exact": null,
-      "local_observed": "22.22.3"
+      "local_observed": "24.22.3",
+      "note": "Maintenance LTS (Node 26 là Active LTS từ 10/2026); Tiến giữ 24 ngày 2026-11-18; nâng lên 26 = ADR mới"
     },
     "pnpm": {
       "line": "11",

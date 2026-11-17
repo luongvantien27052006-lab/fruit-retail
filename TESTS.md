@@ -7,8 +7,7 @@
 
 ## 1. Điểm chạy test
 
-Lệnh thật được ghi ở `docs/engineering/execution/command-catalog.md` (tạo ở CP02). Hiện tại: `NOT RUN` — chưa có
-mã nguồn.
+Lệnh thật ở `docs/engineering/execution/command-catalog.md` (CP02).
 
 ## 2. Kịch bản nghiệm thu (SPEC §17 T01–T25, §21.7 T26–T41)
 
@@ -57,6 +56,18 @@ mã nguồn.
 | TEST-CAT-003 | SPEC §21.7-T41 | Giỏ quà cần 3 táo/giỏ, còn 10 táo; thành phần khác dư | ATP giỏ = 3, báo "nút cổ chai: táo" | unit | CP13 | missing | — |
 
 Tổng: 41 TEST-ID (25 từ §17, 16 từ §21.7).
+
+## 2b. TEST-ID kỹ thuật của CP02
+
+| TEST-ID | Nguồn | Kiểm | Lệnh | Trạng thái | Bằng chứng |
+|---|---|---|---|---|---|
+| TEST-MW-001 | Phụ lục A, FR-INV-03 | Vector tiền/cân chung (114.950đ, 270.400đ, 55.665đ, T10/T11/T14, biên HALF_UP, từ chối âm/số thực, codec wire) — bản TS | `pnpm --filter @fruit/money_weight run test` | covered | 38 test, exit 0 (2026-11-18, local) |
+| TEST-MW-002 | Phụ lục A, FR-INV-03 | Cùng file vector — bản Dart | cwd `packages/money_weight/dart`: `dart test` | covered | 37 test, exit 0 (2026-11-18, local) |
+| TEST-INFRA-001 | §3.6, FR-INV-17 | /v1/health 200 khi DB+Redis sống; 503 DEPENDENCY_UNAVAILABLE khi Redis chết; thiếu env → dừng | `pnpm --filter @fruit/api run test` (Testcontainers) | covered | 4 test, exit 0; kiểm thêm qua docker compose (CP02.md) |
+| TEST-INFRA-002 | ADR-011, FR-INV-05/11 | Bootstrap DB: extension, schema, 5 role không BYPASSRLS, viewer_ro không vào core, không role nào CREATE, bảng reporting mới không tự mở cho viewer, raise_immutable chặn UPDATE/DELETE, idempotent, chặn file đã áp bị sửa, thiếu mật khẩu → dừng | `pnpm --filter @fruit/api run test` | covered | 9 test trên PostGIS thật, exit 0 |
+| TEST-CODEGEN-001 | ADR-017 | Client TS: VndAmount là string, /health có kiểu chi tiết, gọi được | `pnpm --filter @fruit/api_client_ts run test` + typecheck | covered | 4 test, exit 0 |
+| TEST-CODEGEN-002 | ADR-017 | Client Dart: VndAmount là String, HealthStatus.fromJson, ErrorCode đủ | cwd `packages/shared_models`: `dart test` | covered | 3 test, exit 0 |
+| TEST-DEV-001 | ADR-008 | libserialport nạp được trên Windows thật, liệt kê cổng COM | cwd `apps/staff_app`: `flutter test integration_test -d windows` | covered (spike) | exit 0; máy dev 0 cổng COM — đọc cân thật ở CP07 |
 
 ## 3. TEST-ID đã đặt tên trong KẾ HOẠCH, định nghĩa chi tiết khi mở CP
 

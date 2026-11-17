@@ -1,0 +1,16 @@
+# Caddy local (HTTP, cổng 8080). Staging/production dùng Caddyfile có domain + HTTPS tự động (CP02 phần VPS).
+:8080 {
+	encode gzip
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+	}
+	handle /v1/* {
+		reverse_proxy api:3000
+	}
+	handle {
+		respond "Not found" 404
+	}
+}

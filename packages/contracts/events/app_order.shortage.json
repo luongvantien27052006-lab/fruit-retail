@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/app_order.shortage.json",
+  "title": "app_order.shortage",
+  "description": "Thiếu hàng — hỏi khách (SPEC §13.3). Chi tiết hoàn thiện ở CP14.",
+  "x-detail-cp": "CP14",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "app_order.shortage"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "order_id",
+        "lines"
+      ],
+      "properties": {
+        "order_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "lines": {
+          "type": "array"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-audience": "internal:notify",
+  "x-sensitivity": "internal"
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/payment.unmatched.json",
+  "title": "payment.unmatched",
+  "description": "Giao dịch không khớp VA (SPEC §13.3). Chi tiết hoàn thiện ở CP08.",
+  "x-detail-cp": "CP08",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "payment.unmatched"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "bank_txn_id",
+        "amount",
+        "txn_at"
+      ],
+      "properties": {
+        "bank_txn_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "amount": {
+          "type": "string",
+          "pattern": "^-?[0-9]{1,18}$"
+        },
+        "txn_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-audience": "internal:master-alert (không chứa số tài khoản/tên người chuyển)",
+  "x-sensitivity": "restricted"
+}

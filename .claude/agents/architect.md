@@ -231,4 +231,5 @@ Example architecture for an AI-powered SaaS platform:
   ngân hàng hay PII khách đầy đủ.
 - Khi review, Bash chỉ để xem: không ghi file/redirect, không cài đặt, không DDL ngoài database test dùng một lần.
 - Không chạy `npx`/`pnpm dlx` gói chưa pin trong lockfile; không reset/push DB ngoài database test dùng một lần.
+- Đường dẫn/lệnh upstream nhắc trong persona mà không tồn tại trong repo (ví dụ `docs/CODEMAPS/`, `rules/react/*`) → bỏ qua, không tạo.
 - Báo cáo bằng tiếng Việt.

@@ -1,0 +1,123 @@
+{
+  "$comment": "Nguồn phiên bản duy nhất (ADR-010). 'line' = dòng đã chốt; 'exact' điền ở CP02 từ lockfile/image digest.",
+  "updated": "2026-11-17",
+  "runtime": {
+    "node": {
+      "line": "24",
+      "exact": null,
+      "local_observed": "22.22.3"
+    },
+    "pnpm": {
+      "line": "11",
+      "exact": null,
+      "local_observed": "11.2.2"
+    },
+    "flutter": {
+      "line": "3.44",
+      "exact": null,
+      "local_observed": "3.44.6"
+    },
+    "dart": {
+      "line": "3.12",
+      "exact": null,
+      "local_observed": "3.12.2"
+    }
+  },
+  "backend": {
+    "typescript": {
+      "line": "latest-stable@CP02",
+      "exact": null
+    },
+    "nestjs": {
+      "line": "11",
+      "exact": null
+    },
+    "prisma": {
+      "line": "latest-major-stable@CP02",
+      "exact": null
+    },
+    "bullmq": {
+      "line": "5",
+      "exact": null
+    },
+    "socket.io": {
+      "line": "4",
+      "exact": null
+    },
+    "@socket.io/redis-adapter": {
+      "line": "latest-stable@CP02",
+      "exact": null
+    },
+    "@nestjs-cls/transactional": {
+      "line": "latest-stable@CP02",
+      "exact": null
+    }
+  },
+  "web": {
+    "next": {
+      "line": "16",
+      "exact": null
+    },
+    "react": {
+      "line": "19",
+      "exact": null
+    }
+  },
+  "infra": {
+    "postgres_postgis_image": {
+      "line": "postgis/postgis:17-3.5",
+      "digest": null
+    },
+    "redis_image": {
+      "line": "redis:7.4-alpine",
+      "digest": null,
+      "config": "maxmemory-policy noeviction; appendonly yes; appendfsync everysec (ADR-017)"
+    },
+    "caddy_image": {
+      "line": "caddy:2",
+      "digest": null
+    },
+    "docker_engine": {
+      "local_observed": "29.4.3"
+    },
+    "docker_compose": {
+      "local_observed": "v5.1.3"
+    }
+  },
+  "contracts": {
+    "openapi": "3.1.0",
+    "lint": {
+      "tool": "@redocly/cli",
+      "exact": "2.79.0"
+    },
+    "gen_ts": {
+      "tool": "openapi-typescript",
+      "exact": null
+    },
+    "gen_dart": {
+      "tool": "swagger_parser (freezed/json_serializable)",
+      "exact": null,
+      "note": "spike CP02 (ADR-017)"
+    },
+    "validate": {
+      "ajv": "8.20.0",
+      "ajv-formats": "3.0.1"
+    }
+  },
+  "testing": {
+    "vitest": {
+      "line": "latest-stable@CP02",
+      "exact": null
+    },
+    "testcontainers": {
+      "line": "latest-stable@CP02",
+      "exact": null,
+      "image": "postgis/postgis:17-3.5"
+    },
+    "playwright": {
+      "line": "latest-stable@CP02",
+      "exact": null
+    },
+    "flutter_test": "sdk"
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/app_order.placed.json",
+  "title": "app_order.placed",
+  "description": "Đơn app mới — chuông cửa hàng (SPEC §13.3). Chi tiết hoàn thiện ở CP14.",
+  "x-detail-cp": "CP14",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "app_order.placed"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "order_id",
+        "store_id",
+        "zone_id",
+        "ref_subtotal"
+      ],
+      "properties": {
+        "order_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "store_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "zone_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "ref_subtotal": {
+          "type": "string",
+          "pattern": "^-?[0-9]{1,18}$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-audience": "internal:store-realtime,reporting",
+  "x-sensitivity": "internal"
+}

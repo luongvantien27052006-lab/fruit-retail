@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/payment.succeeded.json",
+  "title": "payment.succeeded",
+  "description": "Thanh toán thành công (SPEC §13.3). Chi tiết hoàn thiện ở CP08.",
+  "x-detail-cp": "CP08",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "payment.succeeded"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "payment_id",
+        "ref_type",
+        "ref_id",
+        "amount",
+        "provider_txn_id",
+        "paid_at"
+      ],
+      "properties": {
+        "payment_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "ref_type": {
+          "type": "string"
+        },
+        "ref_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "amount": {
+          "type": "string",
+          "pattern": "^-?[0-9]{1,18}$"
+        },
+        "provider_txn_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "paid_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-audience": "internal:orders,pos,reconcile",
+  "x-sensitivity": "restricted"
+}

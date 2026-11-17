@@ -11,7 +11,7 @@ Dùng dự án hiện có, không dựng khung mới. Phiên bản theo `docs/en
 | Shipper (A5) | `apps/staff_app` chế độ shipper, Flutter Android | Chuyến, trạng thái, ảnh giao, COD |
 | Trang quản lý (A4) | `apps/admin-web` Next.js App Router, route group (master)/(viewer) | Bảng lớn, biểu đồ, bản đồ vẽ vùng; responsive dùng được trên điện thoại |
 
-**Nguồn token:** `needs confirmation` — chốt ở CP01 (ADR/`docs/engineering/ux/`). Màu chủ đạo, logo, tên thương
+**Nguồn token:** `needs confirmation` (CONTEXT NC-02) — chốt ở CP có UI đầu tiên (CP07/CP10), ghi ADR. Màu chủ đạo, logo, tên thương
 hiệu là dữ liệu cấu hình `brand_settings` (§18.5) do Master sửa; token ngữ nghĩa trong code không được hardcode
 màu thương hiệu thay cho cấu hình. Khi nguồn token đã chốt: sửa nguồn rồi sinh lại cho cả Flutter và web qua đúng
 công cụ sở hữu, không vá file sinh ra.

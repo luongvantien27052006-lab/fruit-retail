@@ -34,7 +34,7 @@ apps/api/            NestJS modular monolith — 2 entry: main.ts (API + Socket.
 apps/admin-web/      Next.js App Router — route group (master) và (viewer)
 apps/customer_app/   Flutter iOS/Android (A1)
 apps/staff_app/      Flutter, 3 chế độ: counter (Windows POS), tablet (Android), shipper (Android)
-packages/contracts/  openapi.yaml + events/*.json — NGUỒN HỢP ĐỒNG DUY NHẤT
+packages/contracts/  openapi.yaml + events/ + state-machines/ + realtime/ — NGUỒN HỢP ĐỒNG DUY NHẤT
 packages/shared_models/  Dart sinh từ OpenAPI
 packages/api_client_ts/  TS sinh từ OpenAPI
 packages/money_weight/   helper tiền/cân Dart + TS, chung bộ test vector
@@ -135,8 +135,7 @@ nghiệp vụ) · test chỉ xanh nếu nới assertion hoặc thay PostgreSQL b
 
 ## Mẫu ADR (thay skill `architecture-decision-records` chưa có)
 
-Thư mục ADR: `needs confirmation` — chốt ở CP01 (SPEC §19.5 ghi `docs/adr/`, KẾ HOẠCH ghi
-`docs/engineering/decisions/`). Tên file `ADR-0xx-<slug-ascii>.md`, đánh số tăng dần, không tái sử dụng số.
+Thư mục ADR: `docs/engineering/decisions/` (Tiến chốt 2026-11-17, ADR-001; lệch §19.5 có chủ đích). Tên file `ADR-0xx-<slug-ascii>.md`, đánh số tăng dần, không tái sử dụng số.
 
 ```markdown
 # ADR-0xx: <tiêu đề>

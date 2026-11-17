@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/snapshot.published.json",
+  "title": "snapshot.published",
+  "description": "Phát hành snapshot (SPEC §13.3). Chi tiết hoàn thiện ở CP12.",
+  "x-detail-cp": "CP12",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "snapshot.published"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "snapshot_id",
+        "version",
+        "checksum",
+        "viewer_profile_ids"
+      ],
+      "properties": {
+        "snapshot_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "checksum": {
+          "type": "string"
+        },
+        "viewer_profile_ids": {
+          "type": "array"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-audience": "internal:viewer-notify",
+  "x-sensitivity": "internal"
+}

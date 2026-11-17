@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/wholesale_order.status_changed.json",
+  "title": "wholesale_order.status_changed",
+  "description": "Đổi trạng thái đơn sỉ (SPEC §13.3). Chi tiết hoàn thiện ở CP16.",
+  "x-detail-cp": "CP16",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "wholesale_order.status_changed"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "order_id",
+        "from_status",
+        "to_status",
+        "actor_id"
+      ],
+      "properties": {
+        "order_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "from_status": {
+          "type": "string"
+        },
+        "to_status": {
+          "type": "string"
+        },
+        "actor_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-audience": "internal:reporting,receivables",
+  "x-sensitivity": "internal"
+}

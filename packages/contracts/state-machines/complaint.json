@@ -1,0 +1,125 @@
+{
+  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard + hiệu ứng từ file này.",
+  "machine": "complaint",
+  "spec_ref": "§8.8, D12",
+  "service": "ComplaintStateMachine",
+  "events_table": "audit.logs",
+  "initial": "SUBMITTED",
+  "terminal": [
+    "RESOLVED",
+    "REJECTED"
+  ],
+  "states": [
+    "SUBMITTED",
+    "AUTO_APPROVED",
+    "ESCALATED",
+    "APPROVED",
+    "REJECTED",
+    "RESOLVED"
+  ],
+  "transitions": [
+    {
+      "from": "SUBMITTED",
+      "to": "AUTO_APPROVED",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "",
+      "effects": [],
+      "guard": "giá trị ≤ 100.000đ và khách < 2 lần/30 ngày (cấu hình)"
+    },
+    {
+      "from": "SUBMITTED",
+      "to": "ESCALATED",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "Vượt ngưỡng → Master",
+      "effects": []
+    },
+    {
+      "from": "ESCALATED",
+      "to": "APPROVED",
+      "actors": [
+        "MASTER"
+      ],
+      "note": "",
+      "effects": []
+    },
+    {
+      "from": "ESCALATED",
+      "to": "REJECTED",
+      "actors": [
+        "MASTER"
+      ],
+      "note": "",
+      "effects": [
+        "REQUIRE_REASON"
+      ]
+    },
+    {
+      "from": "AUTO_APPROVED",
+      "to": "RESOLVED",
+      "actors": [
+        "SYSTEM",
+        "CUSTOMER"
+      ],
+      "note": "Khách chọn hoàn chuyển khoản hoặc giao bù lần sau",
+      "effects": [
+        "RESOLVE_REFUND",
+        "RESOLVE_REPLACEMENT"
+      ]
+    },
+    {
+      "from": "APPROVED",
+      "to": "RESOLVED",
+      "actors": [
+        "MASTER",
+        "CUSTOMER"
+      ],
+      "note": "Như trên",
+      "effects": [
+        "RESOLVE_REFUND",
+        "RESOLVE_REPLACEMENT"
+      ]
+    }
+  ],
+  "notes": "Chỉ nhận trong 24h sau DELIVERED/PICKED_UP. Khiếu nại chưa kết thúc chặn đơn chuyển COMPLETED.",
+  "test_vectors": {
+    "valid": [
+      [
+        "SUBMITTED",
+        "AUTO_APPROVED",
+        "RESOLVED"
+      ],
+      [
+        "SUBMITTED",
+        "ESCALATED",
+        "APPROVED",
+        "RESOLVED"
+      ],
+      [
+        "SUBMITTED",
+        "ESCALATED",
+        "REJECTED"
+      ]
+    ],
+    "invalid": [
+      [
+        "SUBMITTED",
+        "RESOLVED"
+      ],
+      [
+        "REJECTED",
+        "APPROVED"
+      ]
+    ],
+    "actor_invalid": [
+      [
+        "ESCALATED",
+        "APPROVED",
+        "STORE"
+      ]
+    ]
+  }
+}

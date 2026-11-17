@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/push_deal.ended.json",
+  "title": "push_deal.ended",
+  "description": "Kết thúc (SPEC §13.3). Chi tiết hoàn thiện ở CP13.",
+  "x-detail-cp": "CP13",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "push_deal.ended"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "push_deal_id",
+        "reason"
+      ],
+      "properties": {
+        "push_deal_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-audience": "internal:notify",
+  "x-sensitivity": "internal"
+}

@@ -16,7 +16,7 @@ giá vốn bình quân làm giá vốn chính; tự động gửi đơn đặt h
 v2 (catch-weight có dung sai, trả trước theo tạm tính…).
 
 **Hoãn (có chỗ trong thiết kế, chưa làm):** H1/H5 "Đăng ký điểm bán" §7.6 — HOÃN theo quyết định 2026-11-17;
-H2–H4 theo §1.3.
+H3–H4 theo §1.3. H2 (điểm thưởng) bị D11 thay thế: KHÔNG làm.
 
 ## FR-INV-01 – FR-INV-20
 
@@ -53,10 +53,13 @@ H2–H4 theo §1.3.
     dùng cơ sở THỰC TẾ.
 13. **FR-INV-13 Thời gian** (§12.1, §21.3.13): lưu UTC `TIMESTAMPTZ`; `business_date` theo Asia/Ho_Chi_Minh với
     mốc `BUSINESS_DAY_CUTOFF`; ngày giao dịch do máy chủ ghi, không có chức năng sửa ngày (trừ ngày chứng từ NCC
-    tách riêng); khóa sổ theo cửa hàng chặn ghi lùi; chứng từ đồng bộ muộn ghi vào ngày đồng bộ + nhãn "phát sinh
-    muộn".
-14. **FR-INV-14 Người tạo ≠ người duyệt** (§2.3): phiếu hủy, điều chỉnh kiểm kê vượt định mức, hoàn tiền vượt
-    hạn mức, giảm giá dưới giá sàn. Hạn mức duyệt là dữ liệu cấu hình, không hằng số trong code.
+    tách riêng); POS offline dùng giờ máy, server kiểm lệch > 10 phút → cảnh báo; khóa sổ theo cửa hàng chặn ghi
+    lùi. Chứng từ đồng bộ muộn: nếu thuộc ngày ≤ `locked_until` của cửa hàng → ghi vào ngày đồng bộ + nhãn "phát
+    sinh muộn" (§21.3.13); ngược lại giữ `business_date` gốc, báo cáo ngày đã chốt ra phiên bản bổ sung (§6.11).
+14. **FR-INV-14 Người tạo ≠ người duyệt** (§5.9, §14 F4): bắt buộc cho phiếu hủy hàng (mọi giá trị). Mở rộng
+    của dự án (CONTEXT NC-11): điều chỉnh kiểm kê vượt định mức, hoàn tiền, dùng nội bộ, đối soát PENDING_VERIFY.
+    Việc "chỉ Master duyệt" (hoàn tiền vượt hạn mức, giảm dưới giá sàn — §2.3, §5.8) là phân quyền, không phải tách
+    người. Hạn mức duyệt (§2.3) là dữ liệu cấu hình, không hằng số trong code.
 15. **FR-INV-15 Quyền** (§2.4, §19.6): mọi route có `@RequirePermission`, mặc định từ chối. Master/Viewer bắt buộc
     2FA; thao tác nhạy cảm (SEC2) bắt buộc step-up 5 phút.
 16. **FR-INV-16 Ảnh bằng chứng** (§3.5): ảnh hủy hàng/ảnh cân chụp trực tiếp trong app (không chọn thư viện),

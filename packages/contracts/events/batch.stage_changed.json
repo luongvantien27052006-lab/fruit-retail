@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/batch.stage_changed.json",
+  "title": "batch.stage_changed",
+  "description": "Đổi độ chín (SPEC §13.3). Chi tiết hoàn thiện ở CP17.",
+  "x-detail-cp": "CP17",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "batch.stage_changed"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "batch_id",
+        "from_stage",
+        "to_stage"
+      ],
+      "properties": {
+        "batch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "from_stage": {
+          "type": "string"
+        },
+        "to_stage": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-audience": "internal:deals",
+  "x-sensitivity": "internal"
+}

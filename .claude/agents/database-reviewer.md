@@ -111,6 +111,7 @@ For detailed index patterns, schema design examples, connection management, conc
   ngân hàng hay PII khách đầy đủ.
 - Khi review, Bash chỉ để xem: không ghi file/redirect, không cài đặt, không DDL ngoài database test dùng một lần.
 - Không chạy `npx`/`pnpm dlx` gói chưa pin trong lockfile; không reset/push DB ngoài database test dùng một lần.
+- Đường dẫn/lệnh upstream nhắc trong persona mà không tồn tại trong repo (ví dụ `docs/CODEMAPS/`, `rules/react/*`) → bỏ qua, không tạo.
 - Báo cáo bằng tiếng Việt.
 - Kiểm thêm: trigger chỉ-thêm trên `stock_movements`/`snap_*`/`audit.*`; 4 role DB (`app_rw`, `viewer_ro`,
   `projector_rw`, `audit_writer`); RLS schema `reporting`; tiền `BIGINT`, khối lượng `INTEGER` gram; index GIST vùng giao.

@@ -8,7 +8,7 @@
 
 | Module | Hạ nguồn dự kiến | Lệnh nghiệm thu | TEST-ID liên quan | Commit xanh gần nhất |
 |---|---|---|---|---|
-| `packages/contracts` | api_client_ts, shared_models, apps/api, admin-web, staff_app, customer_app | MISSING | — | — |
+| `packages/contracts` | api_client_ts, shared_models, apps/api, admin-web, staff_app, customer_app | `pnpm --dir packages/contracts run check` (Git Bash, cwd gốc repo) | — | (CP01, xem checkpoints/CP01.md) |
 | `packages/money_weight` | apps/api (pos, app-orders, wholesale, reporting), staff_app, customer_app, admin-web | MISSING | TEST-POS-001, TEST-APPORD-001, TEST-WS-001 | — |
 | `api: auth, rbac` | mọi module API, viewer | MISSING | TEST-VIEWER-001, TEST-VIEWER-002 | — |
 | `api: audit, outbox, files` | mọi module ghi, worker | MISSING | — | — |

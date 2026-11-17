@@ -1,0 +1,18 @@
+{
+  "name": "@fruit/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hợp đồng API (OpenAPI 3.1) và sự kiện — nguồn duy nhất (ADR-004, ADR-007)",
+  "scripts": {
+    "lint": "redocly lint openapi.yaml --format=stylish",
+    "lint:events": "node scripts/check-events.mjs",
+    "lint:state-machines": "node scripts/check-state-machines.mjs",
+    "check": "pnpm run lint && pnpm run lint:events && pnpm run lint:state-machines && pnpm run lint:spec-coverage",
+    "lint:spec-coverage": "node scripts/check-spec-coverage.mjs"
+  },
+  "devDependencies": {
+    "@redocly/cli": "2.79.0",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1"
+  }
+}

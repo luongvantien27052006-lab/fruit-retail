@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/markdown.approved.json",
+  "title": "markdown.approved",
+  "description": "Duyệt giảm giá lô (SPEC §13.3). Chi tiết hoàn thiện ở CP17.",
+  "x-detail-cp": "CP17",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "markdown.approved"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "markdown_id",
+        "batch_id",
+        "price_per_kg",
+        "price_per_unit"
+      ],
+      "properties": {
+        "markdown_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "batch_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "price_per_kg": {
+          "type": "string",
+          "pattern": "^-?[0-9]{1,18}$"
+        },
+        "price_per_unit": {
+          "type": "string",
+          "pattern": "^-?[0-9]{1,18}$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-audience": "internal:pricing",
+  "x-sensitivity": "internal"
+}

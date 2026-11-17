@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/payment.expired.json",
+  "title": "payment.expired",
+  "description": "VA hết hạn (SPEC §13.3). Chi tiết hoàn thiện ở CP08.",
+  "x-detail-cp": "CP08",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "payment.expired"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "payment_id",
+        "ref_type",
+        "ref_id",
+        "amount"
+      ],
+      "properties": {
+        "payment_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "ref_type": {
+          "type": "string"
+        },
+        "ref_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "amount": {
+          "type": "string",
+          "pattern": "^-?[0-9]{1,18}$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-audience": "internal:orders",
+  "x-sensitivity": "restricted"
+}

@@ -1,0 +1,76 @@
+{
+  "$comment": "Hợp đồng realtime (ADR-013). Tin Socket.IO chỉ báo thay đổi; client gọi REST lấy dữ liệu. Server quyết join room, client không tự join.",
+  "message": {
+    "type": "object",
+    "required": [
+      "type",
+      "entity",
+      "id",
+      "version"
+    ],
+    "properties": {
+      "type": {
+        "type": "string"
+      },
+      "entity": {
+        "type": "string"
+      },
+      "id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "version": {
+        "type": "integer"
+      }
+    },
+    "additionalProperties": false
+  },
+  "rooms": [
+    {
+      "room": "store:{store_id}",
+      "who": "staff có vai trò tại cửa hàng (STORE_MANAGER, CASHIER, PICKER)",
+      "types": [
+        "app_order.new",
+        "app_order.changed",
+        "wholesale_order.changed",
+        "device.alert"
+      ]
+    },
+    {
+      "room": "order:{order_id}",
+      "who": "đúng CUSTOMER chủ đơn",
+      "types": [
+        "app_order.changed",
+        "shipment.location"
+      ]
+    },
+    {
+      "room": "shipper:{shipper_id}",
+      "who": "chính shipper",
+      "types": [
+        "job.assigned",
+        "job.changed"
+      ]
+    },
+    {
+      "room": "admin:master",
+      "who": "MASTER_ADMIN",
+      "types": [
+        "sales.changed",
+        "alert",
+        "app_order.changed",
+        "stock.alert"
+      ]
+    },
+    {
+      "room": "viewer:{profile_id}",
+      "who": "VIEW_ONLY_ADMIN được gán hồ sơ profile_id",
+      "types": [
+        "live.changed",
+        "snapshot.published",
+        "snapshot.revoked"
+      ],
+      "note": "id/version của dòng reporting.* đã qua RLS; không chứa PII/giá vốn"
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/payment.late_received.json",
+  "title": "payment.late_received",
+  "description": "Tiền về sau khi payment đã EXPIRED/CANCELLED → nghĩa vụ hoàn (§6.6). Chi tiết hoàn thiện ở CP08.",
+  "x-detail-cp": "CP08",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "payment.late_received"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "payment_id",
+        "amount",
+        "provider_txn_id",
+        "paid_at"
+      ],
+      "properties": {
+        "payment_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "amount": {
+          "type": "string",
+          "pattern": "^-?[0-9]{1,18}$"
+        },
+        "provider_txn_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "paid_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-audience": "internal:reconcile,master-alert",
+  "x-sensitivity": "restricted"
+}

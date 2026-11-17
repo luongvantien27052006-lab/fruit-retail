@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/day.closed.json",
+  "title": "day.closed",
+  "description": "Đóng ngày — tạo báo cáo ngày, rule phát hành tự động (SPEC §13.3). Chi tiết hoàn thiện ở CP08.",
+  "x-detail-cp": "CP08",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "day.closed"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "store_id",
+        "business_date",
+        "day_close_id",
+        "version"
+      ],
+      "properties": {
+        "store_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "business_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "day_close_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-audience": "internal:reporting,publish",
+  "x-sensitivity": "internal"
+}

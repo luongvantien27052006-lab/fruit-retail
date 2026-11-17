@@ -1,0 +1,256 @@
+{
+  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard + hiệu ứng từ file này.",
+  "machine": "wholesale_order",
+  "spec_ref": "§9.1–§9.5",
+  "service": "WholesaleOrderStateMachine",
+  "events_table": "audit.logs",
+  "initial": "DRAFT",
+  "terminal": [
+    "PAID",
+    "CANCELLED"
+  ],
+  "states": [
+    "DRAFT",
+    "CONFIRMED",
+    "CANCELLED",
+    "PICKING",
+    "READY",
+    "DELIVERING",
+    "DELIVERED",
+    "PARTIALLY_PAID",
+    "PAID"
+  ],
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "CONFIRMED",
+      "actors": [
+        "MASTER"
+      ],
+      "note": "",
+      "effects": [
+        "RESERVE_STOCK"
+      ]
+    },
+    {
+      "from": "DRAFT",
+      "to": "CANCELLED",
+      "actors": [
+        "MASTER"
+      ],
+      "note": "",
+      "effects": [
+        "REQUIRE_REASON"
+      ]
+    },
+    {
+      "from": "CONFIRMED",
+      "to": "PICKING",
+      "actors": [
+        "STORE",
+        "WAREHOUSE"
+      ],
+      "note": "",
+      "effects": []
+    },
+    {
+      "from": "CONFIRMED",
+      "to": "CANCELLED",
+      "actors": [
+        "MASTER"
+      ],
+      "note": "",
+      "effects": [
+        "RELEASE_HOLD",
+        "REFUND_DEPOSIT_IF_PAID",
+        "REQUIRE_REASON"
+      ]
+    },
+    {
+      "from": "PICKING",
+      "to": "READY",
+      "actors": [
+        "STORE",
+        "WAREHOUSE"
+      ],
+      "note": "Tiền theo cân thực (T14)",
+      "effects": [
+        "COMPUTE_ACTUAL_AMOUNT"
+      ]
+    },
+    {
+      "from": "PICKING",
+      "to": "CANCELLED",
+      "actors": [
+        "MASTER"
+      ],
+      "note": "",
+      "effects": [
+        "RELEASE_HOLD",
+        "REFUND_DEPOSIT_IF_PAID",
+        "REQUIRE_REASON"
+      ]
+    },
+    {
+      "from": "READY",
+      "to": "DELIVERING",
+      "actors": [
+        "STORE",
+        "SHIPPER",
+        "COURIER"
+      ],
+      "note": "",
+      "effects": [
+        "DEDUCT_STOCK_FEFO",
+        "RELEASE_HOLD"
+      ]
+    },
+    {
+      "from": "READY",
+      "to": "DELIVERED",
+      "actors": [
+        "STORE"
+      ],
+      "note": "Khách tự lấy (§9.1)",
+      "effects": [
+        "DEDUCT_STOCK_FEFO",
+        "RELEASE_HOLD",
+        "POST_RECEIVABLE"
+      ],
+      "guard": "fulfillment_type = PICKUP"
+    },
+    {
+      "from": "READY",
+      "to": "CANCELLED",
+      "actors": [
+        "MASTER"
+      ],
+      "note": "Chưa trừ kho",
+      "effects": [
+        "RELEASE_HOLD",
+        "REFUND_DEPOSIT_IF_PAID",
+        "REQUIRE_REASON"
+      ]
+    },
+    {
+      "from": "DELIVERING",
+      "to": "DELIVERED",
+      "actors": [
+        "SHIPPER",
+        "COURIER",
+        "STORE"
+      ],
+      "note": "",
+      "effects": [
+        "POST_RECEIVABLE",
+        "POD_PHOTO"
+      ]
+    },
+    {
+      "from": "DELIVERING",
+      "to": "READY",
+      "actors": [
+        "STORE",
+        "SHIPPER",
+        "COURIER"
+      ],
+      "note": "Giao thất bại, hàng về",
+      "effects": [
+        "RETURN_STOCK_OR_SPOIL",
+        "REQUIRE_REASON"
+      ]
+    },
+    {
+      "from": "DELIVERED",
+      "to": "PARTIALLY_PAID",
+      "actors": [
+        "MASTER",
+        "STORE",
+        "SYSTEM"
+      ],
+      "note": "Thu một phần (VA SePay / phiếu thu)",
+      "effects": []
+    },
+    {
+      "from": "DELIVERED",
+      "to": "PAID",
+      "actors": [
+        "MASTER",
+        "STORE",
+        "SYSTEM"
+      ],
+      "note": "",
+      "effects": []
+    },
+    {
+      "from": "PARTIALLY_PAID",
+      "to": "PAID",
+      "actors": [
+        "MASTER",
+        "STORE",
+        "SYSTEM"
+      ],
+      "note": "",
+      "effects": []
+    }
+  ],
+  "notes": "Điểm trừ kho SALE_WHOLESALE: READY→DELIVERING (hoặc READY→DELIVERED khi khách tự lấy).",
+  "test_vectors": {
+    "valid": [
+      [
+        "DRAFT",
+        "CONFIRMED",
+        "PICKING",
+        "READY",
+        "DELIVERING",
+        "DELIVERED",
+        "PAID"
+      ],
+      [
+        "DRAFT",
+        "CONFIRMED",
+        "PICKING",
+        "READY",
+        "DELIVERING",
+        "READY",
+        "DELIVERING",
+        "DELIVERED",
+        "PARTIALLY_PAID",
+        "PAID"
+      ],
+      [
+        "DRAFT",
+        "CONFIRMED",
+        "PICKING",
+        "READY",
+        "DELIVERED",
+        "PAID"
+      ],
+      [
+        "DRAFT",
+        "CANCELLED"
+      ]
+    ],
+    "invalid": [
+      [
+        "DRAFT",
+        "PICKING"
+      ],
+      [
+        "DELIVERING",
+        "CANCELLED"
+      ],
+      [
+        "PAID",
+        "PARTIALLY_PAID"
+      ]
+    ],
+    "actor_invalid": [
+      [
+        "DRAFT",
+        "CONFIRMED",
+        "STORE"
+      ]
+    ]
+  }
+}

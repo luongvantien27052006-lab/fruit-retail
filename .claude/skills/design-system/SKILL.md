@@ -5,7 +5,7 @@ description: "Maintain shared semantic tokens and component state contracts acro
 
 # Fruit Retail shared design system
 
-Use primitive → semantic → component reasoning from `references/token-architecture.md`, `references/semantic-tokens.md`, `references/component-specs.md` and `references/states-and-variants.md` as needed. Preserve the existing token JSON schema. Document semantic aliases/component decisions in P01 UX artifacts; do not migrate schema or colors without an ADR and generated output compatibility checks.
+Use primitive → semantic → component reasoning from `references/token-architecture.md`, `references/semantic-tokens.md`, `references/component-specs.md` and `references/states-and-variants.md` as needed. Token source is pending (CONTEXT NC-02) — propose one, do not create it silently. Document semantic aliases/component decisions in `docs/engineering/ux/`; do not migrate schema or colors without an ADR and generated output compatibility checks.
 
 Map each chosen semantic value to native Dart themes and web CSS tokens through the existing project generator. Do not install upstream token generators: they assume another assets schema and could create a second authority. Compare both generated outputs and contrast pairs before accepting token changes. Component specs include default/focus/pressed/disabled/loading/error/success, keyboard and screen reader behavior, source contract, density and responsive variants. Buttons for money/permissions also need pending/UNKNOWN/conflict handling as applicable.
 

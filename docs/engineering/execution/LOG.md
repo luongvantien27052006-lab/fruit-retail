@@ -13,3 +13,8 @@
 | 2026-11-17 | CP00 | Tiến xác nhận CP00 ĐẠT (yêu cầu "bắt đầu làm CP01"). Commit f9ea35f, aa318ab. |
 | 2026-11-17 | — | Tiến cấp remote `origin` = github.com/luongvantien27052006-lab/fruit-retail (repo trống); từ nay code đẩy lên đây. |
 | 2026-11-17 | CP01 | Mở CP01. |
+| 2026-11-17 | CP01 | Tiến chốt: ADR ở `docs/engineering/decisions/`, Prisma theo SPEC, worker là entry 2 của `apps/api`, Node 24 LTS. Tiến cho phép tự cài thư viện chính chủ khi cần. |
+| 2026-11-17 | CP01 | Ghi ADR-001…010, versions.json, openapi.yaml (189 thao tác), 24 schema sự kiện, 7 máy trạng thái + 50 vector, ERD, screens.md. Kiểm `pnpm --dir packages/contracts run check` exit 0. CP01 → CHỜ REVIEW. |
+| 2026-11-17 | CP01 | Tiến "Duyệt tất cả": ADR-008 accepted; NC-08 (5 mã quyền), NC-09 (route ngoài §13.2), NC-10 (tách giá vốn khỏi `live_sales_hourly`) đã quyết. Kiểm hợp đồng exit 0. Theo yêu cầu của Tiến: chạy review bằng agent trước khi ĐẠT. |
+| 2026-11-17 | CP01 | Review agent (4 reviewer chỉ đọc: kiến trúc, CSDL, bảo mật, tài liệu) → C8/H35. Đã sửa: ADR-011…017; ERD §6; openapi 213 thao tác (tài khoản admin + step-up, 2FA/phiên/thiết bị, quyền theo mã báo cáo, quyền con POS/duyệt, webhook scheme, file); 26 sự kiện chặt; 9 máy trạng thái + effects (76 vector); script đối chiếu SPEC; sửa FR-INV-13/14, CLAUDE.md, skill, agent, screens; NC-11…17. `pnpm --dir packages/contracts run check` exit 0. |
+| 2026-11-17 | CP01 | Tiến quyết: NC-11 mở rộng người tạo ≠ người duyệt; NC-13 COD vượt ≤10% cho qua; NC-12 trả lời "số tồn do người đăng (master) nhập khi đăng sản phẩm" (diễn giải chờ xác nhận). Tiến xác nhận CP01 ĐẠT → merge `feat/cp01-architecture` vào `develop`. |

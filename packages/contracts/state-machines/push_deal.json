@@ -1,0 +1,139 @@
+{
+  "$comment": "Bảng chuyển trạng thái hợp lệ — nguồn duy nhất (§19.5). Server sinh enum + guard + hiệu ứng từ file này.",
+  "machine": "push_deal",
+  "spec_ref": "§7.3",
+  "service": "PushDealStateMachine",
+  "events_table": "audit.logs",
+  "initial": "DRAFT",
+  "terminal": [
+    "ENDED",
+    "CANCELLED"
+  ],
+  "states": [
+    "DRAFT",
+    "SCHEDULED",
+    "CANCELLED",
+    "LIVE",
+    "SOLD_OUT",
+    "ENDED"
+  ],
+  "transitions": [
+    {
+      "from": "DRAFT",
+      "to": "SCHEDULED",
+      "actors": [
+        "MASTER"
+      ],
+      "note": "Kiểm tồn khả dụng ≥ hạn mức, lên lịch push",
+      "effects": []
+    },
+    {
+      "from": "DRAFT",
+      "to": "CANCELLED",
+      "actors": [
+        "MASTER"
+      ],
+      "note": "",
+      "effects": []
+    },
+    {
+      "from": "SCHEDULED",
+      "to": "LIVE",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "Đến starts_at",
+      "effects": []
+    },
+    {
+      "from": "SCHEDULED",
+      "to": "CANCELLED",
+      "actors": [
+        "MASTER"
+      ],
+      "note": "",
+      "effects": []
+    },
+    {
+      "from": "LIVE",
+      "to": "SOLD_OUT",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "sold ≥ quota",
+      "effects": []
+    },
+    {
+      "from": "LIVE",
+      "to": "ENDED",
+      "actors": [
+        "SYSTEM",
+        "MASTER"
+      ],
+      "note": "Hết ends_at hoặc Master kết thúc",
+      "effects": []
+    },
+    {
+      "from": "SOLD_OUT",
+      "to": "LIVE",
+      "actors": [
+        "SYSTEM"
+      ],
+      "note": "Hạn mức được hoàn trước ends_at",
+      "effects": []
+    },
+    {
+      "from": "SOLD_OUT",
+      "to": "ENDED",
+      "actors": [
+        "SYSTEM",
+        "MASTER"
+      ],
+      "note": "",
+      "effects": []
+    }
+  ],
+  "test_vectors": {
+    "valid": [
+      [
+        "DRAFT",
+        "SCHEDULED",
+        "LIVE",
+        "SOLD_OUT",
+        "LIVE",
+        "ENDED"
+      ],
+      [
+        "DRAFT",
+        "SCHEDULED",
+        "LIVE",
+        "ENDED"
+      ],
+      [
+        "DRAFT",
+        "CANCELLED"
+      ]
+    ],
+    "invalid": [
+      [
+        "DRAFT",
+        "LIVE"
+      ],
+      [
+        "ENDED",
+        "LIVE"
+      ],
+      [
+        "LIVE",
+        "CANCELLED"
+      ]
+    ],
+    "actor_invalid": [
+      [
+        "SCHEDULED",
+        "LIVE",
+        "MASTER"
+      ]
+    ]
+  }
+}

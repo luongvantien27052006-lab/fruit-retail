@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/push_deal.live.json",
+  "title": "push_deal.live",
+  "description": "Mặt hàng đẩy bắt đầu (SPEC §13.3). Chi tiết hoàn thiện ở CP13.",
+  "x-detail-cp": "CP13",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "push_deal.live"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "push_deal_id"
+      ],
+      "properties": {
+        "push_deal_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-audience": "internal:notify",
+  "x-sensitivity": "internal"
+}

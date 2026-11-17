@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/sale.voided.json",
+  "title": "sale.voided",
+  "description": "Hủy hóa đơn (SPEC §13.3). Chi tiết hoàn thiện ở CP08.",
+  "x-detail-cp": "CP08",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "sale.voided"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "sale_id",
+        "store_id",
+        "void_reason",
+        "voided_by",
+        "total_amount"
+      ],
+      "properties": {
+        "sale_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "store_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "void_reason": {
+          "type": "string"
+        },
+        "voided_by": {
+          "type": "string"
+        },
+        "total_amount": {
+          "type": "string",
+          "pattern": "^-?[0-9]{1,18}$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-audience": "internal:reporting,pos-control",
+  "x-sensitivity": "internal"
+}

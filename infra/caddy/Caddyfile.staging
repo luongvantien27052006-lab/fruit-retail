@@ -1,10 +1,8 @@
+# Không khai báo trusted_proxies: Caddy đứng ngay biên, KHÔNG tin X-Forwarded-For từ client (chỉ thêm dải IP cụ thể khi có CDN).
 # Caddy STAGING/PRODUCTION: HTTPS tự động (Let's Encrypt) cho {$APP_DOMAIN}, HTTP → HTTPS, HSTS (ADR-019).
 {
 	admin off
 	email {$ACME_EMAIL}
-	servers {
-		trusted_proxies static private_ranges
-	}
 }
 
 {$APP_DOMAIN} {
@@ -14,6 +12,7 @@
 	}
 	header {
 		-Server
+		-X-Powered-By
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff
 		Referrer-Policy no-referrer

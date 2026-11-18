@@ -40,18 +40,18 @@ services:
   db-bootstrap:
     <<: *logging
     environment:
-      NODE_ENV: staging
+      NODE_ENV: '${APP_ENV:?APP_ENV bắt buộc (staging hoặc production)}'
 
   api:
     <<: *logging
     environment:
-      NODE_ENV: staging
+      NODE_ENV: '${APP_ENV:?APP_ENV bắt buộc (staging hoặc production)}'
       LOG_LEVEL: info
 
   worker:
     <<: *logging
     environment:
-      NODE_ENV: staging
+      NODE_ENV: '${APP_ENV:?APP_ENV bắt buộc (staging hoặc production)}'
       LOG_LEVEL: info
 
   admin-web:

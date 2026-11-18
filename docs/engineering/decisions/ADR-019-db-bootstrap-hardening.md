@@ -28,4 +28,6 @@
 ## Hệ quả
 - File `000_bootstrap.sql` đã đổi nội dung trước khi có môi trường dùng chung nào (chỉ DB local của phiên CP02, đã
   tạo lại) — từ nay mọi thay đổi SQL bằng file mới.
-- Còn mở cho CP02 phần VPS: pin image theo digest, Caddyfile staging có HSTS, Redis ACL, CSP nonce cho Next (CP03).
+- CP02 lát 10 đã làm: pin image theo digest (postgis/node/redis/caddy), Caddyfile staging có HSTS + CSP, tắt X-Powered-By.
+- **Giới hạn còn lại:** Redis dùng `requirepass` chung, ACL theo user (chặn FLUSHALL/CONFIG/DEBUG) **hoãn tới CP03** khi có
+  job BullMQ thật; CSP còn `'unsafe-inline'`, nonce cho Next làm ở CP03.

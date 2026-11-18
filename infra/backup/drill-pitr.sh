@@ -1,37 +1,74 @@
 #!/usr/bin/env bash
 # Diễn tập khôi phục PostgreSQL về MỘT THỜI ĐIỂM (PITR) bằng WAL-G — CP02 mục 7, §3.6 "diễn tập khôi phục", §15.
-# Chạy trên project compose riêng `fruit-drill` (không đụng DB dev). Gọi được từ bất kỳ cwd nào. Cần infra/.env.
-#   bash infra/backup/drill-pitr.sh
+# Chạy trên project compose riêng `fruit-drill` (không đụng DB dev/staging). Gọi được từ bất kỳ cwd nào.
+#   bash infra/backup/drill-pitr.sh                                   # kho file (volume local)
+#   DRILL_STORAGE=s3 DRILL_ENV_FILE=infra/.env bash infra/backup/drill-pitr.sh   # kho S3 (VPS: cổng CP02)
+# Chế độ s3: dùng compose staging + WALG_S3_PREFIX_DRILL/run-<thời điểm> (prefix RIÊNG mỗi lần — không đụng backup thật,
+# không lẫn backup của lần diễn tập trước). Khóa VPS không có quyền xóa → dữ liệu diễn tập dọn bằng lifecycle rule.
 # Kịch bản: (A) khôi phục về mốc T sau backup → đúng 200/200 dòng, log "recovery stopping before commit";
 #           (B) mốc trước mọi backup → PHẢI bị từ chối (không âm thầm khôi phục sai).
-# Exit 0 chỉ khi cả A và B đúng; in biên bản (thời điểm, mốc, số dòng, thời gian khôi phục).
+# Exit 0 chỉ khi cả A và B đúng; in biên bản (thời điểm, chế độ kho, mốc, số dòng, thời gian khôi phục).
 set -euo pipefail
 export MSYS_NO_PATHCONV=1   # Git Bash: không đổi đường dẫn /var/... thành C:\...
 cd "$(dirname "$0")/../.."
 
 P=fruit-drill
-COMPOSE=(docker compose -p "$P" -f infra/docker-compose.yml -f infra/docker-compose.backup.yml --env-file infra/.env)
+MODE="${DRILL_STORAGE:-file}"
+ENV_FILE="${DRILL_ENV_FILE:-infra/.env}"
+[[ -f "$ENV_FILE" ]] || { echo "Không thấy $ENV_FILE"; exit 1; }
+# Git Bash: docker (chương trình Windows) cần đường dẫn dạng C:/… khi đã tắt MSYS path conversion.
+winpath() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf "%s" "$1"; fi; }
+ENV_FILE=$(winpath "$ENV_FILE")
 RESTORE=fruit-drill-restore
-IMG=fruit-retail/postgres-walg:local
+IMG="fruit-retail/postgres-walg:${IMAGE_TAG:-local}"
 export PG_HOST_PORT="${DRILL_PG_PORT:-25433}"
-# Chỉ lấy khóa mã hóa backup từ infra/.env (không truyền cả file env vào container khôi phục).
-# Khóa đặt vào biến môi trường của tiến trình rồi truyền `-e WALG_LIBSODIUM_KEY` KHÔNG kèm giá trị
-# (không lộ qua dòng lệnh/ps/shell history; vẫn thấy trong docker inspect của container tạm — container bị xóa sau drill).
-WALG_LIBSODIUM_KEY=$(sed -n 's/^WALG_LIBSODIUM_KEY=//p' infra/.env | tail -1)
-[[ -n "$WALG_LIBSODIUM_KEY" ]] || { echo "Thiếu WALG_LIBSODIUM_KEY trong infra/.env"; exit 1; }
+envval() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
+# Khóa đặt vào biến môi trường của tiến trình; container nhận qua `-e TÊN` không kèm giá trị hoặc file env tạm 600.
+WALG_LIBSODIUM_KEY=$(envval WALG_LIBSODIUM_KEY)
+[[ -n "$WALG_LIBSODIUM_KEY" ]] || { echo "Thiếu WALG_LIBSODIUM_KEY trong $ENV_FILE"; exit 1; }
 export WALG_LIBSODIUM_KEY
 
+case "$MODE" in
+  file)
+    COMPOSE=(docker compose -p "$P" -f infra/docker-compose.yml -f infra/docker-compose.backup.yml --env-file "$ENV_FILE")
+    ;;
+  s3)
+    DRILL_PREFIX="$(envval WALG_S3_PREFIX_DRILL)"
+    [[ -n "$DRILL_PREFIX" ]] || { echo "Thiếu WALG_S3_PREFIX_DRILL trong $ENV_FILE"; exit 1; }
+    [[ "$DRILL_PREFIX" != "$(envval WALG_S3_PREFIX)" ]] || { echo "WALG_S3_PREFIX_DRILL phải KHÁC WALG_S3_PREFIX"; exit 1; }
+    export WALG_S3_PREFIX="${DRILL_PREFIX%/}/run-$(date -u +%Y%m%dT%H%M%SZ)"   # biến shell thắng --env-file
+    COMPOSE=(docker compose -p "$P" -f infra/docker-compose.yml -f infra/docker-compose.backup.yml
+             -f infra/docker-compose.staging.yml --env-file "$ENV_FILE")
+    ;;
+  *) echo "DRILL_STORAGE chỉ nhận file|s3"; exit 1 ;;
+esac
+
+RENV=""
 psql_src() { "${COMPOSE[@]}" exec -T -u postgres postgres psql -v ON_ERROR_STOP=1 -qAt -c "$1"; }
 psql_dst() { docker exec -u postgres "$RESTORE" psql -U owner -d fruit -v ON_ERROR_STOP=1 -qAt -c "$1"; }
 restore_run() { # $1 = mốc, $2 = volume đích
-  docker run -d --name "$RESTORE" --network none \
-    -v "${P}_pgbackups:/backups:ro" -v "$2:/var/lib/postgresql/data" \
-    -e WALG_FILE_PREFIX=/backups/wal-g -e WALG_LIBSODIUM_KEY -e WALG_LIBSODIUM_KEY_TRANSFORM=base64 \
-    -e RECOVERY_TARGET_TIME="$1" -e RECOVERY_TARGET_ACTION=promote \
-    --entrypoint restore-entrypoint.sh "$IMG" >/dev/null
+  if [[ "$MODE" == "file" ]]; then
+    docker run -d --name "$RESTORE" --network none \
+      -v "${P}_pgbackups:/backups:ro" -v "$2:/var/lib/postgresql/data" \
+      -e WALG_FILE_PREFIX=/backups/wal-g -e WALG_LIBSODIUM_KEY -e WALG_LIBSODIUM_KEY_TRANSFORM=base64 \
+      -e RECOVERY_TARGET_TIME="$1" -e RECOVERY_TARGET_ACTION=promote \
+      --entrypoint restore-entrypoint.sh "$IMG" >/dev/null
+  else
+    RENV=$(mktemp); chmod 600 "$RENV"
+    { echo "WALG_S3_PREFIX=$WALG_S3_PREFIX"; echo "AWS_ACCESS_KEY_ID=$(envval WALG_AWS_ACCESS_KEY_ID)"
+      echo "AWS_SECRET_ACCESS_KEY=$(envval WALG_AWS_SECRET_ACCESS_KEY)"; echo "AWS_ENDPOINT=$(envval WALG_AWS_ENDPOINT)"
+      echo "AWS_REGION=$(envval WALG_AWS_REGION)"; echo "AWS_S3_FORCE_PATH_STYLE=$(envval WALG_AWS_S3_FORCE_PATH_STYLE)"
+      echo "WALG_LIBSODIUM_KEY=$WALG_LIBSODIUM_KEY"; echo "WALG_LIBSODIUM_KEY_TRANSFORM=base64"; } > "$RENV"
+    docker run -d --name "$RESTORE" --network "${P}_default" --add-host host.docker.internal:host-gateway \
+      -v "$2:/var/lib/postgresql/data" --env-file "$(winpath "$RENV")" \
+      -e RECOVERY_TARGET_TIME="$1" -e RECOVERY_TARGET_ACTION=promote \
+      --entrypoint restore-entrypoint.sh "$IMG" >/dev/null
+    rm -f "$RENV"; RENV=""
+  fi
 }
 cleanup() {
   docker rm -f "$RESTORE" >/dev/null 2>&1 || true
+  [[ -n "$RENV" ]] && rm -f "$RENV"
   "${COMPOSE[@]}" down -v >/dev/null 2>&1 || true
   docker volume rm -f "${P}_restoredata" "${P}_restoredata_b" >/dev/null 2>&1 || true
 }
@@ -110,7 +147,7 @@ PASS_A=0; PASS_B=0
 [[ "$B_RUNNING" == "false" && "$B_EXIT" != "0" && -n "$B_MSG" ]] && PASS_B=1
 
 echo
-echo "BIÊN BẢN DIỄN TẬP PITR (local, backup mã hóa libsodium, kho = volume local)"
+echo "BIÊN BẢN DIỄN TẬP PITR (backup mã hóa libsodium, kho = $([[ $MODE == s3 ]] && echo "S3 $WALG_S3_PREFIX" || echo "volume local"))"
 echo "  thời điểm chạy (UTC):  $(date -u +%FT%TZ)"
 echo "  A. mốc khôi phục T:    $T"
 echo "     nguồn trước sự cố:  $SRC_TOTAL dòng (1–300)"

@@ -16,27 +16,27 @@ tối đa 5 phút, khôi phục ≤ 4 giờ). Thành phần: `infra/postgres/` (
 VPS — bucket: bật **versioning + object lock (≥ 30 ngày)**; khóa S3 cấp cho VPS **chỉ được ghi/đọc, không được xóa**
 (retention chạy bằng khóa riêng có quyền xóa, giữ ngoài VPS) — để ai chiếm được DB/VPS cũng không xóa được backup.
 
-## 2. Lịch chạy (cron trên VPS)
+## 2. Lịch chạy (cron user deploy, `CRON_TZ=Asia/Ho_Chi_Minh` — crontab mẫu ở runbook-deploy §3)
 
 | Việc | Lịch | Lệnh | Khi lỗi |
 |---|---|---|---|
-| Backup full + kiểm (không dọn trên VPS) | 02:30 hằng ngày | `BACKUP_RETAIN_FULL=0 infra/backup/backup-full.sh fruit-retail` | exit ≠ 0 → cảnh báo Telegram |
+| Backup full + kiểm (không dọn trên VPS) | 02:30 hằng ngày | `infra/ops/cron-run.sh backup 3600 infra/backup/backup-full.sh fruit-retail` (env `BACKUP_RETAIN_FULL=0`) | exit ≠ 0 / quá giờ → `alert.sh` |
 | Dọn bản cũ | hằng tuần, máy quản trị | `infra/backup/retention.sh <env-file-quyền-600> 14` (hoặc lifecycle rule) | exit ≠ 0 → kiểm tay |
-| Kiểm sức khỏe archive | mỗi 5 phút | `docker compose … exec -T -u postgres postgres check-archive.sh` | `ARCHIVE_FAILING` / `ARCHIVE_LAG` / `FULL_BACKUP_STALE` → cảnh báo Telegram |
+| Kiểm sức khỏe archive | mỗi 5 phút | `infra/ops/cron-run.sh check-archive 120 infra/stg.sh exec -T -u postgres postgres check-archive.sh` | `ARCHIVE_FAILING` / `ARCHIVE_LAG` / `FULL_BACKUP_STALE` → `alert.sh` |
 | Diễn tập khôi phục | mỗi quý (và sau mỗi thay đổi backup) | `bash infra/backup/drill-pitr.sh` | KHÔNG ĐẠT → sự cố mức cao |
 
 ## 3. Khôi phục thật về một thời điểm
 
 1. **Chốt mốc T** (UTC, có múi giờ), ví dụ ngay trước lệnh xóa nhầm: `2026-11-18 01:29:00+00`. Ghi vào LOG.
-2. Dừng ghi: `docker compose … stop api worker` (giữ DB nguồn để điều tra, KHÔNG xóa volume).
+2. Dừng ghi: `infra/stg.sh stop api worker` (giữ DB nguồn để điều tra, KHÔNG xóa volume).
 3. Khôi phục vào **volume mới**, mặc định `pause` để kiểm trước khi mở. Khóa và thông tin S3 để trong file env tạm
    quyền 600 (KHÔNG gõ `-e KEY=giá-trị` trên dòng lệnh — lộ qua `ps`/shell history); xóa file sau khi xong:
    ```bash
-   install -m 600 /dev/null /root/restore.env   # điền WALG_S3_PREFIX, AWS_*, WALG_LIBSODIUM_KEY, WALG_LIBSODIUM_KEY_TRANSFORM=base64
+   install -m 600 /dev/null $HOME/restore.env   # điền WALG_S3_PREFIX, AWS_*, WALG_LIBSODIUM_KEY, WALG_LIBSODIUM_KEY_TRANSFORM=base64
    docker run -d --name pg-restore --network fruit-retail_default \
-     -v fruit-retail_pgrestore:/var/lib/postgresql/data --env-file /root/restore.env \
+     -v fruit-retail_pgrestore:/var/lib/postgresql/data --env-file $HOME/restore.env \
      -e RECOVERY_TARGET_TIME='2026-11-18 01:29:00+00' \
-     --entrypoint restore-entrypoint.sh fruit-retail/postgres-walg:<tag>
+     --entrypoint restore-entrypoint.sh fruit-retail/postgres-walg:"$(git rev-parse --short=12 HEAD)"
    ```
    Script kiểm mốc trước khi tải, tự chọn backup mới nhất **kết thúc trước T**; không có → dừng với lỗi.
    Container đang phục hồi/đang pause khởi động lại được (`docker restart pg-restore`) mà không tải lại backup.
@@ -46,7 +46,7 @@ VPS — bucket: bật **versioning + object lock (≥ 30 ngày)**; khóa S3 cấ
    - Khởi động lại DB đã khôi phục bằng compose có `docker-compose.backup.yml` (bật lại `archive_mode=on`; cấu hình
      phục hồi chỉ truyền qua `-c` nên không còn sót trong `postgresql.auto.conf`).
    - Đẩy file lịch sử timeline mới lên kho (lúc promote archive đang tắt nên nó KHÔNG tự lên):
-     `docker compose … exec -T -u postgres postgres sh -c 'for f in "$PGDATA"/pg_wal/*.history; do wal-g wal-push "$f"; done'`
+     `infra/stg.sh exec -T -u postgres postgres sh -c 'for f in "$PGDATA"/pg_wal/*.history; do wal-g wal-push "$f"; done'`
    - Chạy ngay `infra/backup/backup-full.sh` để có backup full trên timeline mới.
    - Đổi volume dữ liệu của service `postgres` sang volume đã khôi phục; bật lại `api`, `worker`; kiểm `/v1/health`.
    - Ghi biên bản (mốc T, backup dùng, thời gian, số liệu kiểm) vào `docs/engineering/execution/LOG.md`.

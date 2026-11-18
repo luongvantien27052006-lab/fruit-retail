@@ -10,6 +10,8 @@ export async function createApp(env: Env, opts: NestApplicationOptions = {}): Pr
   const quiet = opts.logger === false;
   const app = await NestFactory.create(AppModule.forRoot(env), { bufferLogs: !quiet, ...opts });
   if (!quiet) app.useLogger(app.get(Logger));
+  // Không lộ framework qua header (X-Powered-By: Express).
+  (app.getHttpAdapter().getInstance() as { disable(name: string): void }).disable('x-powered-by');
   app.setGlobalPrefix('v1');
   app.enableShutdownHooks();
   return app;

@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
 # PostgreSQL 17 + PostGIS 3.5 + WAL-G (backup full + WAL liên tục, khôi phục theo thời điểm — SPEC §3.6, §15).
 # Image gốc ghim digest (build tái lập được). WAL-G v3.0.9 bản Ubuntu 20.04 (glibc 2.31, khớp Debian bullseye);
 # chỉ amd64 — VPS ARM cần đổi asset (ghi trong runbook).

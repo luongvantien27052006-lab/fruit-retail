@@ -52,7 +52,7 @@ services:
   db-bootstrap:
     <<: *hardening
     build: { context: .., dockerfile: apps/api/Dockerfile }
-    image: fruit-retail/api:local
+    image: fruit-retail/api:${IMAGE_TAG:-local}
     command: ['node', 'dist/db-bootstrap.js']
     environment:
       NODE_ENV: development
@@ -71,7 +71,7 @@ services:
   # API: chỉ giữ URL của role nó dùng (app_rw, viewer_ro, viewer_act, audit_writer) — không có projector_rw (ADR-011).
   api:
     <<: *hardening
-    image: fruit-retail/api:local
+    image: fruit-retail/api:${IMAGE_TAG:-local}
     command: ['node', 'dist/main.js']
     environment:
       NODE_ENV: development
@@ -96,7 +96,7 @@ services:
   # Worker: app_rw (consumer nghiệp vụ) + projector_rw (projection) — không có URL viewer (ADR-011).
   worker:
     <<: *hardening
-    image: fruit-retail/api:local
+    image: fruit-retail/api:${IMAGE_TAG:-local}
     command: ['node', 'dist/worker.js']
     environment:
       NODE_ENV: development
@@ -113,7 +113,7 @@ services:
   admin-web:
     <<: *hardening
     build: { context: .., dockerfile: apps/admin-web/Dockerfile }
-    image: fruit-retail/admin-web:local
+    image: fruit-retail/admin-web:${IMAGE_TAG:-local}
     restart: unless-stopped
 
   caddy:

@@ -19,6 +19,10 @@ services:
     environment:
       WALG_FILE_PREFIX: /backups/wal-g
       WALG_COMPRESSION_METHOD: zstd
+      # Mã hóa backup (libsodium, 32 byte base64). Thiếu khóa → compose dừng (không backup dạng rõ).
+      # Khóa phải lưu thêm một bản NGOÀI VPS (mất khóa = mất backup) — runbook-backup.md.
+      WALG_LIBSODIUM_KEY: ${WALG_LIBSODIUM_KEY:?WALG_LIBSODIUM_KEY bắt buộc}
+      WALG_LIBSODIUM_KEY_TRANSFORM: base64
       PGHOST: /var/run/postgresql
       PGUSER: owner
       PGDATABASE: fruit

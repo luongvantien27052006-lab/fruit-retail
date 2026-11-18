@@ -12,7 +12,12 @@ LOG="$LOG_DIR/$NAME.log"
 LOCK="$LOG_DIR/.$NAME.lock"
 {
   echo "=== $(date -u +%FT%TZ) bắt đầu: $*"
-  flock -n 9 || { echo "lần chạy trước của '$NAME' chưa xong"; infra/ops/alert.sh "$NAME: lần chạy trước chưa xong (có thể treo)"; exit 1; }
+  if ! flock -n 9; then
+    echo "lần chạy trước của '$NAME' chưa xong"
+    infra/ops/alert.sh "$NAME: lần chạy trước chưa xong (có thể treo)"
+    echo "=== $(date -u +%FT%TZ) kết thúc exit=1 (bỏ qua do chạy chồng)"
+    exit 1
+  fi
   timeout --kill-after=30 "$LIMIT" "$@"
   rc=$?
   if [[ $rc -eq 124 || $rc -eq 137 ]]; then infra/ops/alert.sh "$NAME: quá thời gian ${LIMIT}s"

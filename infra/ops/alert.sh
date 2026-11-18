@@ -12,9 +12,11 @@ logger -t fruit-alert -- "$MSG" 2>/dev/null || true
 val() { sed -n "s/^$1=//p" infra/.env 2>/dev/null | tail -1; }
 TOKEN=$(val ALERT_TELEGRAM_BOT_TOKEN); CHAT=$(val ALERT_TELEGRAM_CHAT_ID)
 if [[ -n "$TOKEN" && -n "$CHAT" ]]; then
-  # Token đi trong URL theo API Telegram; không in ra log. Lỗi gửi được ghi vào alerts.log (không nuốt im lặng).
-  if ! curl -fsS --max-time 15 -o /dev/null "https://api.telegram.org/bot${TOKEN}/sendMessage" \
-       --data-urlencode "chat_id=${CHAT}" --data-urlencode "text=${MSG}"; then
+  # Token nằm trong URL theo API Telegram → truyền URL qua config từ stdin (-K -), KHÔNG để trên dòng lệnh (lộ qua ps).
+  # Lỗi gửi được ghi vào alerts.log (không nuốt im lặng).
+  if ! printf 'url = "https://api.telegram.org/bot%s/sendMessage"\n' "$TOKEN" \
+       | curl -fsS --max-time 15 -o /dev/null -K - \
+           --data-urlencode "chat_id=${CHAT}" --data-urlencode "text=${MSG}"; then
     echo "$(date -u +%FT%TZ) gửi Telegram THẤT BẠI" >> "$LOG_DIR/alerts.log"
     exit 1
   fi

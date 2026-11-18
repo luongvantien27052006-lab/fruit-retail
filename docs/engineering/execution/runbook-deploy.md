@@ -20,7 +20,8 @@ tập PITR qua S3 (SeaweedFS local).
 ## 1. Chuẩn bị VPS (một lần, chạy bằng root hoặc sudo)
 
 ```bash
-timedatectl set-timezone Asia/Ho_Chi_Minh          # cron + log theo giờ VN (ngày kinh doanh §19.4)
+timedatectl set-timezone Asia/Ho_Chi_Minh && systemctl restart cron   # cron đọc múi giờ lúc khởi động
+sed "s|@HOME@|/home/deploy|" /home/deploy/fruit-retail/infra/ops/logrotate.conf > /etc/logrotate.d/fruit-retail  # sau bước clone §2
 adduser --disabled-password --gecos "" deploy
 install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
 install -m 600 -o deploy -g deploy ~/.ssh/authorized_keys /home/deploy/.ssh/authorized_keys   # khóa SSH của Tiến
@@ -59,22 +60,27 @@ curl -sI "https://$APP_DOMAIN/" | grep -Ei 'strict-transport|content-security'
 BACKUP_RETAIN_FULL=0 infra/backup/backup-full.sh fruit-retail   # backup full đầu tiên
 ```
 
-## 3. Cron (user deploy: `crontab -e`; giờ hệ thống đã là Asia/Ho_Chi_Minh)
+## 3. Cron (user deploy: `crontab -e`)
 
+Cron của Ubuntu 24.04 **không hỗ trợ `CRON_TZ`** → giờ trong crontab là giờ hệ thống (đã đặt Asia/Ho_Chi_Minh ở §1 và
+restart cron). Kiểm: `timedatectl | grep 'Time zone'`.
 ```cron
-CRON_TZ=Asia/Ho_Chi_Minh
 30 2 * * *  cd $HOME/fruit-retail && BACKUP_RETAIN_FULL=0 infra/ops/cron-run.sh backup 3600 infra/backup/backup-full.sh fruit-retail
-*/5 * * * * cd $HOME/fruit-retail && infra/ops/cron-run.sh check-archive 120 infra/stg.sh exec -T -u postgres postgres check-archive.sh
+*/5 * * * * cd $HOME/fruit-retail && infra/ops/cron-run.sh check-archive 120 infra/stg.sh exec -T -u postgres postgres timeout --kill-after=10 100 check-archive.sh
 ```
 `cron-run.sh`: khóa chống chạy chồng, timeout, log vào `~/fruit-logs/<việc>.log`, gọi `alert.sh` khi lỗi, quá giờ hoặc lần
-trước chưa xong. Thêm logrotate cho `~/fruit-logs/*.log` (weekly, rotate 8). Cảnh báo ổ đĩa gần đầy (§15) làm cùng
-Telegram (CP02 mục 8).
+trước chưa xong. Timeout ở host chỉ giết client `docker exec` — vì vậy lệnh trong container cũng có `timeout` riêng (nhỏ
+hơn): `check-archive` 100 s < 120 s; `backup-full.sh` tự bọc `backup-push` bằng `BACKUP_PUSH_TIMEOUT` (mặc định 3300 s <
+3600 s). Logrotate: `infra/ops/logrotate.conf` (§1). Cảnh báo ổ đĩa gần đầy (§15) làm cùng Telegram (CP02 mục 8).
 
 ## 4. Cập nhật phiên bản (forward-only — ADR-017)
 
 ```bash
-cd ~/fruit-retail && git fetch && git checkout <commit đã CI xanh trên develop/main>
-infra/stg.sh build                                       # image gắn tag = git sha (IMAGE_TAG)
+cd ~/fruit-retail && APP_DOMAIN=$(sed -n 's/^APP_DOMAIN=//p' infra/.env)
+git rev-parse HEAD >> ~/fruit-logs/deployed.log           # ghi commit đang chạy (để rollback)
+git fetch && git checkout <commit đã CI xanh trên develop/main>
+infra/stg.sh build      # app: tag = git sha (IMAGE_TAG); postgres: tag = hash nội dung infra/postgres (PG_IMAGE_TAG)
+                        # → đổi code app KHÔNG recreate/restart DB; chỉ đổi infra/postgres mới restart postgres
 git diff --name-only <commit đang chạy> HEAD -- infra/sql apps/api/prisma   # có migration?
 BACKUP_RETAIN_FULL=0 infra/backup/backup-full.sh fruit-retail                 # BẮT BUỘC nếu có migration
 infra/stg.sh run --rm db-bootstrap                       # lỗi → dừng, api/worker cũ vẫn chạy
@@ -82,7 +88,9 @@ infra/stg.sh up -d --wait
 curl -fsS "https://$APP_DOMAIN/v1/health"
 ```
 **Rollback:**
-- Bản mới KHÔNG có file SQL/migration mới → `IMAGE_TAG=<sha cũ> infra/stg.sh up -d --wait` (image cũ còn trong máy).
+- Bản mới KHÔNG có file SQL/migration mới → quay **cả code** về commit cũ (lấy ở `~/fruit-logs/deployed.log`), để mọi lệnh
+  `stg.sh` sau đó cũng dùng đúng tag cũ: `git checkout <sha cũ> && infra/stg.sh up -d --wait` (image cũ còn trong máy;
+  thiếu thì `infra/stg.sh build` trước). Không dùng riêng `IMAGE_TAG=<sha cũ>` — lần `stg.sh` kế tiếp sẽ quay về HEAD.
 - Bản mới CÓ migration → **không** quay code về (db-bootstrap code cũ sẽ từ chối vì DB có file nó không biết). Sửa bằng
   commit mới (forward fix). Trường hợp migration làm hỏng dữ liệu: khôi phục PITR về trước lúc cập nhật (runbook-backup §3).
 Migration phá hủy dữ liệu cần Tiến duyệt trước.

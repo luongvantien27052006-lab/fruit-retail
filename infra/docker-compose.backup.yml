@@ -5,7 +5,7 @@
 services:
   postgres:
     build: { context: .., dockerfile: infra/postgres/Dockerfile }
-    image: fruit-retail/postgres-walg:${IMAGE_TAG:-local}
+    image: fruit-retail/postgres-walg:${PG_IMAGE_TAG:-local}
     command:
       - postgres
       - -c

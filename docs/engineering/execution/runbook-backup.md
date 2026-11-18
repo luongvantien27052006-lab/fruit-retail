@@ -22,7 +22,7 @@ VPS — bucket: bật **versioning + object lock (≥ 30 ngày)**; khóa S3 cấ
 |---|---|---|---|
 | Backup full + kiểm (không dọn trên VPS) | 02:30 hằng ngày | `infra/ops/cron-run.sh backup 3600 infra/backup/backup-full.sh fruit-retail` (env `BACKUP_RETAIN_FULL=0`) | exit ≠ 0 / quá giờ → `alert.sh` |
 | Dọn bản cũ | hằng tuần, máy quản trị | `infra/backup/retention.sh <env-file-quyền-600> 14` (hoặc lifecycle rule) | exit ≠ 0 → kiểm tay |
-| Kiểm sức khỏe archive | mỗi 5 phút | `infra/ops/cron-run.sh check-archive 120 infra/stg.sh exec -T -u postgres postgres check-archive.sh` | `ARCHIVE_FAILING` / `ARCHIVE_LAG` / `FULL_BACKUP_STALE` → `alert.sh` |
+| Kiểm sức khỏe archive | mỗi 5 phút | `infra/ops/cron-run.sh check-archive 120 infra/stg.sh exec -T -u postgres postgres timeout --kill-after=10 100 check-archive.sh` | `ARCHIVE_FAILING` / `ARCHIVE_LAG` / `FULL_BACKUP_STALE` → `alert.sh` |
 | Diễn tập khôi phục | mỗi quý (và sau mỗi thay đổi backup) | `bash infra/backup/drill-pitr.sh` | KHÔNG ĐẠT → sự cố mức cao |
 
 ## 3. Khôi phục thật về một thời điểm
@@ -36,7 +36,7 @@ VPS — bucket: bật **versioning + object lock (≥ 30 ngày)**; khóa S3 cấ
    docker run -d --name pg-restore --network fruit-retail_default \
      -v fruit-retail_pgrestore:/var/lib/postgresql/data --env-file $HOME/restore.env \
      -e RECOVERY_TARGET_TIME='2026-11-18 01:29:00+00' \
-     --entrypoint restore-entrypoint.sh fruit-retail/postgres-walg:"$(git rev-parse --short=12 HEAD)"
+     --entrypoint restore-entrypoint.sh fruit-retail/postgres-walg:"pg-$(git rev-parse --short=12 HEAD:infra/postgres)"   # = PG_IMAGE_TAG của stg.sh
    ```
    Script kiểm mốc trước khi tải, tự chọn backup mới nhất **kết thúc trước T**; không có → dừng với lỗi.
    Container đang phục hồi/đang pause khởi động lại được (`docker restart pg-restore`) mà không tải lại backup.
@@ -47,7 +47,7 @@ VPS — bucket: bật **versioning + object lock (≥ 30 ngày)**; khóa S3 cấ
      phục hồi chỉ truyền qua `-c` nên không còn sót trong `postgresql.auto.conf`).
    - Đẩy file lịch sử timeline mới lên kho (lúc promote archive đang tắt nên nó KHÔNG tự lên):
      `infra/stg.sh exec -T -u postgres postgres sh -c 'for f in "$PGDATA"/pg_wal/*.history; do wal-g wal-push "$f"; done'`
-   - Chạy ngay `infra/backup/backup-full.sh` để có backup full trên timeline mới.
+   - Chạy ngay `BACKUP_RETAIN_FULL=0 infra/backup/backup-full.sh fruit-retail` (trên VPS luôn `=0`: khóa không có quyền xóa) để có backup full trên timeline mới.
    - Đổi volume dữ liệu của service `postgres` sang volume đã khôi phục; bật lại `api`, `worker`; kiểm `/v1/health`.
    - Ghi biên bản (mốc T, backup dùng, thời gian, số liệu kiểm) vào `docs/engineering/execution/LOG.md`.
 

@@ -20,7 +20,7 @@ ENV_FILE="${DRILL_ENV_FILE:-infra/.env}"
 winpath() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf "%s" "$1"; fi; }
 ENV_FILE=$(winpath "$ENV_FILE")
 RESTORE=fruit-drill-restore
-IMG="fruit-retail/postgres-walg:${IMAGE_TAG:-local}"
+IMG="fruit-retail/postgres-walg:${PG_IMAGE_TAG:-local}"
 export PG_HOST_PORT="${DRILL_PG_PORT:-25433}"
 envval() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
 # Khóa đặt vào biến môi trường của tiến trình; container nhận qua `-e TÊN` không kèm giá trị hoặc file env tạm 600.

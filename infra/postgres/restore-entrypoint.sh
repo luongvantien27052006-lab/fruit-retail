@@ -3,7 +3,8 @@
 # Dùng cho diễn tập (infra/backup/drill-pitr.sh) và khôi phục thật (docs/engineering/execution/runbook-backup.md).
 #
 # Biến:
-#   RECOVERY_TARGET_TIME    bắt buộc, có múi giờ: "2026-11-18 03:00:00+00" hoặc "2026-11-18T03:00:00Z"
+#   RECOVERY_TARGET_TIME    bắt buộc, có múi giờ: "2026-11-18 03:00:00+00", "…+07:00" hoặc "…T03:00:00Z"
+#                           (script chuẩn hóa về UTC "+00" trước khi đưa cho PostgreSQL).
 #   RECOVERY_TARGET_ACTION  pause (mặc định — người vận hành kiểm rồi `SELECT pg_wal_replay_resume()`) | promote
 #   BACKUP_NAME             AUTO (mặc định: backup mới nhất KẾT THÚC TRƯỚC mốc) | tên backup cụ thể
 #   WALG_FILE_PREFIX hoặc WALG_S3_PREFIX (+ khóa), WALG_LIBSODIUM_KEY (+ _TRANSFORM) như lúc backup.
@@ -20,9 +21,25 @@ die() { echo "[restore] LỖI: $*" >&2; exit 1; }
 [[ "$RECOVERY_TARGET_TIME" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}[\ T][0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?(Z|[+-][0-9]{2}(:?[0-9]{2})?)$ ]] \
   || die "RECOVERY_TARGET_TIME sai định dạng hoặc thiếu múi giờ: '$RECOVERY_TARGET_TIME'"
 T_EPOCH=$(date -u -d "$RECOVERY_TARGET_TIME" +%s.%N 2>/dev/null) || die "RECOVERY_TARGET_TIME không đọc được"
+# PostgreSQL lúc khởi động không nhận viết tắt múi giờ như "Z" → luôn đưa dạng UTC "+00".
+T_PG=$(date -u -d "@$T_EPOCH" '+%F %T.%6N+00')
 [[ "$ACTION" == "pause" || "$ACTION" == "promote" ]] || die "RECOVERY_TARGET_ACTION chỉ nhận pause|promote"
 
+start_recovery() {
+  echo "[restore] khởi động postgres để phục hồi tới $T_PG (action=$ACTION)"
+  exec gosu postgres postgres -D "$PGDATA" \
+    -c "restore_command=wal-g wal-fetch %f %p" \
+    -c "recovery_target_time=$T_PG" \
+    -c "recovery_target_action=$ACTION" \
+    -c "archive_mode=off"
+}
+
 if [ -s "$PGDATA/PG_VERSION" ]; then
+  # Cho phép khởi động lại container đang phục hồi/đang pause (volume là kết quả fetch trước đó, còn recovery.signal).
+  if [ -f "$PGDATA/recovery.signal" ] && [ ! -f "$PGDATA/postmaster.pid" ]; then
+    echo "[restore] volume đang trong quá trình phục hồi — tiếp tục, không tải lại backup"
+    start_recovery
+  fi
   die "$PGDATA đã có dữ liệu — từ chối ghi đè. Dùng volume trống."
 fi
 mkdir -p "$PGDATA"
@@ -53,9 +70,4 @@ echo "[restore] backup-fetch xong sau $(( $(date +%s) - START )) s"
 # 3) Cấu hình phục hồi truyền qua -c (KHÔNG ghi vào postgresql.auto.conf → không đi theo các backup sau).
 #    archive_mode=off để server khôi phục không ghi đè kho backup đang dùng; bật lại theo runbook sau khi kiểm.
 gosu postgres touch "$PGDATA/recovery.signal"
-echo "[restore] khởi động postgres để phục hồi"
-exec gosu postgres postgres -D "$PGDATA" \
-  -c "restore_command=wal-g wal-fetch %f %p" \
-  -c "recovery_target_time=$RECOVERY_TARGET_TIME" \
-  -c "recovery_target_action=$ACTION" \
-  -c "archive_mode=off"
+start_recovery

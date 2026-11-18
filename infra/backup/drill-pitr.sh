@@ -15,15 +15,18 @@ RESTORE=fruit-drill-restore
 IMG=fruit-retail/postgres-walg:local
 export PG_HOST_PORT="${DRILL_PG_PORT:-25433}"
 # Chỉ lấy khóa mã hóa backup từ infra/.env (không truyền cả file env vào container khôi phục).
-WALG_KEY=$(sed -n 's/^WALG_LIBSODIUM_KEY=//p' infra/.env | tail -1)
-[[ -n "$WALG_KEY" ]] || { echo "Thiếu WALG_LIBSODIUM_KEY trong infra/.env"; exit 1; }
+# Khóa đặt vào biến môi trường của tiến trình rồi truyền `-e WALG_LIBSODIUM_KEY` KHÔNG kèm giá trị
+# (không lộ qua dòng lệnh/ps/shell history; vẫn thấy trong docker inspect của container tạm — container bị xóa sau drill).
+WALG_LIBSODIUM_KEY=$(sed -n 's/^WALG_LIBSODIUM_KEY=//p' infra/.env | tail -1)
+[[ -n "$WALG_LIBSODIUM_KEY" ]] || { echo "Thiếu WALG_LIBSODIUM_KEY trong infra/.env"; exit 1; }
+export WALG_LIBSODIUM_KEY
 
 psql_src() { "${COMPOSE[@]}" exec -T -u postgres postgres psql -v ON_ERROR_STOP=1 -qAt -c "$1"; }
 psql_dst() { docker exec -u postgres "$RESTORE" psql -U owner -d fruit -v ON_ERROR_STOP=1 -qAt -c "$1"; }
 restore_run() { # $1 = mốc, $2 = volume đích
   docker run -d --name "$RESTORE" --network none \
     -v "${P}_pgbackups:/backups:ro" -v "$2:/var/lib/postgresql/data" \
-    -e WALG_FILE_PREFIX=/backups/wal-g -e WALG_LIBSODIUM_KEY="$WALG_KEY" -e WALG_LIBSODIUM_KEY_TRANSFORM=base64 \
+    -e WALG_FILE_PREFIX=/backups/wal-g -e WALG_LIBSODIUM_KEY -e WALG_LIBSODIUM_KEY_TRANSFORM=base64 \
     -e RECOVERY_TARGET_TIME="$1" -e RECOVERY_TARGET_ACTION=promote \
     --entrypoint restore-entrypoint.sh "$IMG" >/dev/null
 }

@@ -51,7 +51,15 @@ VPS — bucket: bật **versioning + object lock (≥ 30 ngày)**; khóa S3 cấ
    - Đổi volume dữ liệu của service `postgres` sang volume đã khôi phục; bật lại `api`, `worker`; kiểm `/v1/health`.
    - Ghi biên bản (mốc T, backup dùng, thời gian, số liệu kiểm) vào `docs/engineering/execution/LOG.md`.
 
-## 4. Giới hạn hiện tại
+## 4. Lưu ý vận hành
+
+- Cron trên VPS **phải** đặt `BACKUP_RETAIN_FULL=0` (mặc định script là 14 cho local). Quên → `delete retain` lỗi mỗi
+  ngày (khóa không có quyền xóa) → cảnh báo nhiễu; giám sát backup vẫn chạy vì `check-archive` chạy trước.
+- Container khôi phục bị `docker kill`/OOM khi đang pause để lại `postmaster.pid` → entrypoint từ chối chạy tiếp. Khi
+  chắc chắn không còn tiến trình postgres nào dùng volume đó, xóa file `postmaster.pid` trong volume rồi `docker start`
+  lại (không cần tải lại backup). `docker stop`/`docker restart` bình thường thì không gặp.
+
+## 5. Giới hạn hiện tại
 
 - WAL-G chỉ build cho **amd64**; VPS ARM cần đổi asset `wal-g-pg-20.04-aarch64` + sha256 tương ứng.
 - Local dùng volume trên cùng máy — **không** đạt yêu cầu "nhà cung cấp khác"; cổng diễn tập CP02 chỉ tick khi chạy

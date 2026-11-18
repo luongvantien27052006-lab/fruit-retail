@@ -44,14 +44,14 @@ preflight() {
   [[ "$pd" == s3://* ]] || bad+=("WALG_S3_PREFIX_DRILL phải dạng s3://…")
   [[ "${pd%/}" != "${pm%/}" ]] || bad+=("WALG_S3_PREFIX_DRILL phải khác WALG_S3_PREFIX")
   for k in ALERT_TELEGRAM_BOT_TOKEN ALERT_TELEGRAM_CHAT_ID; do
-    [[ -n "$(val "$k")" ]] || echo "preflight: CẢNH BÁO $k trống — cảnh báo chỉ ghi ~/fruit-logs/alerts.log (CP02 mục 8)" >&2
+    [[ -n "$(val "$k")" || "${1:-}" == exec ]] || echo "preflight: CẢNH BÁO $k trống — cảnh báo chỉ ghi ~/fruit-logs/alerts.log (CP02 mục 8)" >&2
   done
   [[ "$(val BACKUP_RETAIN_FULL)" == "0" ]] || bad+=("BACKUP_RETAIN_FULL phải = 0 trên VPS (khóa không có quyền xóa)")
   if ((${#bad[@]})); then printf 'PREFLIGHT LỖI: %s\n' "${bad[@]}" >&2; return 1; fi
-  echo "preflight: OK (APP_ENV=$env, IMAGE_TAG=$IMAGE_TAG, PG_IMAGE_TAG=$PG_IMAGE_TAG)" >&2
+  [[ "${1:-}" == exec ]] || echo "preflight: OK (APP_ENV=$env, IMAGE_TAG=$IMAGE_TAG, PG_IMAGE_TAG=$PG_IMAGE_TAG)" >&2
 }
 
-preflight
+preflight "$@"
 [[ "${1:-}" == "preflight" ]] && exit 0
 exec docker compose -p fruit-retail -f infra/docker-compose.yml -f infra/docker-compose.backup.yml \
   -f infra/docker-compose.staging.yml --env-file "$ENV_FILE" "$@"

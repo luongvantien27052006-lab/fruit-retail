@@ -21,7 +21,6 @@ tập PITR qua S3 (SeaweedFS local).
 
 ```bash
 timedatectl set-timezone Asia/Ho_Chi_Minh && systemctl restart cron   # cron đọc múi giờ lúc khởi động
-sed "s|@HOME@|/home/deploy|" /home/deploy/fruit-retail/infra/ops/logrotate.conf > /etc/logrotate.d/fruit-retail  # sau bước clone §2
 adduser --disabled-password --gecos "" deploy
 install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
 install -m 600 -o deploy -g deploy ~/.ssh/authorized_keys /home/deploy/.ssh/authorized_keys   # khóa SSH của Tiến
@@ -58,6 +57,7 @@ APP_DOMAIN=$(sed -n 's/^APP_DOMAIN=//p' infra/.env)
 curl -fsS "https://$APP_DOMAIN/v1/health"                # {"status":"ok",...}
 curl -sI "https://$APP_DOMAIN/" | grep -Ei 'strict-transport|content-security'
 BACKUP_RETAIN_FULL=0 infra/backup/backup-full.sh fruit-retail   # backup full đầu tiên
+# (root, một lần) logrotate cho ~/fruit-logs: sudo sh -c 'sed "s|@HOME@|/home/deploy|" /home/deploy/fruit-retail/infra/ops/logrotate.conf > /etc/logrotate.d/fruit-retail'
 ```
 
 ## 3. Cron (user deploy: `crontab -e`)
@@ -71,13 +71,13 @@ restart cron). Kiểm: `timedatectl | grep 'Time zone'`.
 `cron-run.sh`: khóa chống chạy chồng, timeout, log vào `~/fruit-logs/<việc>.log`, gọi `alert.sh` khi lỗi, quá giờ hoặc lần
 trước chưa xong. Timeout ở host chỉ giết client `docker exec` — vì vậy lệnh trong container cũng có `timeout` riêng (nhỏ
 hơn): `check-archive` 100 s < 120 s; `backup-full.sh` tự bọc `backup-push` bằng `BACKUP_PUSH_TIMEOUT` (mặc định 3300 s <
-3600 s). Logrotate: `infra/ops/logrotate.conf` (§1). Cảnh báo ổ đĩa gần đầy (§15) làm cùng Telegram (CP02 mục 8).
+3600 s). Logrotate: `infra/ops/logrotate.conf` (cài ở cuối §2). Cảnh báo ổ đĩa gần đầy (§15) làm cùng Telegram (CP02 mục 8).
 
 ## 4. Cập nhật phiên bản (forward-only — ADR-017)
 
 ```bash
 cd ~/fruit-retail && APP_DOMAIN=$(sed -n 's/^APP_DOMAIN=//p' infra/.env)
-git rev-parse HEAD >> ~/fruit-logs/deployed.log           # ghi commit đang chạy (để rollback)
+git rev-parse HEAD >> ~/fruit-logs/deployed.txt           # ghi commit đang chạy (để rollback)
 git fetch && git checkout <commit đã CI xanh trên develop/main>
 infra/stg.sh build      # app: tag = git sha (IMAGE_TAG); postgres: tag = hash nội dung infra/postgres (PG_IMAGE_TAG)
                         # → đổi code app KHÔNG recreate/restart DB; chỉ đổi infra/postgres mới restart postgres
@@ -88,7 +88,7 @@ infra/stg.sh up -d --wait
 curl -fsS "https://$APP_DOMAIN/v1/health"
 ```
 **Rollback:**
-- Bản mới KHÔNG có file SQL/migration mới → quay **cả code** về commit cũ (lấy ở `~/fruit-logs/deployed.log`), để mọi lệnh
+- Bản mới KHÔNG có file SQL/migration mới → quay **cả code** về commit cũ (lấy ở `~/fruit-logs/deployed.txt`), để mọi lệnh
   `stg.sh` sau đó cũng dùng đúng tag cũ: `git checkout <sha cũ> && infra/stg.sh up -d --wait` (image cũ còn trong máy;
   thiếu thì `infra/stg.sh build` trước). Không dùng riêng `IMAGE_TAG=<sha cũ>` — lần `stg.sh` kế tiếp sẽ quay về HEAD.
 - Bản mới CÓ migration → **không** quay code về (db-bootstrap code cũ sẽ từ chối vì DB có file nó không biết). Sửa bằng

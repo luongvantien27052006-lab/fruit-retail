@@ -37,6 +37,7 @@ describe('GET /v1/health', () => {
     const res = await request(app.getHttpServer()).get('/v1/health');
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ status: 'ok', checks: { db: 'ok', redis: 'ok' } });
+    expect(res.headers['x-powered-by']).toBeUndefined();
   });
 
   it('nhiều request đồng thời lúc vừa khởi động đều 200 (không connect Redis chồng nhau)', async () => {

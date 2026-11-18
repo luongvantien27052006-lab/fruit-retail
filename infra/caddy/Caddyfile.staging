@@ -1,0 +1,39 @@
+# Không khai báo trusted_proxies: Caddy đứng ngay biên, KHÔNG tin X-Forwarded-For từ client (chỉ thêm dải IP cụ thể khi có CDN).
+# Caddy STAGING/PRODUCTION: HTTPS tự động (Let's Encrypt) cho {$APP_DOMAIN}, HTTP → HTTPS, HSTS (ADR-019).
+{
+	admin off
+	email {$ACME_EMAIL}
+}
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+	request_body {
+		max_size 10MB
+	}
+	header {
+		-Server
+		-X-Powered-By
+		-Via
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+		Cross-Origin-Opener-Policy same-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+	}
+	log {
+		output stdout
+		format json
+	}
+	# Không tin X-Request-Id từ client: Caddy đặt UUID riêng; API kiểm định dạng.
+	handle /v1/* {
+		reverse_proxy api:3000 {
+			header_up X-Request-Id {http.request.uuid}
+		}
+	}
+	handle {
+		# Next.js chèn script inline khi hydrate → tạm 'unsafe-inline'; CP03 chuyển sang CSP nonce.
+		header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+		reverse_proxy admin-web:3001
+	}
+}

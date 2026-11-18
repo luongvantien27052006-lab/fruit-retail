@@ -1,0 +1,67 @@
+# Override STAGING/PRODUCTION trên VPS (CP02 mục 7, SPEC §3.6, ADR-019). Dùng kèm docker-compose.yml + backup:
+#   docker compose -p fruit-retail -f infra/docker-compose.yml -f infra/docker-compose.backup.yml \
+#     -f infra/docker-compose.staging.yml --env-file infra/.env up -d --build --wait
+# Khác local: image ghim digest; postgres KHÔNG mở cổng ra host; Caddy nhận 80/443 công khai với HTTPS tự động + HSTS;
+# backup ra S3 ở nhà cung cấp KHÁC (WALG_S3_PREFIX); NODE_ENV=staging (bộ chạy DB đòi mật khẩu ≥ 24 ký tự);
+# log docker có giới hạn dung lượng. Xem docs/engineering/execution/runbook-deploy.md.
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: { max-size: '20m', max-file: '5' }
+
+services:
+  postgres:
+    <<: *logging
+    # Không cổng nào ra host — chỉ truy cập qua network nội bộ docker (quản trị bằng `docker compose exec`).
+    ports: !reset []
+    # !override thay TOÀN BỘ environment (bỏ WALG_FILE_PREFIX của local) — liệt kê đủ biến cần.
+    environment: !override
+      POSTGRES_DB: fruit
+      POSTGRES_USER: owner
+      POSTGRES_PASSWORD: ${PG_OWNER_PASSWORD:?PG_OWNER_PASSWORD bắt buộc}
+      PGHOST: /var/run/postgresql
+      PGUSER: owner
+      PGDATABASE: fruit
+      WALG_COMPRESSION_METHOD: zstd
+      WALG_LIBSODIUM_KEY: ${WALG_LIBSODIUM_KEY:?WALG_LIBSODIUM_KEY bắt buộc}
+      WALG_LIBSODIUM_KEY_TRANSFORM: base64
+      WALG_S3_PREFIX: ${WALG_S3_PREFIX:?WALG_S3_PREFIX bắt buộc (S3 ở nhà cung cấp khác)}
+      AWS_ACCESS_KEY_ID: ${WALG_AWS_ACCESS_KEY_ID:?bắt buộc}
+      AWS_SECRET_ACCESS_KEY: ${WALG_AWS_SECRET_ACCESS_KEY:?bắt buộc}
+      AWS_ENDPOINT: ${WALG_AWS_ENDPOINT:?bắt buộc}
+      AWS_REGION: ${WALG_AWS_REGION:?bắt buộc}
+      AWS_S3_FORCE_PATH_STYLE: ${WALG_AWS_S3_FORCE_PATH_STYLE:-true}
+    volumes: !override [pgdata:/var/lib/postgresql/data]
+
+  redis:
+    <<: *logging
+    image: redis:7.4-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
+
+  db-bootstrap:
+    <<: *logging
+    environment:
+      NODE_ENV: '${APP_ENV:?APP_ENV bắt buộc (staging hoặc production)}'
+
+  api:
+    <<: *logging
+    environment:
+      NODE_ENV: '${APP_ENV:?APP_ENV bắt buộc (staging hoặc production)}'
+      LOG_LEVEL: info
+
+  worker:
+    <<: *logging
+    environment:
+      NODE_ENV: '${APP_ENV:?APP_ENV bắt buộc (staging hoặc production)}'
+      LOG_LEVEL: info
+
+  admin-web:
+    <<: *logging
+
+  caddy:
+    <<: *logging
+    image: caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    ports: !override ['80:80', '443:443', '443:443/udp']
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN bắt buộc (ví dụ staging.<domain-của-Tiến>)}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL bắt buộc}
+    volumes: !override [./caddy/Caddyfile.staging:/etc/caddy/Caddyfile:ro, caddydata:/data, caddyconfig:/config]

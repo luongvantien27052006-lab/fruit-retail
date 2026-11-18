@@ -1,5 +1,5 @@
 # Image chung cho api, worker, db-bootstrap (ADR-002: cùng image, khác lệnh). Build context = gốc repo.
-FROM node:24.22.3-alpine AS build
+FROM node:24.22.3-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS build
 WORKDIR /repo
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json ./
@@ -11,7 +11,7 @@ COPY apps/api apps/api
 RUN pnpm --filter @fruit/money_weight run build && pnpm --filter @fruit/api run build
 RUN pnpm --filter @fruit/api deploy --prod --legacy /out
 
-FROM node:24.22.3-alpine AS runtime
+FROM node:24.22.3-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS runtime
 ENV NODE_ENV=production TZ=Asia/Ho_Chi_Minh
 RUN apk add --no-cache tzdata wget
 WORKDIR /app

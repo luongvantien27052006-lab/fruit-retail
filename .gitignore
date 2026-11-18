@@ -1,6 +1,7 @@
 # Secrets & môi trường
 .env
 .env.*
+!.env.staging.example
 !.env.example
 *.pem
 *.key
@@ -37,3 +38,6 @@ backups/
 
 # Next.js sinh tự động
 apps/admin-web/next-env.d.ts
+
+# TypeScript incremental build
+*.tsbuildinfo

@@ -1,0 +1,32 @@
+# Override bật backup WAL-G cho postgres (CP02 mục 7). Dùng kèm docker-compose.yml:
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.backup.yml --env-file infra/.env up -d --build
+# Local: backup ghi vào volume `pgbackups` (WALG_FILE_PREFIX). VPS: thay bằng WALG_S3_PREFIX + khóa S3 của object
+# storage Ở NHÀ CUNG CẤP KHÁC (§3.6) — xem docs/engineering/execution/runbook-backup.md.
+services:
+  postgres:
+    build: { context: .., dockerfile: infra/postgres/Dockerfile }
+    image: fruit-retail/postgres-walg:${PG_IMAGE_TAG:-local}
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=wal-g wal-push %p
+      - -c
+      - archive_timeout=60
+    environment:
+      WALG_FILE_PREFIX: /backups/wal-g
+      WALG_COMPRESSION_METHOD: zstd
+      # Mã hóa backup (libsodium, 32 byte base64). Thiếu khóa → compose dừng (không backup dạng rõ).
+      # Khóa phải lưu thêm một bản NGOÀI VPS (mất khóa = mất backup) — runbook-backup.md.
+      WALG_LIBSODIUM_KEY: ${WALG_LIBSODIUM_KEY:?WALG_LIBSODIUM_KEY bắt buộc}
+      WALG_LIBSODIUM_KEY_TRANSFORM: base64
+      PGHOST: /var/run/postgresql
+      PGUSER: owner
+      PGDATABASE: fruit
+    volumes: [pgdata:/var/lib/postgresql/data, pgbackups:/backups]
+
+volumes:
+  pgbackups: {}

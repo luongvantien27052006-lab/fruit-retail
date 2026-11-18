@@ -1,6 +1,7 @@
 # Secrets & môi trường
 .env
 .env.*
+!.env.staging.example
 !.env.example
 *.pem
 *.key

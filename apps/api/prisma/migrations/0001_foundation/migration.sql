@@ -882,7 +882,9 @@ CREATE TRIGGER ura_check BEFORE INSERT OR UPDATE ON core.user_role_assignments
 CREATE TRIGGER upg_check BEFORE INSERT OR UPDATE ON core.user_permission_grants
   FOR EACH ROW EXECUTE FUNCTION core.check_scope_and_role();
 
--- Phiên: user_type phải đúng loại người dùng; phiên nhân viên chỉ trên thiết bị ACTIVE; thu hồi là kết thúc
+-- Phiên: user_type phải đúng loại người dùng; phiên nhân viên chỉ trên thiết bị ACTIVE; thu hồi là kết thúc.
+-- Mọi kiểm "thiết bị ACTIVE" / "phiên chưa thu hồi" dùng FOR SHARE: khóa dòng đến hết transaction để thu hồi đồng
+-- thời phải chờ (READ COMMITTED — ADR-016), rồi trigger thu hồi phiên thấy được phiên vừa tạo.
 CREATE OR REPLACE FUNCTION core.sessions_guard() RETURNS trigger
   LANGUAGE plpgsql SET search_path = pg_catalog
 AS $$
@@ -895,7 +897,7 @@ BEGIN
     IF NEW.revoked_at IS NOT NULL THEN
       NEW.revoked_at := now();   -- mốc thu hồi do server đặt
     ELSIF NEW.pos_device_id IS NOT NULL AND NOT EXISTS
-          (SELECT 1 FROM core.pos_devices d WHERE d.id = NEW.pos_device_id AND d.status = 'ACTIVE') THEN
+          (SELECT 1 FROM core.pos_devices d WHERE d.id = NEW.pos_device_id AND d.status = 'ACTIVE' FOR SHARE) THEN
       -- phiên nhân viên trên thiết bị không còn ACTIVE chỉ được thu hồi, không gia hạn/dùng tiếp
       RAISE EXCEPTION 'sessions: thiết bị POS không còn ACTIVE — chỉ được thu hồi phiên' USING ERRCODE = 'check_violation';
     END IF;
@@ -906,7 +908,7 @@ BEGIN
     RAISE EXCEPTION 'sessions: user_type % khác loại người dùng %', NEW.user_type, COALESCE(ut, '?') USING ERRCODE = 'check_violation';
   END IF;
   IF NEW.pos_device_id IS NOT NULL AND (NEW.user_type <> 'STAFF' OR NOT EXISTS
-       (SELECT 1 FROM core.pos_devices d WHERE d.id = NEW.pos_device_id AND d.status = 'ACTIVE')) THEN
+       (SELECT 1 FROM core.pos_devices d WHERE d.id = NEW.pos_device_id AND d.status = 'ACTIVE' FOR SHARE)) THEN
     RAISE EXCEPTION 'sessions: thiết bị POS phải ACTIVE và chỉ cho phiên nhân viên' USING ERRCODE = 'check_violation';
   END IF;
   IF NEW.revoked_at IS NOT NULL THEN
@@ -926,7 +928,7 @@ BEGIN
     IF NEW.used_at IS NOT NULL OR NEW.replaced_by_id IS NOT NULL THEN
       RAISE EXCEPTION 'refresh_tokens: token mới phải chưa dùng' USING ERRCODE = 'check_violation';
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM core.sessions s WHERE s.id = NEW.session_id AND s.revoked_at IS NULL) THEN
+    IF NOT EXISTS (SELECT 1 FROM core.sessions s WHERE s.id = NEW.session_id AND s.revoked_at IS NULL FOR SHARE) THEN
       RAISE EXCEPTION 'refresh_tokens: phiên đã thu hồi/không tồn tại' USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;
@@ -1001,7 +1003,7 @@ CREATE OR REPLACE FUNCTION core.auth_challenges_guard() RETURNS trigger
 AS $$
 BEGIN
   IF NEW.kind = 'DEVICE_NONCE' AND NOT EXISTS
-       (SELECT 1 FROM core.pos_devices d WHERE d.id = NEW.pos_device_id AND d.status = 'ACTIVE') THEN
+       (SELECT 1 FROM core.pos_devices d WHERE d.id = NEW.pos_device_id AND d.status = 'ACTIVE' FOR SHARE) THEN
     RAISE EXCEPTION 'auth_challenges: thiết bị POS phải ACTIVE' USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;

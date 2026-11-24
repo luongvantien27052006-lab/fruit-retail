@@ -41,7 +41,9 @@ ADR-017 chốt "SQL tay nhúng trong `migration.sql` của Prisma, một lịch 
   `.bak`, thư mục) ⇒ dừng; trùng số ⇒ dừng; lệnh điều khiển transaction (`COMMIT`, `BEGIN;`, `SAVEPOINT`…) trong file ⇒
   dừng (bộ chạy tự bọc transaction). Lọc tĩnh xét từ đầu của từng câu lệnh cấp ngoài sau khi bỏ comment, chuỗi
   (`` chỉ thoát trong `E'…'`), thân `$tag$`; thêm **chốt lúc chạy**: cờ LOCAL `fruit.migration_tx` mất sau khi chạy file
-  ⇒ file đã tự kết thúc transaction ⇒ dừng, không ghi sổ. DDL Prisma sinh từ rỗng **bỏ** bảng `integration.sql_migrations` (đã có từ 000).
+  ⇒ file đã tự kết thúc transaction ⇒ dừng, không ghi sổ.
+  Thân hàm SQL kiểu `BEGIN ATOMIC … END` bị lọc tĩnh coi là `END` ⇒ migration viết thân hàm bằng `$$`. Sau mỗi file
+  bộ chạy `RESET ALL; RESET ROLE; RESET SESSION AUTHORIZATION` để `SET` cấp phiên không rò sang file sau. DDL Prisma sinh từ rỗng **bỏ** bảng `integration.sql_migrations` (đã có từ 000).
 - **Quyền UPDATE theo cột ở `core`:** default privileges của 000 cấp UPDATE cả bảng cho app_rw; mỗi migration tạo bảng
   `core` phải `REVOKE UPDATE` rồi `GRANT UPDATE (cột…)` đúng cột nghiệp vụ. Không ai UPDATE được khóa chính, `users.type`,
   khóa thiết bị, mốc tạo — bộ kiểm `checkNoKeyUpdate` chặn ở CI.
@@ -49,7 +51,8 @@ ADR-017 chốt "SQL tay nhúng trong `migration.sql` của Prisma, một lịch 
   không sửa được, `user_type` = loại người dùng, phiên nhân viên chỉ trên thiết bị `ACTIVE`; refresh token đã xoay không
   sửa được, token mới chỉ cho phiên chưa thu hồi, token thay thế phải cùng phiên; thiết bị POS `REVOKED` đóng băng và
   **thu hồi mọi phiên đang mở trên nó** (trigger AFTER), phiên trên thiết bị không còn ACTIVE chỉ được thu hồi, nonce
-  thiết bị chỉ phát cho thiết bị ACTIVE; mốc kích hoạt bất biến, quầy phải cùng cửa hàng (FK kép); thời điểm
+  thiết bị chỉ phát cho thiết bị ACTIVE; các kiểm "thiết bị ACTIVE"/"phiên chưa thu hồi" trong trigger dùng `FOR SHARE`
+  (khóa dòng tới hết transaction) để thu hồi chạy đồng thời phải chờ rồi mới đóng phiên — test tranh chấp hai kết nối; mốc kích hoạt bất biến, quầy phải cùng cửa hàng (FK kép); thời điểm
   `created_at`/`granted_at`/`issued_at`/`audit.*.at`, mốc kích hoạt/thu hồi (`activated_at`, `revoked_at`, `used_at`) do
   server đặt (`now()`).
 - **Viewer:** `reporting.allowed_stores()` **không tham số** (đọc hồ sơ từ `app.viewer_profile_id` trong transaction) —

@@ -821,6 +821,71 @@ describe('0001_foundation', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('R-1 — tạo phiên và thu hồi thiết bị chạy đồng thời: thu hồi phải chờ, rồi đóng cả phiên vừa tạo', async () => {
+    const store = await newStore('R1-S');
+    const staff = await newUser('STAFF');
+    const master = await newUser('MASTER');
+    const dev = await newDevice(store);
+    await q(
+      `UPDATE core.pos_devices SET status = 'ACTIVE', activated_at = now(), activated_by = $2 WHERE id = $1`,
+      [dev, master],
+      roleUrl('app_rw'),
+    );
+    const a = new Client({ connectionString: roleUrl('app_rw') });
+    const b = new Client({ connectionString: roleUrl('app_rw') });
+    await Promise.all([a.connect(), b.connect()]);
+    try {
+      const sid = id();
+      await a.query('BEGIN');
+      await a.query(
+        `INSERT INTO core.sessions (id, user_id, user_type, pos_device_id, expires_at) VALUES ($1, $2, 'STAFF', $3, now() + interval '1 day')`,
+        [sid, staff, dev],
+      );
+      let bDone = false;
+      const revoke = b
+        .query(`UPDATE core.pos_devices SET status = 'REVOKED', revoked_at = now(), revoked_by = $2 WHERE id = $1`, [
+          dev,
+          master,
+        ])
+        .then(() => {
+          bDone = true;
+        });
+      await new Promise((r) => setTimeout(r, 500));
+      expect(bDone).toBe(false); // bị khóa FOR SHARE của A giữ
+      await a.query('COMMIT');
+      await revoke;
+      const [s] = await q(`SELECT revoked_at IS NOT NULL AS rev, revoke_reason FROM core.sessions WHERE id = $1`, [
+        sid,
+      ]);
+      expect(s).toEqual({ rev: true, revoke_reason: 'DEVICE_REVOKED' });
+    } finally {
+      await Promise.all([a.end(), b.end()]);
+    }
+  });
+
+  it('SET cấp phiên trong một migration không rò sang migration sau', async () => {
+    const c = new Client({ connectionString: ownerUrl });
+    await c.connect();
+    try {
+      await applyOneMigration(
+        c,
+        'zz_set_probe',
+        `SET standard_conforming_strings = off; SET search_path = audit;`,
+        'b'.repeat(64),
+      );
+      const [r] = (
+        await c.query(
+          `SELECT current_setting('standard_conforming_strings') AS scs, current_setting('search_path') AS sp`,
+        )
+      ).rows;
+      expect(r.scs).toBe('on');
+      expect(r.sp).not.toBe('audit');
+    } finally {
+      await c.end();
+    }
+    await q(`DELETE FROM integration.sql_migrations WHERE file = 'zz_set_probe'`);
+  });
+
   it('T-2 — token thay thế phải cùng phiên', async () => {
     const master = await newUser('MASTER');
     const [s1, s2] = [id(), id()];

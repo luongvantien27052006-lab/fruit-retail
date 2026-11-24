@@ -199,6 +199,9 @@ export async function applyOneMigration(client: Client, key: string, sql: string
       // Giữ lỗi gốc bên dưới; lỗi ROLLBACK (kết nối đã chết) không được che lỗi gốc.
     }
     throw new Error(`Áp ${key} thất bại: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
+  } finally {
+    // SET cấp phiên trong file (search_path, standard_conforming_strings, ROLE…) không được rò sang migration sau
+    await client.query('RESET ALL; RESET ROLE; RESET SESSION AUTHORIZATION').catch(() => undefined);
   }
 }
 

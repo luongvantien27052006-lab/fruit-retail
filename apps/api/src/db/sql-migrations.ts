@@ -78,16 +78,74 @@ function assertUniqueNumbers(names: string[], where: string): void {
 }
 
 /**
- * Migration chạy trong một transaction do bộ chạy mở; câu lệnh điều khiển transaction trong file sẽ phá tính nguyên tử
- * (đã tạo đối tượng nhưng không ghi sổ). `BEGIN`/`END;` trong thân hàm plpgsql không bị bắt (không có `;` ngay sau
- * BEGIN; END luôn kèm `$$` hoặc nằm trong thân hàm thụt lề không đứng đầu câu lệnh).
+ * Bỏ phần không phải câu lệnh cấp ngoài: comment `--`/`/* *\/`, chuỗi '…' (kể cả E'…'), định danh "…", thân
+ * dollar-quote `$tag$…$tag$` (thân hàm plpgsql có BEGIN/END riêng). Thay bằng khoảng trắng để giữ ranh giới câu lệnh.
  */
-const TX_CONTROL_RE =
-  /(?:^|;)\s*(COMMIT|ROLLBACK|ABORT|SAVEPOINT|RELEASE|START\s+TRANSACTION|BEGIN\s*(?:TRANSACTION|WORK)?\s*;|END\s*(?:TRANSACTION|WORK)\s*;)/im;
+export function stripSqlNoise(sql: string): string {
+  let out = '';
+  let i = 0;
+  while (i < sql.length) {
+    const c = sql[i];
+    const n = sql[i + 1];
+    if (c === '-' && n === '-') {
+      const e = sql.indexOf('\n', i);
+      i = e < 0 ? sql.length : e;
+      out += ' ';
+    } else if (c === '/' && n === '*') {
+      let depth = 1;
+      i += 2;
+      while (i < sql.length && depth > 0) {
+        if (sql[i] === '/' && sql[i + 1] === '*') {
+          depth++;
+          i += 2;
+        } else if (sql[i] === '*' && sql[i + 1] === '/') {
+          depth--;
+          i += 2;
+        } else i++;
+      }
+      out += ' ';
+    } else if (c === "'" || c === '"') {
+      // `\` chỉ là ký tự thoát trong chuỗi E'…' (standard_conforming_strings = on mặc định)
+      const escapeString = c === "'" && /[Ee]/.test(sql[i - 1] ?? '') && !/[A-Za-z0-9_]/.test(sql[i - 2] ?? '');
+      i++;
+      while (i < sql.length) {
+        if (sql[i] === c && sql[i + 1] === c) i += 2;
+        else if (escapeString && sql[i] === '\\') i += 2;
+        else if (sql[i] === c) break;
+        else i++;
+      }
+      i++;
+      out += ' x ';
+    } else if (c === '$') {
+      const m = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(sql.slice(i));
+      if (!m) {
+        out += c;
+        i++;
+        continue;
+      }
+      const tag = m[0];
+      const e = sql.indexOf(tag, i + tag.length);
+      i = e < 0 ? sql.length : e + tag.length;
+      out += ' x ';
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
+/**
+ * Migration chạy trong một transaction do bộ chạy mở; lệnh điều khiển transaction trong file phá tính nguyên tử (đã
+ * tạo đối tượng nhưng không ghi sổ). Lọc tĩnh trên phần câu lệnh cấp ngoài (stripSqlNoise) + chốt lúc chạy
+ * (cờ `fruit.migration_tx` đặt LOCAL trước khi chạy, mất sau khi chạy ⇒ file đã kết thúc transaction).
+ */
+const TX_CONTROL_RE = /^(COMMIT|ROLLBACK|ABORT|SAVEPOINT|RELEASE|START|BEGIN|END|PREPARE\s+TRANSACTION)\b/i;
 export function assertNoTransactionControl(key: string, sql: string): void {
-  const noComments = sql.replace(/--[^\n]*/g, '');
-  const m = TX_CONTROL_RE.exec(noComments);
-  if (m) throw new Error(`Migration ${key} chứa lệnh điều khiển transaction "${m[1]}" — bộ chạy tự bọc transaction`);
+  for (const stmt of stripSqlNoise(sql).split(';')) {
+    const m = TX_CONTROL_RE.exec(stmt.trim());
+    if (m) throw new Error(`Migration ${key} chứa lệnh điều khiển transaction "${m[1]}" — bộ chạy tự bọc transaction`);
+  }
 }
 
 /** Kiểm mật khẩu role: có, đủ dài, không phải giá trị mẫu, không trùng nhau. */
@@ -118,6 +176,30 @@ export function scramSha256Verifier(password: string, iterations = 4096): string
   const storedKey = createHash('sha256').update(clientKey).digest();
   const serverKey = createHmac('sha256', salted).update('Server Key').digest();
   return `SCRAM-SHA-256$${iterations}:${salt.toString('base64')}$${storedKey.toString('base64')}:${serverKey.toString('base64')}`;
+}
+
+/**
+ * Áp một migration trong một transaction + ghi sổ. Chốt lúc chạy: cờ `fruit.migration_tx` (LOCAL) mất nếu file tự
+ * COMMIT/ROLLBACK (lọc tĩnh có thể bị lách) ⇒ dừng, không ghi sổ.
+ */
+export async function applyOneMigration(client: Client, key: string, sql: string, sha: string): Promise<void> {
+  await client.query('BEGIN');
+  try {
+    await client.query(`SELECT set_config('fruit.migration_tx', 'on', true)`);
+    await client.query(sql);
+    const flag = (await client.query(`SELECT current_setting('fruit.migration_tx', true) AS f`)).rows[0]?.f;
+    if (flag !== 'on')
+      throw new Error(`Migration ${key} đã tự kết thúc transaction — phần đã chạy có thể đã commit, kiểm DB bằng tay`);
+    await client.query('INSERT INTO integration.sql_migrations(file, sha256) VALUES ($1, $2)', [key, sha]);
+    await client.query('COMMIT');
+  } catch (e) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // Giữ lỗi gốc bên dưới; lỗi ROLLBACK (kết nối đã chết) không được che lỗi gốc.
+    }
+    throw new Error(`Áp ${key} thất bại: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
+  }
 }
 
 export async function applySqlMigrations({
@@ -166,19 +248,7 @@ export async function applySqlMigrations({
         continue;
       }
       assertNoTransactionControl(f, sql);
-      await client.query('BEGIN');
-      try {
-        await client.query(sql);
-        await client.query('INSERT INTO integration.sql_migrations(file, sha256) VALUES ($1, $2)', [f, sha]);
-        await client.query('COMMIT');
-      } catch (e) {
-        try {
-          await client.query('ROLLBACK');
-        } catch {
-          // Giữ lỗi gốc bên dưới; lỗi ROLLBACK (kết nối đã chết) không được che lỗi gốc.
-        }
-        throw new Error(`Áp ${f} thất bại: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
-      }
+      await applyOneMigration(client, f, sql, sha);
       applied.push(f);
       log(`[sql] đã áp ${f}`);
     }

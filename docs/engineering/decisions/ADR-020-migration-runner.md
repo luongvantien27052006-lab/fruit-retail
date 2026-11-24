@@ -39,14 +39,19 @@ ADR-017 chốt "SQL tay nhúng trong `migration.sql` của Prisma, một lịch 
 - **Bộ chạy — một thứ tự duy nhất (sửa theo kiểm thử agent):** migration chưa áp đứng TRƯỚC migration đã áp ⇒ dừng
   (thêm file `infra/sql` sau khi đã có migration Prisma cũng bị chặn — dùng migration Prisma mới); mục lạ (`.SQL`,
   `.bak`, thư mục) ⇒ dừng; trùng số ⇒ dừng; lệnh điều khiển transaction (`COMMIT`, `BEGIN;`, `SAVEPOINT`…) trong file ⇒
-  dừng (bộ chạy tự bọc transaction). DDL Prisma sinh từ rỗng **bỏ** bảng `integration.sql_migrations` (đã có từ 000).
+  dừng (bộ chạy tự bọc transaction). Lọc tĩnh xét từ đầu của từng câu lệnh cấp ngoài sau khi bỏ comment, chuỗi
+  (`` chỉ thoát trong `E'…'`), thân `$tag$`; thêm **chốt lúc chạy**: cờ LOCAL `fruit.migration_tx` mất sau khi chạy file
+  ⇒ file đã tự kết thúc transaction ⇒ dừng, không ghi sổ. DDL Prisma sinh từ rỗng **bỏ** bảng `integration.sql_migrations` (đã có từ 000).
 - **Quyền UPDATE theo cột ở `core`:** default privileges của 000 cấp UPDATE cả bảng cho app_rw; mỗi migration tạo bảng
   `core` phải `REVOKE UPDATE` rồi `GRANT UPDATE (cột…)` đúng cột nghiệp vụ. Không ai UPDATE được khóa chính, `users.type`,
   khóa thiết bị, mốc tạo — bộ kiểm `checkNoKeyUpdate` chặn ở CI.
 - **Bất biến bằng trigger:** `users.type`/`id` bất biến; gán vai trò/quyền riêng chỉ được thu hồi một lần; phiên thu hồi
   không sửa được, `user_type` = loại người dùng, phiên nhân viên chỉ trên thiết bị `ACTIVE`; refresh token đã xoay không
-  sửa được; thiết bị POS `REVOKED` đóng băng, mốc kích hoạt bất biến, quầy phải cùng cửa hàng (FK kép); thời điểm
-  `created_at`/`granted_at`/`audit.*.at` do server đặt.
+  sửa được, token mới chỉ cho phiên chưa thu hồi, token thay thế phải cùng phiên; thiết bị POS `REVOKED` đóng băng và
+  **thu hồi mọi phiên đang mở trên nó** (trigger AFTER), phiên trên thiết bị không còn ACTIVE chỉ được thu hồi, nonce
+  thiết bị chỉ phát cho thiết bị ACTIVE; mốc kích hoạt bất biến, quầy phải cùng cửa hàng (FK kép); thời điểm
+  `created_at`/`granted_at`/`issued_at`/`audit.*.at`, mốc kích hoạt/thu hồi (`activated_at`, `revoked_at`, `used_at`) do
+  server đặt (`now()`).
 - **Viewer:** `reporting.allowed_stores()` **không tham số** (đọc hồ sơ từ `app.viewer_profile_id` trong transaction) —
   viewer không liệt kê được cửa hàng của hồ sơ khác qua lời gọi trực tiếp. Viewer tự `SET app.viewer_profile_id` được
   (giới hạn của thiết kế ADR-011): rủi ro chỉ khi API có SQL injection; API đặt hồ sơ bằng `set_config(…, true)` từ phiên
@@ -54,7 +59,8 @@ ADR-017 chốt "SQL tay nhúng trong `migration.sql` của Prisma, một lịch 
 - **audit_writer / viewer_act** chỉ có INSERT (không SELECT) ⇒ không dùng `INSERT … RETURNING` (Prisma `create`); dùng
   `createMany` hoặc `$executeRaw`.
 - **Cluster:** 001 thu CONNECT/TEMP của PUBLIC trên mọi database khác (`postgres`, `template_postgis`, `template1`) và
-  EXECUTE các hàm large object (`lo_*`, `loread`, `lowrite`). `NOTIFY` không thu hồi được — chấp nhận (không lộ dữ liệu).
+  EXECUTE các hàm large object (`lo_*`, `loread`, `lowrite`). Database tạo SAU khi chạy 001 lại có CONNECT/TEMP mặc định
+  cho PUBLIC — dự án chỉ dùng một database; tạo database mới phải chạy lại thu hồi (pg_hba ở VPS giới hạn `host fruit`). `NOTIFY` không thu hồi được — chấp nhận (không lộ dữ liệu).
 - **Giới hạn đã biết:** superuser vượt được trigger chỉ-thêm (`session_replication_role`) — app không chạy bằng superuser;
   bản sao nhật ký ra ngoài (§14 F14) làm ở CP19. Cột `*_by` (người thao tác) không có FK để nhật ký không phụ thuộc vòng
   đời bảng người dùng (người dùng không bị xóa). Hàm SECURITY DEFINER thuộc owner (superuser), `search_path = pg_catalog,

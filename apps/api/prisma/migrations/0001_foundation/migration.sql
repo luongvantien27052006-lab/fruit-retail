@@ -759,7 +759,8 @@ DO $$
 DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY['core.sessions', 'core.refresh_tokens', 'core.auth_challenges', 'core.otp_challenges',
-                           'core.user_role_assignments', 'core.files', 'core.recovery_codes'] LOOP
+                           'core.user_role_assignments', 'core.files', 'core.recovery_codes', 'core.stores',
+                           'core.warehouses', 'core.registers', 'core.viewer_profiles', 'core.viewer_profile_assignments'] LOOP
     EXECUTE format('CREATE TRIGGER set_created BEFORE INSERT ON %s FOR EACH ROW EXECUTE FUNCTION core.set_created_now()', t);
   END LOOP;
   FOREACH t IN ARRAY ARRAY['core.users', 'core.stores', 'core.approval_limits'] LOOP
@@ -774,6 +775,10 @@ CREATE OR REPLACE FUNCTION core.set_granted_now() RETURNS trigger
   LANGUAGE plpgsql SET search_path = pg_catalog
 AS $$ BEGIN NEW.granted_at := now(); RETURN NEW; END; $$;
 CREATE TRIGGER set_granted BEFORE INSERT ON core.user_permission_grants FOR EACH ROW EXECUTE FUNCTION core.set_granted_now();
+CREATE OR REPLACE FUNCTION core.set_issued_now() RETURNS trigger
+  LANGUAGE plpgsql SET search_path = pg_catalog
+AS $$ BEGIN NEW.issued_at := now(); RETURN NEW; END; $$;
+CREATE TRIGGER set_issued BEFORE INSERT ON core.staff_badges FOR EACH ROW EXECUTE FUNCTION core.set_issued_now();
 
 -- Loại người dùng bất biến (mọi quyền/vai trò/phiên dựa vào nó)
 CREATE OR REPLACE FUNCTION core.users_guard() RETURNS trigger
@@ -834,6 +839,9 @@ BEGIN
     IF (to_jsonb(NEW) - 'revoked_at' - 'revoked_by') <> (to_jsonb(OLD) - 'revoked_at' - 'revoked_by') THEN
       RAISE EXCEPTION '%: chỉ được thu hồi (revoked_at, revoked_by)', TG_TABLE_NAME USING ERRCODE = 'check_violation';
     END IF;
+    IF NEW.revoked_at IS NOT NULL THEN
+      NEW.revoked_at := now();   -- mốc thu hồi do server đặt
+    END IF;
     RETURN NEW;
   END IF;
   -- scope_id NULL để CHECK *_scope_shape báo lỗi (CHECK chạy sau trigger BEFORE)
@@ -884,6 +892,13 @@ BEGIN
     IF OLD.revoked_at IS NOT NULL THEN
       RAISE EXCEPTION 'sessions: phiên đã thu hồi không sửa được' USING ERRCODE = 'check_violation';
     END IF;
+    IF NEW.revoked_at IS NOT NULL THEN
+      NEW.revoked_at := now();   -- mốc thu hồi do server đặt
+    ELSIF NEW.pos_device_id IS NOT NULL AND NOT EXISTS
+          (SELECT 1 FROM core.pos_devices d WHERE d.id = NEW.pos_device_id AND d.status = 'ACTIVE') THEN
+      -- phiên nhân viên trên thiết bị không còn ACTIVE chỉ được thu hồi, không gia hạn/dùng tiếp
+      RAISE EXCEPTION 'sessions: thiết bị POS không còn ACTIVE — chỉ được thu hồi phiên' USING ERRCODE = 'check_violation';
+    END IF;
     RETURN NEW;
   END IF;
   SELECT u.type::text INTO ut FROM core.users u WHERE u.id = NEW.user_id;
@@ -911,11 +926,21 @@ BEGIN
     IF NEW.used_at IS NOT NULL OR NEW.replaced_by_id IS NOT NULL THEN
       RAISE EXCEPTION 'refresh_tokens: token mới phải chưa dùng' USING ERRCODE = 'check_violation';
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM core.sessions s WHERE s.id = NEW.session_id AND s.revoked_at IS NULL) THEN
+      RAISE EXCEPTION 'refresh_tokens: phiên đã thu hồi/không tồn tại' USING ERRCODE = 'check_violation';
+    END IF;
     RETURN NEW;
   END IF;
   IF (OLD.used_at IS NOT NULL AND NEW.used_at IS DISTINCT FROM OLD.used_at)
      OR (OLD.replaced_by_id IS NOT NULL AND NEW.replaced_by_id IS DISTINCT FROM OLD.replaced_by_id) THEN
     RAISE EXCEPTION 'refresh_tokens: token đã xoay không sửa được' USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.used_at IS NOT NULL AND OLD.used_at IS NULL THEN
+    NEW.used_at := now();
+  END IF;
+  IF NEW.replaced_by_id IS NOT NULL AND NOT EXISTS
+       (SELECT 1 FROM core.refresh_tokens t WHERE t.id = NEW.replaced_by_id AND t.session_id = NEW.session_id) THEN
+    RAISE EXCEPTION 'refresh_tokens: token thay thế phải cùng phiên' USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
 END;
@@ -947,11 +972,43 @@ BEGIN
     OR (OLD.status = 'ACTIVE' AND NEW.status = 'REVOKED')) THEN
     RAISE EXCEPTION 'pos_devices: chuyển trạng thái % → % không hợp lệ', OLD.status, NEW.status USING ERRCODE = 'check_violation';
   END IF;
+  -- mốc kích hoạt/thu hồi do server đặt
+  IF NEW.status = 'ACTIVE' AND OLD.status = 'PENDING' THEN NEW.activated_at := now(); END IF;
+  IF NEW.status = 'REVOKED' AND OLD.status <> 'REVOKED' THEN NEW.revoked_at := now(); END IF;
   RETURN NEW;
 END;
 $$;
 CREATE TRIGGER pos_device_transition BEFORE INSERT OR UPDATE ON core.pos_devices
   FOR EACH ROW EXECUTE FUNCTION core.pos_device_transition();
+
+-- Thu hồi thiết bị ⇒ thu hồi mọi phiên đang mở trên thiết bị trong cùng transaction (SEC3/SEC4, ADR-012)
+CREATE OR REPLACE FUNCTION core.pos_device_revoke_sessions() RETURNS trigger
+  LANGUAGE plpgsql SET search_path = pg_catalog
+AS $$
+BEGIN
+  UPDATE core.sessions SET revoked_at = now(), revoke_reason = 'DEVICE_REVOKED'
+  WHERE pos_device_id = NEW.id AND revoked_at IS NULL;
+  RETURN NULL;
+END;
+$$;
+CREATE TRIGGER pos_device_revoke_sessions AFTER UPDATE OF status ON core.pos_devices
+  FOR EACH ROW WHEN (NEW.status = 'REVOKED' AND OLD.status <> 'REVOKED')
+  EXECUTE FUNCTION core.pos_device_revoke_sessions();
+
+-- Nonce thiết bị chỉ phát cho thiết bị ACTIVE
+CREATE OR REPLACE FUNCTION core.auth_challenges_guard() RETURNS trigger
+  LANGUAGE plpgsql SET search_path = pg_catalog
+AS $$
+BEGIN
+  IF NEW.kind = 'DEVICE_NONCE' AND NOT EXISTS
+       (SELECT 1 FROM core.pos_devices d WHERE d.id = NEW.pos_device_id AND d.status = 'ACTIVE') THEN
+    RAISE EXCEPTION 'auth_challenges: thiết bị POS phải ACTIVE' USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER auth_challenges_guard BEFORE INSERT ON core.auth_challenges
+  FOR EACH ROW EXECUTE FUNCTION core.auth_challenges_guard();
 
 -- ─────────── 3. Bảng chỉ-thêm: audit.* (FR-INV-05/10, ADR-011) ───────────
 -- Chặn mọi role ứng dụng (REVOKE + trigger). Superuser vẫn vượt được (session_replication_role) — giảm rủi ro bằng
@@ -1124,7 +1181,7 @@ INSERT INTO core.permissions (code, description, added_outside_spec) VALUES
 
 -- Ánh xạ vai trò → mã quyền từ ma trận §2.2 (đọc CHẶT: ô "R" không cho mã ghi; phạm vi cửa hàng/kho áp ở tầng API).
 -- MASTER_ADMIN: mọi mã trừ mã riêng của viewer, khách, shipper. WAREHOUSE_STAFF KHÔNG có purchase_price:write —
--- Master cấp riêng qua user_permission_grants (§2.1). Mã §21.8/NC-08 SPEC chưa ánh xạ: phiên gán tạm, chờ Tiến (NC-18).
+-- Master cấp riêng qua user_permission_grants (§2.1). Mã §21.8/NC-08 SPEC chưa ánh xạ: phiên gán tạm, chờ Tiến (NC-19).
 INSERT INTO core.role_permissions (role, permission_code)
 SELECT 'MASTER_ADMIN', code FROM core.permissions WHERE code NOT IN ('viewer:read', 'customer:self', 'shipper:deliver');
 INSERT INTO core.role_permissions (role, permission_code)
@@ -1153,7 +1210,7 @@ CROSS JOIN LATERAL unnest(r.codes) AS c(code)
 JOIN core.permissions p ON p.code = c.code;   -- mã gõ sai → thiếu dòng → test đếm số dòng bắt
 
 -- Hạn mức duyệt §2.3 + §5.8 (markdown ≤ 20% cho cửa hàng trưởng). Không có dòng = không được làm.
--- limit_mode ANY: "≤ 10% hoặc ≤ 50.000đ" = đạt một trong hai ngưỡng là được (đọc theo chữ "hoặc"; chờ Tiến — NC-18).
+-- limit_mode ANY: "≤ 10% hoặc ≤ 50.000đ" = đạt một trong hai ngưỡng là được (đọc theo chữ "hoặc"; chờ Tiến — NC-19).
 INSERT INTO core.approval_limits (role, action, allowed, max_amount, max_pct_bp, limit_mode, same_day_only, requires_pin, requires_note) VALUES
   ('CASHIER', 'LINE_DELETE', true, NULL, NULL, 'ANY', false, false, false),
   ('STORE_MANAGER', 'LINE_DISCOUNT', true, 50000, 1000, 'ANY', false, false, false),

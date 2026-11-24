@@ -9,6 +9,7 @@ import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { checkAppendOnlyPrivileges, checkNoKeyUpdate, checkViewerRls } from '../src/db/privilege-checks';
 import {
+  applyOneMigration,
   applySqlMigrations,
   assertNoTransactionControl,
   listMigrations,
@@ -718,8 +719,126 @@ describe('0001_foundation', () => {
     // d) COMMIT giữa file bị chặn; thân hàm plpgsql (BEGIN … END;) không bị bắt nhầm
     expect(() => assertNoTransactionControl('x', 'CREATE TABLE t(); COMMIT;\nSELECT 1;')).toThrow(/COMMIT/);
     expect(() => assertNoTransactionControl('x', 'SELECT 1;\nBEGIN;\n')).toThrow(/BEGIN/);
+    // cách lách / báo nhầm từ kiểm thử agent lần 2
+    expect(() => assertNoTransactionControl('x', '/* x */ COMMIT;')).toThrow(/COMMIT/);
+    expect(() => assertNoTransactionControl('x', "select '--'; COMMIT;")).toThrow(/COMMIT/);
+    expect(() => assertNoTransactionControl('x', 'ROLLBACK TO SAVEPOINT a;')).toThrow(/ROLLBACK/);
+    expect(() =>
+      assertNoTransactionControl('x', 'CREATE TABLE t (\n  commit_sha text,\n  release_at timestamptz\n);'),
+    ).not.toThrow();
+    expect(() => assertNoTransactionControl('x', "COMMENT ON TABLE t IS 'a;\nRelease notes';")).not.toThrow();
+    expect(() => assertNoTransactionControl('x', 'DO $f$ BEGIN PERFORM 1; END; $f$;')).not.toThrow();
     for (const m of listMigrations(SQL_DIR, PRISMA_DIR))
       expect(() => assertNoTransactionControl(m.key, readFileSync(m.url, 'utf8'))).not.toThrow();
+  });
+
+  it('T-3 — chuỗi thường có \\ không che được COMMIT; chốt lúc chạy dừng file tự COMMIT và không ghi sổ', async () => {
+    // standard_conforming_strings: '\' là chuỗi một ký tự ⇒ COMMIT phía sau là câu lệnh thật
+    expect(() => assertNoTransactionControl('x', "SELECT '\\'; COMMIT; -- '")).toThrow(/COMMIT/);
+    expect(() => assertNoTransactionControl('x', "SELECT E'\\'; COMMIT; --';")).not.toThrow(); // trong chuỗi E''
+    // gọi thẳng bước áp (bỏ qua lọc tĩnh) để thử chốt lúc chạy
+    const c = new Client({ connectionString: ownerUrl });
+    await c.connect();
+    try {
+      await expect(
+        applyOneMigration(c, 'zz_probe', 'CREATE TABLE core._tx_probe(id int); COMMIT; SELECT 1;', 'a'.repeat(64)),
+      ).rejects.toThrow(/tự kết thúc transaction/);
+    } finally {
+      await c.end();
+    }
+    const rows = await q(`SELECT 1 FROM integration.sql_migrations WHERE file = 'zz_probe'`);
+    expect(rows).toEqual([]);
+    await q(`DROP TABLE IF EXISTS core._tx_probe`); // phần trước COMMIT đã commit — đúng như cảnh báo
+  });
+
+  it('T-1/T-2 — thu hồi thiết bị đóng mọi phiên trên nó; không gia hạn phiên/không phát nonce cho thiết bị đã thu hồi; mốc thu hồi do server đặt', async () => {
+    const store = await newStore('TL-S');
+    const staff = await newUser('STAFF');
+    const master = await newUser('MASTER');
+    const dev = await newDevice(store);
+    await q(
+      `UPDATE core.pos_devices SET status = 'ACTIVE', activated_at = '2000-01-01', activated_by = $2 WHERE id = $1`,
+      [dev, master],
+      roleUrl('app_rw'),
+    );
+    const [d] = await q(
+      `SELECT activated_at > now() - interval '1 minute' AS fresh FROM core.pos_devices WHERE id = $1`,
+      [dev],
+    );
+    expect(d.fresh).toBe(true);
+    const sid = id();
+    await q(
+      `INSERT INTO core.sessions (id, user_id, user_type, pos_device_id, expires_at) VALUES ($1, $2, 'STAFF', $3, now() + interval '1 day')`,
+      [sid, staff, dev],
+      roleUrl('app_rw'),
+    );
+    await q(
+      `INSERT INTO core.auth_challenges (id, kind, pos_device_id, secret_hash, expires_at) VALUES ($1, 'DEVICE_NONCE', $2, $3, now() + interval '2 minutes')`,
+      [id(), dev, h32()],
+      roleUrl('app_rw'),
+    );
+    await q(
+      `UPDATE core.pos_devices SET status = 'REVOKED', revoked_at = '2099-01-01', revoked_by = $2 WHERE id = $1`,
+      [dev, master],
+      roleUrl('app_rw'),
+    );
+    const [s] = await q(`SELECT revoked_at IS NOT NULL AS rev, revoke_reason FROM core.sessions WHERE id = $1`, [sid]);
+    expect(s).toEqual({ rev: true, revoke_reason: 'DEVICE_REVOKED' });
+    const [dv] = await q(`SELECT revoked_at < now() + interval '1 minute' AS ok FROM core.pos_devices WHERE id = $1`, [
+      dev,
+    ]);
+    expect(dv.ok).toBe(true);
+    await expect(
+      q(
+        `INSERT INTO core.auth_challenges (id, kind, pos_device_id, secret_hash, expires_at) VALUES ($1, 'DEVICE_NONCE', $2, $3, now() + interval '2 minutes')`,
+        [id(), dev, h32()],
+        roleUrl('app_rw'),
+      ),
+    ).rejects.toThrow(/phải ACTIVE/);
+    await expect(
+      q(
+        `INSERT INTO core.refresh_tokens (id, session_id, token_hash) VALUES ($1, $2, $3)`,
+        [id(), sid, h32()],
+        roleUrl('app_rw'),
+      ),
+    ).rejects.toThrow(/phiên đã thu hồi/);
+    // thu hồi vai trò: mốc do server đặt
+    const ura = id();
+    await q(
+      `INSERT INTO core.user_role_assignments (id, user_id, role, scope_type) VALUES ($1, $2, 'MASTER_ADMIN', 'ALL')`,
+      [ura, master],
+      roleUrl('app_rw'),
+    );
+    await q(
+      `UPDATE core.user_role_assignments SET revoked_at = '2099-01-01', revoked_by = $2 WHERE id = $1`,
+      [ura, master],
+      roleUrl('app_rw'),
+    );
+    const [r] = await q(
+      `SELECT revoked_at < now() + interval '1 minute' AS ok FROM core.user_role_assignments WHERE id = $1`,
+      [ura],
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it('T-2 — token thay thế phải cùng phiên', async () => {
+    const master = await newUser('MASTER');
+    const [s1, s2] = [id(), id()];
+    for (const s of [s1, s2])
+      await q(
+        `INSERT INTO core.sessions (id, user_id, user_type, expires_at) VALUES ($1, $2, 'MASTER', now() + interval '12 hours')`,
+        [s, master],
+        roleUrl('app_rw'),
+      );
+    const [a, b] = [id(), id()];
+    await q(
+      `INSERT INTO core.refresh_tokens (id, session_id, token_hash) VALUES ($1, $2, $3), ($4, $5, $6)`,
+      [a, s1, h32(), b, s2, h32()],
+      roleUrl('app_rw'),
+    );
+    await expect(
+      q(`UPDATE core.refresh_tokens SET used_at = now(), replaced_by_id = $2 WHERE id = $1`, [a, b], roleUrl('app_rw')),
+    ).rejects.toThrow(/cùng phiên/);
   });
 
   it('T5 — role ứng dụng không vào được database khác trong cluster', async () => {

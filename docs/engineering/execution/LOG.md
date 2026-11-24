@@ -26,3 +26,6 @@
 | 2026-11-18 | CP02 | Merge feat/cp02-scaffold → develop (d3b5141). CI develop run 44167559207: 4/4 job success (gồm build Windows + spike COM). Còn CHẶN: diễn tập khôi phục backup, staging, giám sát — chờ VPS/storage/Sentry/Telegram. |
 | 2026-11-18 | CP02 | Lát 9 (backup WAL-G + PITR local) qua 3 vòng kiểm thử agent → sạch lỗi chặn (e7264b6). Tiến đặt quy tắc: mỗi phần phải được agent chuyên biệt kiểm thử, xác nhận hết lỗi mới làm tiếp. |
 | 2026-11-18 | CP02 | Lát 10 (override staging, Caddyfile HTTPS, `infra/stg.sh` preflight, cron-run/alert, drill S3, runbook-deploy) qua 3 vòng kiểm thử agent → SẠCH (05d277b + sửa tài liệu). |
+| 2026-11-18 | CP02 | Merge feat/cp02-backup → develop (9cbb196); CI develop 4/4 job success. |
+| 2026-11-24 | CP02 | Tiến quyết tạm bỏ qua phần hạ tầng thật (VPS/domain/S3/Sentry/Telegram); CP02 giữ CHẶN ở các cổng đó. |
+| 2026-11-24 | CP03 | Mở CP03 (ngoại lệ tiên quyết CP02 theo quyết định trên); soạn kế hoạch con 10 lát, chờ Tiến duyệt. |

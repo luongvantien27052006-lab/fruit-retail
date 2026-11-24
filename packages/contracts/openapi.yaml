@@ -142,14 +142,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthLoginRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthLoginResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -181,14 +181,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthCodeRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthTokenPair'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -221,14 +221,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthRecoverRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthRecoverResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -260,14 +260,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/EmptyRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthTotpSetupResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -299,14 +299,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthCodeRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthTotpConfirmResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -339,14 +339,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/EmptyRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthRecoveryCodesResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -456,14 +456,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthCodeRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthStepUpResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -495,14 +495,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthRefreshRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthTokenPair'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -532,14 +532,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/EmptyRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/OkResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -571,7 +571,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthSessionList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -8470,6 +8470,245 @@ components:
             redis:
               type: string
               enum: [ok, down]
+    EmptyRequest:
+      type: object
+      description: Thân rỗng `{}` (route không nhận tham số).
+      additionalProperties: false
+    OkResponse:
+      type: object
+      required: [ok]
+      additionalProperties: false
+      properties:
+        ok:
+          type: boolean
+          const: true
+    AuthLoginRequest:
+      type: object
+      required: [email, password]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+          description: Không phân biệt hoa/thường (server chuẩn hóa chữ thường)
+        password:
+          type: string
+          minLength: 1
+          maxLength: 256
+    AuthCodeRequest:
+      type: object
+      required: [code]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          pattern: '^\d{6}$'
+          description: Mã TOTP 6 số; mã đã dùng (cùng bước 30 s hoặc cũ hơn) bị từ chối
+    AuthRecoverRequest:
+      type: object
+      required: [recovery_code]
+      additionalProperties: false
+      properties:
+        recovery_code:
+          type: string
+          minLength: 16
+          maxLength: 40
+          description: '`xxxx-xxxx-xxxx-xxxx`, không phân biệt hoa/thường, gạch/khoảng trắng bỏ qua'
+    AuthRefreshRequest:
+      type: object
+      required: [refresh_token]
+      additionalProperties: false
+      properties:
+        refresh_token:
+          type: string
+          minLength: 1
+          maxLength: 128
+    AuthAmr:
+      type: string
+      enum: [pwd, otp, rcv]
+      description: 'Phương thức xác thực của phiên: pwd mật khẩu, otp TOTP, rcv mã khôi phục'
+    AuthTokenPair:
+      type: object
+      required: [access_token, access_token_expires_at, refresh_token, session_id, amr]
+      additionalProperties: false
+      properties:
+        access_token:
+          type: string
+          description: JWT EdDSA 15 phút (header kid, typ at+jwt) — ADR-012
+        access_token_expires_at:
+          type: string
+          format: date-time
+        refresh_token:
+          type: string
+          description: 256 bit, dùng MỘT lần (xoay vòng); dùng lại ⇒ thu hồi cả phiên
+        session_id:
+          type: string
+          format: uuid
+        amr:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthAmr'
+    AuthLoginResponse:
+      description: |
+        MFA_REQUIRED — đã bật 2FA: gọi /auth/2fa/verify hoặc /auth/2fa/recover với `Authorization: Bearer <mfa_challenge>`
+        (5 phút, 1 lần, tối đa 5 lần thử). ENROLLMENT_REQUIRED — chưa đăng ký 2FA: phiên chỉ gọi được /auth/2fa/setup,
+        /auth/2fa/confirm, /auth/logout (route khác ⇒ 403 TWO_FACTOR_ENROLLMENT_REQUIRED).
+      oneOf:
+        - type: object
+          required: [status, mfa_challenge, mfa_challenge_expires_at]
+          additionalProperties: false
+          properties:
+            status:
+              type: string
+              const: MFA_REQUIRED
+            mfa_challenge:
+              type: string
+            mfa_challenge_expires_at:
+              type: string
+              format: date-time
+        - type: object
+          required: [status, access_token, access_token_expires_at, refresh_token, session_id, amr]
+          additionalProperties: false
+          properties:
+            status:
+              type: string
+              const: ENROLLMENT_REQUIRED
+            access_token:
+              type: string
+            access_token_expires_at:
+              type: string
+              format: date-time
+            refresh_token:
+              type: string
+            session_id:
+              type: string
+              format: uuid
+            amr:
+              type: array
+              items:
+                $ref: '#/components/schemas/AuthAmr'
+    AuthRecoverResponse:
+      type: object
+      required: [access_token, access_token_expires_at, refresh_token, session_id, amr, recovery_codes_remaining]
+      additionalProperties: false
+      properties:
+        access_token:
+          type: string
+        access_token_expires_at:
+          type: string
+          format: date-time
+        refresh_token:
+          type: string
+        session_id:
+          type: string
+          format: uuid
+        amr:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthAmr'
+        recovery_codes_remaining:
+          type: integer
+          minimum: 0
+          maximum: 10
+    AuthTotpSetupResponse:
+      type: object
+      required: [secret, otpauth_uri, issuer]
+      additionalProperties: false
+      properties:
+        secret:
+          type: string
+          description: Base32 — chỉ trả MỘT lần lúc đăng ký; lưu mã hóa AES-256-GCM (ADR-015)
+        otpauth_uri:
+          type: string
+          description: 'otpauth://totp/… để hiển thị QR'
+        issuer:
+          type: string
+    AuthTotpConfirmResponse:
+      type: object
+      required: [recovery_codes, access_token, access_token_expires_at, session_id, amr]
+      additionalProperties: false
+      properties:
+        recovery_codes:
+          type: array
+          minItems: 10
+          maxItems: 10
+          items:
+            type: string
+          description: 10 mã dùng một lần — chỉ hiện MỘT lần
+        access_token:
+          type: string
+        access_token_expires_at:
+          type: string
+          format: date-time
+        session_id:
+          type: string
+          format: uuid
+        amr:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthAmr'
+    AuthRecoveryCodesResponse:
+      type: object
+      required: [recovery_codes]
+      additionalProperties: false
+      properties:
+        recovery_codes:
+          type: array
+          minItems: 10
+          maxItems: 10
+          items:
+            type: string
+    AuthStepUpResponse:
+      type: object
+      required: [step_up_until, access_token, access_token_expires_at]
+      additionalProperties: false
+      properties:
+        step_up_until:
+          type: string
+          format: date-time
+        access_token:
+          type: string
+        access_token_expires_at:
+          type: string
+          format: date-time
+    AuthSession:
+      type: object
+      required: [id, created_at, last_used_at, expires_at, client_device, user_agent, amr, current]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        client_device:
+          type: [string, 'null']
+        user_agent:
+          type: [string, 'null']
+        amr:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthAmr'
+        current:
+          type: boolean
+    AuthSessionList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/AuthSession'
     PendingBody:
       type: object
       description: Khung — schema chi tiết được định nghĩa ở CP ghi trong x-detail-cp của route.

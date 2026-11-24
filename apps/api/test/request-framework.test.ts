@@ -19,6 +19,8 @@ import { resolve } from 'node:path';
 import { ClsService } from 'nestjs-cls';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { PRINCIPAL_RESOLVER, type PrincipalResolverPort } from '../src/auth/principal.resolver';
+import { testAuthEnv } from './helpers/auth-env';
 import { parse } from 'yaml';
 import { z } from 'zod';
 import { createApp } from '../src/bootstrap';
@@ -43,10 +45,19 @@ class TestPrincipalMiddleware implements NestMiddleware {
   use(req: Request, _res: Response, next: NextFunction): void {
     const h = req.headers['x-test-principal'];
     if (typeof h === 'string') {
-      const p = JSON.parse(h) as Omit<Principal, 'permissions'> & { permissions: string[] };
-      this.cls.set('principal', { ...p, permissions: new Set(p.permissions) });
+      const p = JSON.parse(h) as Omit<Principal, 'permissions' | 'amr' | 'mfaComplete'> & { permissions: string[] };
+      this.cls.set('principal', { ...p, amr: ['pwd', 'otp'], mfaComplete: true, permissions: new Set(p.permissions) });
     }
     next();
+  }
+}
+
+/** Thay tầng xác thực thật (Bearer → DB) bằng principal do middleware test đặt — test khung request, không test auth. */
+@Injectable()
+class TestPrincipalResolver implements PrincipalResolverPort {
+  constructor(private readonly cls: ClsService<RequestStore>) {}
+  resolve(): Promise<Principal | undefined> {
+    return Promise.resolve(this.cls.get('principal'));
   }
 }
 
@@ -258,8 +269,17 @@ describe('khung request (CP03 lát 2)', () => {
       REDIS_URL: redis.getConnectionUrl(),
       PORT: '0',
       LOG_LEVEL: 'silent',
+      ...testAuthEnv(db.roleUrl('audit_writer')),
     });
-    app = await createApp(env, { logger: false }, { imports: [TestPrincipalModule], controllers: [TestController] });
+    app = await createApp(
+      env,
+      { logger: false },
+      {
+        imports: [TestPrincipalModule],
+        controllers: [TestController],
+        providers: [{ provide: PRINCIPAL_RESOLVER, useClass: TestPrincipalResolver }],
+      },
+    );
     await app.init();
   });
   afterAll(async () => {
@@ -416,7 +436,13 @@ describe('khung request (CP03 lát 2)', () => {
         inSpec: true,
       });
       const declared =
-        r.access?.kind === 'public' ? 'public' : r.access?.kind === 'authenticated' ? 'auth:*' : r.access?.code;
+        r.access?.kind === 'public'
+          ? 'public'
+          : r.access?.kind === 'authenticated'
+            ? 'auth:*'
+            : r.access?.kind === 'mfa'
+              ? 'mfa:challenge'
+              : r.access?.code;
       expect({ route: `${r.method} ${r.path}`, perm: declared }).toEqual({
         route: `${r.method} ${r.path}`,
         perm: op?.['x-permission'],

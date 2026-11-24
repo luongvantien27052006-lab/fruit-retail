@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { testAuthEnv } from './helpers/auth-env';
 import { createApp } from '../src/bootstrap';
 import { Authenticated, Public, RequirePermission } from '../src/common/access';
 import { listRoutes } from '../src/common/route-access';
@@ -70,6 +71,7 @@ describe('kiểm quyền route lúc khởi động', () => {
       REDIS_URL: 'redis://127.0.0.1:1',
       PORT: '0',
       LOG_LEVEL: 'silent',
+      ...testAuthEnv(),
     });
   });
   afterAll(() => undefined);

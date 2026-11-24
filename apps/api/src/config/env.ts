@@ -16,6 +16,11 @@ const schema = z.object({
     .string()
     .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
     .default('04:00'),
+  // Khóa ký JWT, khóa mã hóa PII, pepper băm (ADR-012/015). Kiểm định dạng ở AuthConfig khi API khởi động
+  // (worker không cần) — thiếu/sai ⇒ API không khởi động.
+  JWT_SIGNING_KEYS: z.string().optional(),
+  PII_ENC_KEYS: z.string().optional(),
+  PII_HASH_PEPPER: z.string().optional(),
   LOG_LEVEL: z.enum(['silent', 'fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
 

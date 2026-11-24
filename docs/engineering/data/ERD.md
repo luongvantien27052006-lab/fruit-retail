@@ -24,7 +24,7 @@ Cột "Mig" = nhóm migration (mục 4). Module chủ = module NestJS duy nhất
 
 | Bảng | Module chủ | Quan hệ chính | Mig |
 |---|---|---|---|
-| users | auth | — | M02 |
+| users | auth | — ; + totp_last_step (chống dùng lại TOTP — ADR-021, migration 0002) | M02 |
 | staff | auth | users | M02 |
 | user_role_assignments | rbac | users; scope → stores/warehouses | M02 |
 | approval_limits | rbac | — | M02 |

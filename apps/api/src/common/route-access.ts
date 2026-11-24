@@ -2,7 +2,7 @@ import { RequestMethod } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA, VERSION_METADATA } from '@nestjs/common/constants';
 import { DiscoveryService, Reflector } from '@nestjs/core';
 import type { INestApplication } from '@nestjs/common';
-import { type Access, ACCESS_KEY } from './access';
+import { type Access, ACCESS_KEY, ALLOW_WITHOUT_MFA_KEY, OWN_TX_KEY, STEP_UP_KEY } from './access';
 
 export interface RouteInfo {
   controller: string;
@@ -14,6 +14,9 @@ export interface RouteInfo {
   /** khai báo ở method (nếu có) và ở class (nếu có) — để phát hiện @Public method trong class cần quyền */
   methodAccess?: Access;
   classAccess?: Access;
+  stepUp?: boolean;
+  allowWithoutMfa?: boolean;
+  ownTx?: boolean;
 }
 
 const joinPath = (...parts: string[]) =>
@@ -69,6 +72,9 @@ export function listRoutes(app: INestApplication): RouteInfo[] {
             ...(access ? { access } : {}),
             ...(methodAccess ? { methodAccess } : {}),
             ...(classAccess ? { classAccess } : {}),
+            ...(Reflect.getMetadata(STEP_UP_KEY, fn) ? { stepUp: true } : {}),
+            ...(Reflect.getMetadata(ALLOW_WITHOUT_MFA_KEY, fn) ? { allowWithoutMfa: true } : {}),
+            ...(Reflect.getMetadata(OWN_TX_KEY, fn) ? { ownTx: true } : {}),
           });
     }
   }
@@ -90,11 +96,23 @@ export function assertRoutesDeclareAccess(app: INestApplication): void {
         .join(', ')}`,
     );
   // Khai báo ở method không được NỚI LỎNG hơn class (public < authenticated < permission): nhầm lẫn nguy hiểm
-  const rank = (x: Access) => (x.kind === 'public' ? 0 : x.kind === 'authenticated' ? 1 : 2);
+  const rank = (x: Access) => ({ public: 0, mfa: 1, authenticated: 2, permission: 3 })[x.kind];
   const loosened = routes.filter((r) => r.methodAccess && r.classAccess && rank(r.methodAccess) < rank(r.classAccess));
   if (loosened.length)
     throw new Error(
-      `Khai báo quyền ở method nới lỏng hơn class (@Public/@Authenticated trong controller cần quyền): ${loosened
+      `Khai báo quyền ở method nới lỏng hơn class (@Public/@MfaChallenge/@Authenticated trong controller chặt hơn): ${loosened
+        .map((r) => `${r.method} ${r.path} (${r.controller}.${r.handler})`)
+        .join(', ')}`,
+    );
+  // decorator phụ chỉ có nghĩa với route cần đăng nhập / route ghi — gắn nhầm chỗ là lỗi lập trình
+  const misplaced = routes.filter(
+    (r) =>
+      ((r.stepUp || r.allowWithoutMfa) && (r.access?.kind === 'public' || r.access?.kind === 'mfa')) ||
+      (r.ownTx && !['POST', 'PUT', 'PATCH', 'DELETE'].includes(r.method)),
+  );
+  if (misplaced.length)
+    throw new Error(
+      `@RequireStepUp/@AllowWithoutMfa trên route không cần đăng nhập, hoặc @OwnTransaction trên route đọc: ${misplaced
         .map((r) => `${r.method} ${r.path} (${r.controller}.${r.handler})`)
         .join(', ')}`,
     );

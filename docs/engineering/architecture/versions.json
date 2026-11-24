@@ -65,6 +65,22 @@
     "uuid": {
       "line": "14",
       "exact": "14.0.3"
+    },
+    "otplib": {
+      "line": "13",
+      "exact": "13.6.0"
+    },
+    "jose": {
+      "line": "6",
+      "exact": "6.2.16"
+    },
+    "ajv (dev, test hợp đồng)": {
+      "line": "8",
+      "exact": "8.20.0"
+    },
+    "ajv-formats (dev)": {
+      "line": "3",
+      "exact": "3.0.1"
     }
   },
   "web": {

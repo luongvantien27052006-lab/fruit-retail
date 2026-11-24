@@ -4,6 +4,7 @@ import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redi
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { testAuthEnv } from './helpers/auth-env';
 import { createApp } from '../src/bootstrap';
 import { Public } from '../src/common/access';
 import { AuditOutboxService, type Tx } from '../src/common/audit-outbox.service';
@@ -53,6 +54,7 @@ describe('DB sập thật ⇒ 503', () => {
       REDIS_URL: redis.getConnectionUrl(),
       PORT: '0',
       LOG_LEVEL: 'silent',
+      ...testAuthEnv(db.roleUrl('audit_writer')),
     });
     app = await createApp(env, { logger: false }, { controllers: [DownController] });
     await app.init();

@@ -157,6 +157,8 @@ model User {
   pinHash           String?                   @map("pin_hash")
   totpSecretEnc     Bytes?                    @map("totp_secret_enc")
   totpEnabledAt     DateTime?                 @map("totp_enabled_at") @db.Timestamptz(6)
+  /// bước thời gian TOTP (30 s) đã dùng gần nhất — mã cùng bước hoặc cũ hơn bị từ chối (chống dùng lại, ADR-021)
+  totpLastStep      BigInt?                   @map("totp_last_step")
   status            UserStatus                @default(ACTIVE)
   failedLoginCount  Int                       @default(0) @map("failed_login_count")
   lockedUntil       DateTime?                 @map("locked_until") @db.Timestamptz(6)

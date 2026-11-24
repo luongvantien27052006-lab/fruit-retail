@@ -49,6 +49,8 @@ Yêu cầu: Node 24.22.3, pnpm 11.2.2 (Corepack), Flutter 3.44.6 / Dart 3.12.2, 
 | Trang quản lý qua Caddy | — | `http://127.0.0.1:8080/` |
 | Log | gốc | `docker compose -f infra/docker-compose.yml --env-file infra/.env logs -f api worker` |
 | Dừng (giữ dữ liệu) | gốc | `docker compose -f infra/docker-compose.yml --env-file infra/.env down` |
+| Tạo tài khoản Master (một lần, trên máy chủ — ADR-021) | gốc | `docker compose -f infra/docker-compose.yml --env-file infra/.env exec api node dist/cli/create-master.js --email <email>` — in mật khẩu tạm MỘT lần |
+| Tạo khóa JWT / PII / pepper | — | lệnh `node -e …` ghi ngay trên từng biến trong `infra/.env.example` |
 | PostgreSQL local từ máy | — | `127.0.0.1:25432` (đổi bằng `PG_HOST_PORT`), user `owner` |
 
 ## Quét secret

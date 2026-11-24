@@ -24,6 +24,8 @@ export interface AuditEntry {
   reason?: string;
   /** khóa CẤP GỐC của before/after là dữ liệu công khai, giữ dù trùng mẫu nhạy cảm (vd ['address'] khi audit cửa hàng) */
   publicKeys?: readonly string[];
+  /** người thực hiện khi CHƯA có Principal trong CLS (luồng đăng nhập: dùng mã khôi phục, phát hiện dùng lại token) */
+  actor?: { userId: string; userType: 'MASTER' | 'VIEWER' | 'STAFF' | 'CUSTOMER' };
 }
 
 export interface OutboxEvent {
@@ -59,8 +61,8 @@ export class AuditOutboxService {
     await this.txHost.tx.auditLog.create({
       data: {
         id,
-        actorId: p?.userId ?? null,
-        actorType: p?.userType ?? null,
+        actorId: p?.userId ?? e.actor?.userId ?? null,
+        actorType: p?.userType ?? e.actor?.userType ?? null,
         role: p?.role ?? null,
         ip: ip && IPV4_OR_6_RE.test(ip) ? ip : null,
         // chỉ thiết bị POS đã xác minh (khóa thiết bị); X-Device-Id client tự khai không ghi vào nhật ký

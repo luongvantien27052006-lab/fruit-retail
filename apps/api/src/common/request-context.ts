@@ -9,6 +9,8 @@ export interface RequestStore extends ClsStore {
   ip?: string;
   /** X-Device-Id (đã kiểm định dạng) */
   deviceId?: string;
+  /** User-Agent (cắt 512 ký tự) — chỉ để hiển thị danh sách phiên/nhật ký đăng nhập */
+  userAgent?: string;
   principal?: Principal;
   /** số dòng audit.logs đã ghi trong transaction mutation hiện tại */
   auditCount: number;

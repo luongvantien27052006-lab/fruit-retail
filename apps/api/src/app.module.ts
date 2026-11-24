@@ -5,6 +5,7 @@ import { TransactionalAdapterPrisma } from '@nestjs-cls/transactional-adapter-pr
 import type { IncomingMessage } from 'node:http';
 import { ClsModule } from 'nestjs-cls';
 import { LoggerModule } from 'nestjs-pino';
+import { AuthModule } from './auth/auth.module';
 import { AccessGuard } from './common/access.guard';
 import { AuditOutboxService } from './common/audit-outbox.service';
 import { ErrorFilter } from './common/error.filter';
@@ -37,6 +38,11 @@ export const REDACT_PATHS = [
   '*.*.phone',
   '*.*.password',
   '*.*.token',
+  '*.refresh_token',
+  '*.mfa_challenge',
+  '*.recovery_code',
+  '*.recovery_codes',
+  '*.code',
 ];
 
 export { REQUEST_ID_RE, resolveRequestId } from './common/request-context';
@@ -73,6 +79,8 @@ export class AppModule {
               if (req.ip) store.set('ip', req.ip);
               const dev = req.headers['x-device-id'];
               if (typeof dev === 'string' && DEVICE_ID_RE.test(dev)) store.set('deviceId', dev);
+              const ua = req.headers['user-agent'];
+              if (typeof ua === 'string' && ua) store.set('userAgent', ua.slice(0, 512));
               store.set('auditCount', 0);
             },
           },
@@ -88,6 +96,7 @@ export class AppModule {
           ],
         }),
         DiscoveryModule,
+        AuthModule,
         ...(extras.imports ?? []),
       ],
       controllers: [HealthController, ...(extras.controllers ?? [])],

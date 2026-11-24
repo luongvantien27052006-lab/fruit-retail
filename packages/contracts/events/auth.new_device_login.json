@@ -2,8 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://fruit-retail.local/events/auth.new_device_login.json",
   "title": "auth.new_device_login",
-  "description": "Admin đăng nhập từ thiết bị mới (SEC5, ADR-012). Chi tiết hoàn thiện ở CP03.",
-  "x-detail-cp": "CP03",
+  "description": "Master/Viewer lần đầu qua 2FA trên một thiết bị (X-Device-Id chưa từng có phiên đã qua 2FA, hoặc không gửi X-Device-Id) — SEC5, ADR-012/021. Không chứa IP/User-Agent.",
   "type": "object",
   "allOf": [
     {
@@ -19,18 +18,20 @@
     },
     "payload": {
       "type": "object",
-      "required": ["user_id", "device_id", "at"],
+      "required": ["user_id", "session_id", "at"],
       "properties": {
         "user_id": {
           "type": "string",
           "format": "uuid"
         },
-        "device_id": {
+        "session_id": {
           "type": "string",
-          "format": "uuid"
+          "format": "uuid",
+          "description": "phiên mới (Master xem chi tiết thiết bị ở /admin/users/{id}/sessions)"
         },
         "at": {
-          "type": "string"
+          "type": "string",
+          "format": "date-time"
         }
       },
       "additionalProperties": false

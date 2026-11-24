@@ -83,6 +83,10 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       TZ: Asia/Ho_Chi_Minh
       BUSINESS_DAY_CUTOFF: '04:00'
+      # Khóa xác thực (ADR-012/015/021) — chỉ API có; thiếu/sai ⇒ API không khởi động
+      JWT_SIGNING_KEYS: ${JWT_SIGNING_KEYS:?bắt buộc — xem infra/.env.example}
+      PII_ENC_KEYS: ${PII_ENC_KEYS:?bắt buộc — xem infra/.env.example}
+      PII_HASH_PEPPER: ${PII_HASH_PEPPER:?bắt buộc — xem infra/.env.example}
     depends_on:
       db-bootstrap: { condition: service_completed_successfully }
       redis: { condition: service_healthy }

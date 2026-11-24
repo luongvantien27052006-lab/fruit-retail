@@ -59,12 +59,13 @@ describe('0001_foundation', () => {
     await pg?.stop();
   });
 
-  it('áp đúng thứ tự: infra/sql (000, 001) rồi prisma/0001_foundation; chạy lại không áp gì', async () => {
+  it('áp đúng thứ tự: infra/sql (000, 001) rồi prisma/0001…; chạy lại không áp gì', async () => {
     const rows = await q(`SELECT file FROM integration.sql_migrations ORDER BY applied_at, file`);
     expect(rows.map((r) => r.file)).toEqual([
       '000_bootstrap.sql',
       '001_extension_privileges.sql',
       'prisma/0001_foundation',
+      'prisma/0002_auth_totp_replay',
     ]);
     await expect(
       applySqlMigrations({ url: ownerUrl, dir: SQL_DIR, prismaDir: PRISMA_DIR, env: passwords, log: () => undefined }),

@@ -1,0 +1,587 @@
+import type { INestApplication } from '@nestjs/common';
+import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
+import { generateKeyPairSync, randomBytes } from 'node:crypto';
+import { generateSync } from 'otplib';
+import request from 'supertest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { loadAuthKeys } from '../src/auth/auth-config';
+import { normalizeRecoveryCode, slidingExpiry } from '../src/auth/auth.service';
+import { ARGON_PROFILES, hashSecret, verifySecret } from '../src/auth/password';
+import { PiiCipher, totpAad } from '../src/auth/pii-cipher';
+import { AccessTokens, ADMIN_ABSOLUTE_S, ADMIN_SLIDING_S } from '../src/auth/tokens';
+import { createApp } from '../src/bootstrap';
+import { createMaster } from '../src/cli/create-master';
+import { loadEnv } from '../src/config/env';
+import { newJwtKey, testAuthEnv } from './helpers/auth-env';
+import { eventPayloadErrors, schemaErrors } from './helpers/contract';
+import { type MigratedDb, startMigratedDb } from './helpers/db';
+
+// CP03 lát 3 — xác thực Master/Viewer trên PostgreSQL + Redis thật. Kế hoạch: thiếu 2FA không vào được Master;
+// step-up hết hạn ⇒ STEP_UP_REQUIRED; refresh cũ dùng lại ⇒ thu hồi cả họ (SEC1/2/4/5, ADR-012/021).
+
+describe('auth Master/Viewer (CP03 lát 3)', () => {
+  let db: MigratedDb;
+  let redis: StartedRedisContainer;
+  let app: INestApplication;
+  let authEnv: Record<string, string>;
+  const http = () => request(app.getHttpServer());
+  const rows = (sql: string, p: unknown[] = []) => db.q(sql, p);
+
+  /** TOTP của user: giải mã secret trong DB bằng khóa test (không đi đường tắt qua API) */
+  let cipher: PiiCipher;
+  async function totp(userId: string, offsetS = 0): Promise<string> {
+    const [u] = await rows(`SELECT totp_secret_enc FROM core.users WHERE id = $1`, [userId]);
+    const secret = cipher.decrypt(u?.totp_secret_enc as Buffer, totpAad(userId)).toString('utf8');
+    return generateSync({ secret, epoch: Math.floor(Date.now() / 1000) + offsetS });
+  }
+  /** Mô phỏng "đã sang bước 30 s mới" để dùng mã kế tiếp (mã cũ vẫn bị chặn dùng lại trong test riêng) */
+  const forgetStep = (userId: string) => rows(`UPDATE core.users SET totp_last_step = NULL WHERE id = $1`, [userId]);
+  const unlock = (userId: string) =>
+    rows(`UPDATE core.users SET locked_until = NULL, failed_login_count = 0 WHERE id = $1`, [userId]);
+
+  async function enrolledMaster(device = `dev-${randomBytes(6).toString('hex')}`) {
+    const m = await createMaster(db.roleUrl('app_rw'), `m-${randomBytes(4).toString('hex')}@fruit.test`);
+    const l = await http()
+      .post('/v1/auth/login')
+      .set('X-Device-Id', device)
+      .send({ email: m.email, password: m.password });
+    expect(l.body.status).toBe('ENROLLMENT_REQUIRED');
+    const bearer = `Bearer ${l.body.access_token as string}`;
+    expect((await http().post('/v1/auth/2fa/setup').set('Authorization', bearer).send({})).status).toBe(200);
+    const c = await http()
+      .post('/v1/auth/2fa/confirm')
+      .set('Authorization', bearer)
+      .send({ code: await totp(m.userId) });
+    expect(c.status).toBe(200);
+    await forgetStep(m.userId);
+    return { ...m, device, recovery: c.body.recovery_codes as string[], enrollSession: l.body.session_id as string };
+  }
+
+  async function fullLogin(m: { email: string; password: string; userId: string }, device?: string) {
+    const l = http().post('/v1/auth/login');
+    if (device) void l.set('X-Device-Id', device);
+    const r1 = await l.send({ email: m.email, password: m.password });
+    expect(r1.body.status).toBe('MFA_REQUIRED');
+    const v = http()
+      .post('/v1/auth/2fa/verify')
+      .set('Authorization', `Bearer ${r1.body.mfa_challenge as string}`);
+    if (device) void v.set('X-Device-Id', device);
+    const r2 = await v.send({ code: await totp(m.userId) });
+    expect(r2.status).toBe(200);
+    await forgetStep(m.userId);
+    return r2.body as { access_token: string; refresh_token: string; session_id: string };
+  }
+
+  beforeAll(async () => {
+    [db, redis] = await Promise.all([startMigratedDb(), new RedisContainer('redis:7.4-alpine').start()]);
+    authEnv = testAuthEnv(db.roleUrl('audit_writer'));
+    const env = loadEnv({
+      NODE_ENV: 'test',
+      DATABASE_URL_APP: db.roleUrl('app_rw'),
+      REDIS_URL: redis.getConnectionUrl(),
+      PORT: '0',
+      LOG_LEVEL: 'silent',
+      ...authEnv,
+    });
+    cipher = new PiiCipher(loadAuthKeys(env));
+    app = await createApp(env, { logger: false });
+    await app.init();
+  });
+  afterAll(async () => {
+    await app?.close();
+    await Promise.allSettled([db?.pg.stop(), redis?.stop()]);
+  });
+
+  it('sai email/mật khẩu ⇒ 401 như nhau; login_logs ghi HMAC định danh, không có email rõ', async () => {
+    const m = await createMaster(db.roleUrl('app_rw'), 'Sai.Pass@Fruit.test');
+    const a = await http().post('/v1/auth/login').send({ email: 'khong-co@fruit.test', password: 'x' });
+    const b = await http().post('/v1/auth/login').send({ email: m.email, password: 'sai-mat-khau' });
+    expect([a.status, a.body.code, b.status, b.body.code]).toEqual([
+      401,
+      'AUTHENTICATION_REQUIRED',
+      401,
+      'AUTHENTICATION_REQUIRED',
+    ]);
+    expect(a.body.message).toBe(b.body.message);
+    const logs = await rows(`SELECT result, identifier_hash, user_id FROM audit.login_logs ORDER BY at`);
+    expect(logs.map((l) => l.result)).toEqual(['UNKNOWN_USER', 'BAD_CREDENTIALS']);
+    expect(logs.every((l) => (l.identifier_hash as Buffer).length === 32)).toBe(true);
+    const dump = JSON.stringify(await rows(`SELECT * FROM audit.login_logs`));
+    expect(dump).not.toContain('fruit.test');
+    expect(m.email).toBe('sai.pass@fruit.test'); // email chuẩn hóa chữ thường
+  });
+
+  it('SEC1 — Master chưa đăng ký 2FA chỉ gọi được route đăng ký; đăng ký xong mới vào được', async () => {
+    const m = await createMaster(db.roleUrl('app_rw'), 'enroll@fruit.test');
+    const l = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+    expect(l.status).toBe(200);
+    expect(l.body.status).toBe('ENROLLMENT_REQUIRED');
+    const bearer = `Bearer ${l.body.access_token as string}`;
+    const blocked = await http().get('/v1/auth/sessions').set('Authorization', bearer);
+    expect([blocked.status, blocked.body.code]).toEqual([403, 'TWO_FACTOR_ENROLLMENT_REQUIRED']);
+    // confirm khi chưa setup ⇒ 409
+    expect(
+      (await http().post('/v1/auth/2fa/confirm').set('Authorization', bearer).send({ code: '123456' })).status,
+    ).toBe(409);
+    const s = await http().post('/v1/auth/2fa/setup').set('Authorization', bearer).send({});
+    expect(s.status).toBe(200);
+    expect(s.body.otpauth_uri).toMatch(/^otpauth:\/\/totp\//);
+    // secret lưu mã hóa (ADR-015): không có bản rõ trong DB; AAD gắn đúng dòng
+    const [u] = await rows(`SELECT totp_secret_enc, totp_enabled_at FROM core.users WHERE id = $1`, [m.userId]);
+    expect((u?.totp_secret_enc as Buffer).toString('latin1')).not.toContain(s.body.secret);
+    expect(u?.totp_enabled_at).toBeNull();
+    expect(() => cipher.decrypt(u?.totp_secret_enc as Buffer, totpAad(randomBytes(16).toString('hex')))).toThrow();
+    const wrong = await http().post('/v1/auth/2fa/confirm').set('Authorization', bearer).send({ code: '000000' });
+    expect([wrong.status, wrong.body.code]).toEqual([401, 'OTP_INVALID']);
+    const ok = await http()
+      .post('/v1/auth/2fa/confirm')
+      .set('Authorization', bearer)
+      .send({ code: await totp(m.userId) });
+    expect(ok.status).toBe(200);
+    expect(ok.body.recovery_codes).toHaveLength(10);
+    expect(new Set(ok.body.recovery_codes as string[]).size).toBe(10);
+    // phiên hiện tại đã qua 2FA ⇒ vào được
+    expect((await http().get('/v1/auth/sessions').set('Authorization', bearer)).status).toBe(200);
+    // mã khôi phục lưu Argon2id, không bản rõ
+    const codes = await rows(`SELECT code_hash FROM core.recovery_codes WHERE user_id = $1`, [m.userId]);
+    expect(codes).toHaveLength(10);
+    expect(codes.every((c) => String(c.code_hash).startsWith('$argon2id$'))).toBe(true);
+    // đã bật 2FA ⇒ setup lại bị từ chối; mật khẩu đúng thôi không ra phiên nữa
+    expect((await http().post('/v1/auth/2fa/setup').set('Authorization', bearer).send({})).status).toBe(409);
+    const again = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+    expect(again.body.status).toBe('MFA_REQUIRED');
+    expect(again.body.access_token).toBeUndefined();
+    const audit = await rows(`SELECT action FROM audit.logs WHERE resource_id = $1 ORDER BY at`, [m.userId]);
+    expect(audit.map((a) => a.action)).toEqual(['user.master_create', 'auth.totp_setup', 'auth.totp_enable']);
+  });
+
+  it('2FA verify: mã đúng ⇒ phiên; mfa_challenge dùng 1 lần; mã TOTP đã dùng không dùng lại được', async () => {
+    const m = await enrolledMaster();
+    const l = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+    const ch = `Bearer ${l.body.mfa_challenge as string}`;
+    const bad = await http().post('/v1/auth/2fa/verify').set('Authorization', ch).send({ code: '000000' });
+    expect([bad.status, bad.body.code]).toEqual([401, 'OTP_INVALID']);
+    const code = await totp(m.userId);
+    const ok = await http().post('/v1/auth/2fa/verify').set('Authorization', ch).send({ code });
+    expect(ok.status).toBe(200);
+    expect(ok.body.amr).toEqual(['pwd', 'otp']);
+    const reuseCh = await http().post('/v1/auth/2fa/verify').set('Authorization', ch).send({ code });
+    expect([reuseCh.status, reuseCh.body.code]).toEqual([401, 'MFA_CHALLENGE_INVALID']);
+    // challenge mới + CÙNG mã TOTP (cùng bước 30 s) ⇒ bị chặn dùng lại
+    const l2 = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+    const replay = await http()
+      .post('/v1/auth/2fa/verify')
+      .set('Authorization', `Bearer ${l2.body.mfa_challenge as string}`)
+      .send({ code });
+    expect([replay.status, replay.body.code]).toEqual([401, 'OTP_INVALID']);
+    // token thử thách không phải access token và ngược lại
+    expect((await http().get('/v1/auth/sessions').set('Authorization', ch)).status).toBe(401);
+    const asCh = await http()
+      .post('/v1/auth/2fa/verify')
+      .set('Authorization', `Bearer ${ok.body.access_token as string}`)
+      .send({ code: '123456' });
+    expect([asCh.status, asCh.body.code]).toEqual([401, 'MFA_CHALLENGE_INVALID']);
+  });
+
+  it('mfa_challenge hết hạn ⇒ MFA_CHALLENGE_INVALID; 5 lần sai trên một challenge ⇒ challenge chết', async () => {
+    const m = await enrolledMaster();
+    const l = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+    await rows(
+      `UPDATE core.auth_challenges SET created_at = now() - interval '6 minutes', expires_at = now() - interval '1 minute'
+       WHERE user_id = $1`,
+      [m.userId],
+    );
+    const exp = await http()
+      .post('/v1/auth/2fa/verify')
+      .set('Authorization', `Bearer ${l.body.mfa_challenge as string}`)
+      .send({ code: await totp(m.userId) });
+    expect([exp.status, exp.body.code]).toEqual([401, 'MFA_CHALLENGE_INVALID']);
+  });
+
+  it('SEC5 — 5 lần sai (mật khẩu + mã 2FA cộng chung) ⇒ khóa 15 phút; đang khóa thì mật khẩu đúng cũng bị chặn', async () => {
+    const m = await enrolledMaster();
+    for (let i = 0; i < 4; i++)
+      expect((await http().post('/v1/auth/login').send({ email: m.email, password: 'sai' })).status).toBe(401);
+    // mật khẩu đúng KHÔNG xóa bộ đếm; mã 2FA sai là lần thứ 5
+    const l = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+    expect(l.body.status).toBe('MFA_REQUIRED');
+    await http()
+      .post('/v1/auth/2fa/verify')
+      .set('Authorization', `Bearer ${l.body.mfa_challenge as string}`)
+      .send({ code: '000000' });
+    const [u] = await rows(
+      `SELECT failed_login_count, lock_count, EXTRACT(EPOCH FROM locked_until - now())::int AS left_s FROM core.users WHERE id = $1`,
+      [m.userId],
+    );
+    expect(u?.failed_login_count).toBe(0);
+    expect(u?.lock_count).toBe(1);
+    expect(Number(u?.left_s)).toBeGreaterThan(14 * 60);
+    expect(Number(u?.left_s)).toBeLessThanOrEqual(15 * 60);
+    const locked = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+    expect([locked.status, locked.body.code]).toEqual([403, 'ACCOUNT_LOCKED']);
+    expect(locked.body.details.retry_after_s).toBeGreaterThan(800);
+    // lần khóa kế tiếp gấp đôi (30 phút)
+    await unlock(m.userId);
+    for (let i = 0; i < 5; i++) await http().post('/v1/auth/login').send({ email: m.email, password: 'sai' });
+    const [u2] = await rows(
+      `SELECT lock_count, EXTRACT(EPOCH FROM locked_until - now())::int AS left_s FROM core.users WHERE id = $1`,
+      [m.userId],
+    );
+    expect(u2?.lock_count).toBe(2);
+    expect(Number(u2?.left_s)).toBeGreaterThan(29 * 60);
+    // hết khóa + đăng nhập trọn vẹn ⇒ xóa mức khóa tăng dần
+    await unlock(m.userId);
+    await fullLogin(m);
+    const [u3] = await rows(`SELECT lock_count, failed_login_count FROM core.users WHERE id = $1`, [m.userId]);
+    expect([u3?.lock_count, u3?.failed_login_count]).toEqual([0, 0]);
+    const results = await rows(`SELECT result FROM audit.login_logs WHERE user_id = $1`, [m.userId]);
+    expect(results.some((r) => r.result === 'LOCKED')).toBe(true);
+  });
+
+  it('SEC5 — 10 lần sai song song không mất lần đếm (cộng nguyên tử trong SQL)', async () => {
+    const m = await enrolledMaster();
+    await Promise.all(
+      Array.from({ length: 10 }, () => http().post('/v1/auth/login').send({ email: m.email, password: 'sai' })),
+    );
+    const [u] = await rows(`SELECT failed_login_count, lock_count, locked_until FROM core.users WHERE id = $1`, [
+      m.userId,
+    ]);
+    const bad = await rows(
+      `SELECT count(*)::int AS n FROM audit.login_logs WHERE user_id = $1 AND result = 'BAD_CREDENTIALS'`,
+      [m.userId],
+    );
+    // mỗi lần sai đã qua kiểm khóa đều được đếm: lock_count*5 + failed = số lần BAD_CREDENTIALS
+    expect(Number(u?.lock_count) * 5 + Number(u?.failed_login_count)).toBe(bad[0]?.n);
+    expect(Number(u?.lock_count)).toBeGreaterThanOrEqual(1);
+    expect(u?.locked_until).not.toBeNull();
+  });
+
+  it('SEC4 — refresh xoay vòng; dùng lại refresh đã xoay ⇒ thu hồi cả họ (token mới + access token đều chết)', async () => {
+    const m = await enrolledMaster();
+    const t = await fullLogin(m);
+    const r1 = await http().post('/v1/auth/refresh').send({ refresh_token: t.refresh_token });
+    expect(r1.status).toBe(200);
+    expect(r1.body.refresh_token).not.toBe(t.refresh_token);
+    expect(r1.body.session_id).toBe(t.session_id);
+    expect((await http().get('/v1/auth/sessions').set('Authorization', `Bearer ${r1.body.access_token}`)).status).toBe(
+      200,
+    );
+    // kẻ trộm dùng lại token cũ
+    const reuse = await http().post('/v1/auth/refresh').send({ refresh_token: t.refresh_token });
+    expect([reuse.status, reuse.body.code]).toEqual([401, 'SESSION_REVOKED']);
+    const [s] = await rows(`SELECT revoked_at, revoke_reason FROM core.sessions WHERE id = $1`, [t.session_id]);
+    expect(s?.revoked_at).not.toBeNull();
+    expect(s?.revoke_reason).toBe('REFRESH_REUSE');
+    expect((await http().post('/v1/auth/refresh').send({ refresh_token: r1.body.refresh_token })).status).toBe(401);
+    const acc = await http().get('/v1/auth/sessions').set('Authorization', `Bearer ${r1.body.access_token}`);
+    expect([acc.status, acc.body.code]).toEqual([401, 'SESSION_REVOKED']);
+    const a = await rows(`SELECT actor_id FROM audit.logs WHERE action = 'auth.refresh_reuse' AND resource_id = $1`, [
+      t.session_id,
+    ]);
+    expect(a).toHaveLength(1);
+    expect(a[0]?.actor_id).toBe(m.userId);
+    // token rác / sai dạng
+    expect(
+      (
+        await http()
+          .post('/v1/auth/refresh')
+          .send({ refresh_token: 'x'.repeat(43) })
+      ).status,
+    ).toBe(401);
+    expect((await http().post('/v1/auth/refresh').send({ refresh_token: 'ngắn' })).status).toBe(401);
+  });
+
+  it('SEC4 — hai refresh song song cùng một token: một cái qua, cả họ bị thu hồi', async () => {
+    const m = await enrolledMaster();
+    const t = await fullLogin(m);
+    const res = await Promise.all(
+      [0, 1].map(() => http().post('/v1/auth/refresh').send({ refresh_token: t.refresh_token })),
+    );
+    expect(res.map((r) => r.status).sort()).toEqual([200, 401]);
+    const [s] = await rows(`SELECT revoke_reason FROM core.sessions WHERE id = $1`, [t.session_id]);
+    expect(s?.revoke_reason).toBe('REFRESH_REUSE');
+  });
+
+  it('phiên hết hạn trượt 12 giờ / trần 7 ngày ⇒ refresh bị từ chối', async () => {
+    const m = await enrolledMaster();
+    const t = await fullLogin(m);
+    await rows(
+      `UPDATE core.sessions SET created_at = now() - interval '8 days', expires_at = now() + interval '1 hour' WHERE id = $1`,
+      [t.session_id],
+    );
+    const r = await http().post('/v1/auth/refresh').send({ refresh_token: t.refresh_token });
+    expect([r.status, r.body.code]).toEqual([401, 'SESSION_REVOKED']);
+    const now = new Date('2026-11-25T00:00:00Z');
+    expect(slidingExpiry(now, now).getTime() - now.getTime()).toBe(ADMIN_SLIDING_S * 1000);
+    const old = new Date(now.getTime() - (ADMIN_ABSOLUTE_S - 3600) * 1000);
+    expect(slidingExpiry(old, now).getTime()).toBe(old.getTime() + ADMIN_ABSOLUTE_S * 1000);
+  });
+
+  it('SEC2 — step-up: thiếu/hết hạn ⇒ STEP_UP_REQUIRED; có step-up ⇒ sinh lại mã khôi phục', async () => {
+    const m = await enrolledMaster();
+    const t = await fullLogin(m);
+    const bearer = `Bearer ${t.access_token}`;
+    const no = await http().post('/v1/auth/2fa/recovery-codes').set('Authorization', bearer).send({});
+    expect([no.status, no.body.code]).toEqual([403, 'STEP_UP_REQUIRED']);
+    const bad = await http().post('/v1/auth/step-up').set('Authorization', bearer).send({ code: '000000' });
+    expect([bad.status, bad.body.code]).toEqual([401, 'OTP_INVALID']);
+    const su = await http()
+      .post('/v1/auth/step-up')
+      .set('Authorization', bearer)
+      .send({ code: await totp(m.userId) });
+    expect(su.status).toBe(200);
+    const left = (new Date(su.body.step_up_until as string).getTime() - Date.now()) / 1000;
+    expect(left).toBeGreaterThan(280);
+    expect(left).toBeLessThanOrEqual(300);
+    const ok = await http().post('/v1/auth/2fa/recovery-codes').set('Authorization', bearer).send({});
+    expect(ok.status).toBe(200);
+    expect(ok.body.recovery_codes).toHaveLength(10);
+    // mã khôi phục cũ hết hiệu lực
+    const [n] = await rows(`SELECT count(*)::int AS n FROM core.recovery_codes WHERE user_id = $1`, [m.userId]);
+    expect(n?.n).toBe(10);
+    // hết hạn step-up (server đọc DB, không tin claim trong token)
+    await rows(`UPDATE core.sessions SET step_up_until = now() - interval '1 second' WHERE id = $1`, [t.session_id]);
+    const exp = await http()
+      .post('/v1/auth/2fa/recovery-codes')
+      .set('Authorization', `Bearer ${su.body.access_token as string}`)
+      .send({});
+    expect([exp.status, exp.body.code]).toEqual([403, 'STEP_UP_REQUIRED']);
+    // lần step-up sai được đếm vào khóa
+    const [u] = await rows(`SELECT failed_login_count FROM core.users WHERE id = $1`, [m.userId]);
+    expect(u?.failed_login_count).toBe(0); // step-up đúng đã xóa
+  });
+
+  it('mã khôi phục: đăng nhập được một lần, mã đã dùng bị từ chối', async () => {
+    const m = await enrolledMaster();
+    const code = m.recovery[0]?.toUpperCase(); // không phân biệt hoa/thường
+    const l = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+    const r = await http()
+      .post('/v1/auth/2fa/recover')
+      .set('Authorization', `Bearer ${l.body.mfa_challenge as string}`)
+      .send({ recovery_code: code });
+    expect(r.status).toBe(200);
+    expect(r.body.amr).toEqual(['pwd', 'rcv']);
+    expect(r.body.recovery_codes_remaining).toBe(9);
+    const l2 = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+    const again = await http()
+      .post('/v1/auth/2fa/recover')
+      .set('Authorization', `Bearer ${l2.body.mfa_challenge as string}`)
+      .send({ recovery_code: code });
+    expect([again.status, again.body.code]).toEqual([401, 'OTP_INVALID']);
+    const a = await rows(
+      `SELECT actor_id FROM audit.logs WHERE action = 'auth.recovery_code_use' AND resource_id = $1`,
+      [m.userId],
+    );
+    expect(a.map((x) => x.actor_id)).toEqual([m.userId]);
+    expect(normalizeRecoveryCode(' AbCd-EfGh ')).toBe('abcdefgh');
+  });
+
+  it('logout / thu hồi phiên: access token chết ngay; không thu hồi được phiên người khác (404)', async () => {
+    const m = await enrolledMaster();
+    const a = await fullLogin(m);
+    const b = await fullLogin(m);
+    const other = await enrolledMaster();
+    const o = await fullLogin(other);
+    const list = await http().get('/v1/auth/sessions').set('Authorization', `Bearer ${a.access_token}`);
+    expect(list.body.items.map((s: { id: string }) => s.id)).toContain(b.session_id);
+    expect(list.body.items.find((s: { current: boolean }) => s.current).id).toBe(a.session_id);
+    const notMine = await http()
+      .delete(`/v1/auth/sessions/${o.session_id}`)
+      .set('Authorization', `Bearer ${a.access_token}`);
+    expect(notMine.status).toBe(404);
+    expect(
+      (await http().delete(`/v1/auth/sessions/${b.session_id}`).set('Authorization', `Bearer ${a.access_token}`))
+        .status,
+    ).toBe(204);
+    expect((await http().get('/v1/auth/sessions').set('Authorization', `Bearer ${b.access_token}`)).body.code).toBe(
+      'SESSION_REVOKED',
+    );
+    expect(
+      (await http().post('/v1/auth/logout').set('Authorization', `Bearer ${a.access_token}`).send({})).status,
+    ).toBe(200);
+    expect((await http().get('/v1/auth/sessions').set('Authorization', `Bearer ${a.access_token}`)).status).toBe(401);
+    expect((await http().get('/v1/auth/sessions').set('Authorization', `Bearer ${o.access_token}`)).status).toBe(200);
+    const acts = await rows(`SELECT action FROM audit.logs WHERE actor_id = $1 AND action LIKE 'auth.%'`, [m.userId]);
+    expect(acts.map((x) => x.action).sort()).toEqual([
+      'auth.logout',
+      'auth.session_revoke',
+      'auth.totp_enable',
+      'auth.totp_setup',
+    ]);
+  });
+
+  it('tài khoản bị Master khóa ⇒ 403 ACCOUNT_LOCKED và phiên đang có mất hiệu lực; STAFF không đăng nhập qua /auth/login', async () => {
+    const m = await enrolledMaster();
+    const t = await fullLogin(m);
+    await rows(`UPDATE core.users SET status = 'LOCKED' WHERE id = $1`, [m.userId]);
+    const r = await http().get('/v1/auth/sessions').set('Authorization', `Bearer ${t.access_token}`);
+    expect([r.status, r.body.code]).toEqual([401, 'SESSION_REVOKED']);
+    const l = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+    expect([l.status, l.body.code]).toEqual([403, 'ACCOUNT_LOCKED']);
+    expect((await http().post('/v1/auth/refresh').send({ refresh_token: t.refresh_token })).status).toBe(401);
+    // STAFF có email + mật khẩu (dữ liệu bất thường) vẫn không vào được luồng admin
+    const sid = (await rows(`SELECT gen_random_uuid() AS id`))[0]?.id as string;
+    await rows(`INSERT INTO core.users (id, type, email, password_hash) VALUES ($1, 'STAFF', 'staff@fruit.test', $2)`, [
+      sid,
+      await hashSecret('mat-khau-staff'),
+    ]);
+    const s = await http().post('/v1/auth/login').send({ email: 'staff@fruit.test', password: 'mat-khau-staff' });
+    expect(s.status).toBe(401);
+  });
+
+  it('SEC5 — đăng nhập từ thiết bị mới ⇒ sự kiện auth.new_device_login (thiết bị cũ thì không)', async () => {
+    const m = await enrolledMaster('dev-quen-thuoc-01');
+    const t1 = await fullLogin(m, 'dev-quen-thuoc-01');
+    const t2 = await fullLogin(m, 'dev-quen-thuoc-01');
+    const t3 = await fullLogin(m, 'dev-la-hoan-toan-02');
+    const ev = await rows(
+      `SELECT payload, payload->>'session_id' AS sid FROM integration.outbox WHERE event_type = 'auth.new_device_login' AND aggregate_id = $1`,
+      [m.userId],
+    );
+    // kích hoạt 2FA trên thiết bị A = lần đầu ⇒ sự kiện; đăng nhập lại trên A ⇒ không; thiết bị B ⇒ sự kiện
+    expect(ev.map((e) => e.sid).sort()).toEqual([m.enrollSession, t3.session_id].sort());
+    expect(ev.map((e) => e.sid)).not.toContain(t1.session_id);
+    expect(ev.map((e) => e.sid)).not.toContain(t2.session_id);
+    for (const e of ev) expect(eventPayloadErrors('auth.new_device_login', e.payload)).toEqual([]);
+  });
+
+  it('JWT: chữ ký sai / kid lạ / alg none / token hết hạn ⇒ 401', async () => {
+    const m = await enrolledMaster();
+    const t = await fullLogin(m);
+    const [h, p, sig] = t.access_token.split('.') as [string, string, string];
+    const tampered = `${h}.${Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(p, 'base64url').toString()), sub: randomBytes(16).toString('hex') })).toString('base64url')}.${sig}`;
+    const none = `${Buffer.from(JSON.stringify({ alg: 'none', typ: 'at+jwt', kid: 'k1' })).toString('base64url')}.${p}.`;
+    // token ký bằng khóa khác cùng kid
+    const foreign = new AccessTokens(
+      loadAuthKeys(loadEnv({ ...envBase(), ...testAuthEnv(), JWT_SIGNING_KEYS: newJwtKey('k1') })),
+    );
+    const f = await foreign.sign({ sub: m.userId, typ: 'master', sid: t.session_id, amr: ['pwd', 'otp'] });
+    for (const tok of [tampered, none, f.token, 'abc.def.ghi', `${h}.${p}`]) {
+      const r = await http().get('/v1/auth/sessions').set('Authorization', `Bearer ${tok}`);
+      expect({ tok: tok.slice(0, 12), status: r.status }).toEqual({ tok: tok.slice(0, 12), status: 401 });
+    }
+    expect((await http().get('/v1/auth/sessions').set('Authorization', `Basic ${t.access_token}`)).status).toBe(401);
+  });
+
+  it('xoay khóa JWT: khóa cũ còn trong danh sách vẫn kiểm được; bỏ khóa cũ ⇒ token cũ hết hiệu lực', async () => {
+    const k1 = newJwtKey('k1');
+    const k2 = newJwtKey('k2');
+    const old = new AccessTokens(loadAuthKeys(loadEnv({ ...envBase(), ...testAuthEnv(), JWT_SIGNING_KEYS: k1 })));
+    const both = new AccessTokens(
+      loadAuthKeys(loadEnv({ ...envBase(), ...testAuthEnv(), JWT_SIGNING_KEYS: `${k1},${k2}` })),
+    );
+    const onlyNew = new AccessTokens(loadAuthKeys(loadEnv({ ...envBase(), ...testAuthEnv(), JWT_SIGNING_KEYS: k2 })));
+    const claims = { sub: 'u', typ: 'master' as const, sid: 's', amr: ['pwd' as const] };
+    const t1 = (await old.sign(claims)).token;
+    const t2 = (await both.sign(claims)).token;
+    expect(JSON.parse(Buffer.from(t2.split('.')[0] ?? '', 'base64url').toString()).kid).toBe('k2'); // khóa cuối ký
+    expect(await both.verify(t1)).toEqual({ sub: 'u', sid: 's' });
+    expect(await onlyNew.verify(t2)).toEqual({ sub: 'u', sid: 's' });
+    expect(await onlyNew.verify(t1)).toBeUndefined();
+    // hết hạn
+    const expired = (await old.sign(claims, new Date(Date.now() - 16 * 60 * 1000))).token;
+    expect(await old.verify(expired)).toBeUndefined();
+  });
+
+  it('cấu hình khóa thiếu/sai ⇒ không khởi động (không có khóa mặc định)', () => {
+    const base = { ...envBase(), ...testAuthEnv() };
+    expect(() => loadAuthKeys(loadEnv({ ...base, JWT_SIGNING_KEYS: '' }))).toThrow(/JWT_SIGNING_KEYS/);
+    const rsa = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'der' });
+    expect(() => loadAuthKeys(loadEnv({ ...base, JWT_SIGNING_KEYS: `k:${rsa.toString('base64')}` }))).toThrow(
+      /Ed25519/,
+    );
+    expect(() => loadAuthKeys(loadEnv({ ...base, PII_ENC_KEYS: `1:${randomBytes(16).toString('base64')}` }))).toThrow(
+      /32 byte/,
+    );
+    expect(() => loadAuthKeys(loadEnv({ ...base, PII_HASH_PEPPER: randomBytes(8).toString('base64') }))).toThrow(
+      /32 byte/,
+    );
+    expect(() => loadAuthKeys(loadEnv({ ...base, PII_ENC_KEYS: undefined }))).toThrow(/PII_ENC_KEYS/);
+    // lỗi không chứa giá trị khóa
+    try {
+      loadAuthKeys(loadEnv({ ...base, JWT_SIGNING_KEYS: 'k1:QUJDRA==' }));
+    } catch (e) {
+      expect(String(e)).not.toContain('QUJDRA');
+    }
+    // khóa PII: khóa ghi là id lớn nhất; dữ liệu mã hóa bằng khóa cũ vẫn giải được khi còn cấu hình
+    const k1 = `1:${randomBytes(32).toString('base64')}`;
+    const k2 = `2:${randomBytes(32).toString('base64')}`;
+    const c1 = new PiiCipher(loadAuthKeys(loadEnv({ ...base, PII_ENC_KEYS: k1 })));
+    const c12 = new PiiCipher(loadAuthKeys(loadEnv({ ...base, PII_ENC_KEYS: `${k2},${k1}` })));
+    const blob = c1.encrypt('bi-mat', 'users:totp_secret_enc:x');
+    expect(c12.decrypt(blob, 'users:totp_secret_enc:x').toString()).toBe('bi-mat');
+    expect(Buffer.from(c12.encrypt('y', 'a')).readUInt16BE(1)).toBe(2);
+  });
+
+  it('response của mọi route auth khớp schema OpenAPI (hợp đồng)', async () => {
+    const check = (name: string, body: unknown) =>
+      expect({ name, errors: schemaErrors(name, body) }).toEqual({ name, errors: [] });
+    expect(schemaErrors('AuthTokenPair', {}).length).toBeGreaterThan(0); // bộ kiểm không rỗng
+    const m = await createMaster(db.roleUrl('app_rw'), 'contract@fruit.test');
+    const l = await http()
+      .post('/v1/auth/login')
+      .set('X-Device-Id', 'dev-contract-01')
+      .send({ email: m.email, password: m.password });
+    check('AuthLoginResponse', l.body);
+    const b = `Bearer ${l.body.access_token as string}`;
+    const s1 = await http().post('/v1/auth/2fa/setup').set('Authorization', b).send({});
+    check('AuthTotpSetupResponse', s1.body);
+    const c = await http()
+      .post('/v1/auth/2fa/confirm')
+      .set('Authorization', b)
+      .send({ code: await totp(m.userId) });
+    check('AuthTotpConfirmResponse', c.body);
+    await forgetStep(m.userId);
+    const l2 = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+    check('AuthLoginResponse', l2.body);
+    const v = await http()
+      .post('/v1/auth/2fa/verify')
+      .set('Authorization', `Bearer ${l2.body.mfa_challenge as string}`)
+      .send({ code: await totp(m.userId) });
+    check('AuthTokenPair', v.body);
+    await forgetStep(m.userId);
+    const r = await http().post('/v1/auth/refresh').send({ refresh_token: v.body.refresh_token });
+    check('AuthTokenPair', r.body);
+    const bb = `Bearer ${r.body.access_token as string}`;
+    const su = await http()
+      .post('/v1/auth/step-up')
+      .set('Authorization', bb)
+      .send({ code: await totp(m.userId) });
+    check('AuthStepUpResponse', su.body);
+    const rc = await http().post('/v1/auth/2fa/recovery-codes').set('Authorization', bb).send({});
+    check('AuthRecoveryCodesResponse', rc.body);
+    check('AuthSessionList', (await http().get('/v1/auth/sessions').set('Authorization', bb)).body);
+    const l3 = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+    const rv = await http()
+      .post('/v1/auth/2fa/recover')
+      .set('Authorization', `Bearer ${l3.body.mfa_challenge as string}`)
+      .send({ recovery_code: (rc.body.recovery_codes as string[])[3] });
+    check('AuthRecoverResponse', rv.body);
+    check('OkResponse', (await http().post('/v1/auth/logout').set('Authorization', bb).send({})).body);
+    const e = await http().post('/v1/auth/logout').set('Authorization', bb).send({});
+    check('Error', e.body);
+    // thân lạ bị từ chối (strict)
+    expect((await http().post('/v1/auth/login').send({ email: m.email, password: 'x', extra: 1 })).status).toBe(400);
+  });
+
+  it('Argon2id: PHC đúng tham số; hash hỏng/tham số vô lý ⇒ false (không ném)', async () => {
+    const h = await hashSecret('mat-khau-dai-du');
+    expect(h).toMatch(/^\$argon2id\$v=19\$m=65536,t=3,p=1\$/);
+    expect(await verifySecret(h, 'mat-khau-dai-du')).toBe(true);
+    expect(await verifySecret(h, 'mat-khau-sai')).toBe(false);
+    expect(await verifySecret('rac', 'x')).toBe(false);
+    expect(await verifySecret(h.replace('m=65536', 'm=99999999'), 'mat-khau-dai-du')).toBe(false);
+    expect(await verifySecret(h, 'x'.repeat(300))).toBe(false);
+    const c = await hashSecret('abcd', ARGON_PROFILES.CODE);
+    expect(c).toMatch(/m=19456,t=2,p=1/);
+  });
+});
+
+function envBase(): Record<string, string> {
+  return {
+    NODE_ENV: 'test',
+    DATABASE_URL_APP: 'postgresql://u:p@127.0.0.1:1/none',
+    REDIS_URL: 'redis://127.0.0.1:1',
+    LOG_LEVEL: 'silent',
+  };
+}

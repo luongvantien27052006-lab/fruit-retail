@@ -5,7 +5,7 @@ import type { Request } from 'express';
 import { ClsService } from 'nestjs-cls';
 import { from, lastValueFrom, type Observable } from 'rxjs';
 import type { Tx } from './audit-outbox.service';
-import { NO_AUDIT_KEY } from './access';
+import { NO_AUDIT_KEY, OWN_TX_KEY } from './access';
 import type { RequestStore } from './request-context';
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -27,6 +27,8 @@ export class MutationInterceptor implements NestInterceptor {
   intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
     const req = ctx.switchToHttp().getRequest<Request>();
     if (!MUTATING.has(req.method)) return next.handle();
+    // luồng xác thực tự quản transaction (lần sai phải được lưu dù request lỗi) — xem @OwnTransaction
+    if (this.reflector.get<string | undefined>(OWN_TX_KEY, ctx.getHandler())) return next.handle();
     const noAudit = this.reflector.get<string | undefined>(NO_AUDIT_KEY, ctx.getHandler());
     return from(
       this.txHost.withTransaction(async () => {

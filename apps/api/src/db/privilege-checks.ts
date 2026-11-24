@@ -34,3 +34,42 @@ export async function checkAppendOnlyPrivileges(client: Client): Promise<Privile
   );
   return rows;
 }
+
+export interface ViewerRlsViolation {
+  table: string;
+  problem: 'RLS_DISABLED' | 'RLS_NOT_FORCED' | 'NO_VIEWER_POLICY' | 'OUTSIDE_REPORTING';
+}
+
+/**
+ * ADR-011 "Kiểm tra bắt buộc": mọi bảng viewer_ro SELECT được phải nằm trong `reporting`, bật + FORCE RLS và có policy
+ * áp cho viewer_ro. Thêm bảng reporting mới mà quên RLS/policy → CI đỏ (§2.5 lớp 3–4).
+ */
+export async function checkViewerRls(client: Client): Promise<ViewerRlsViolation[]> {
+  const { rows } = await client.query<{
+    table: string;
+    nsp: string;
+    rls: boolean;
+    forced: boolean;
+    has_policy: boolean;
+  }>(
+    `SELECT format('%I.%I', n.nspname, c.relname) AS "table", n.nspname AS nsp,
+            c.relrowsecurity AS rls, c.relforcerowsecurity AS forced,
+            EXISTS (SELECT 1 FROM pg_policy p
+                    WHERE p.polrelid = c.oid
+                      AND (p.polroles = '{0}'::oid[] OR 'viewer_ro'::regrole = ANY (p.polroles))) AS has_policy
+     FROM pg_class c
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.relkind IN ('r', 'p', 'v', 'm')
+       AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+       AND has_table_privilege('viewer_ro', c.oid, 'SELECT')
+     ORDER BY 1`,
+  );
+  const out: ViewerRlsViolation[] = [];
+  for (const r of rows) {
+    if (r.nsp !== 'reporting') out.push({ table: r.table, problem: 'OUTSIDE_REPORTING' });
+    if (!r.rls) out.push({ table: r.table, problem: 'RLS_DISABLED' });
+    else if (!r.forced) out.push({ table: r.table, problem: 'RLS_NOT_FORCED' });
+    if (!r.has_policy) out.push({ table: r.table, problem: 'NO_VIEWER_POLICY' });
+  }
+  return out;
+}

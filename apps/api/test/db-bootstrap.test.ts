@@ -165,7 +165,7 @@ describe('infra/sql bootstrap', () => {
     await q(sql); // ném lỗi → test đỏ
     await q(sql);
     const [r] = await q(`SELECT count(*)::int AS n FROM integration.sql_migrations`);
-    expect(r.n).toBe(1);
+    expect(r.n).toBe(readdirSync(SQL_DIR).filter((f) => f.endsWith('.sql')).length);
   });
 
   it('checkAppendOnlyPrivileges bắt bảng chỉ-thêm quên REVOKE, hết lỗi sau khi REVOKE', async () => {

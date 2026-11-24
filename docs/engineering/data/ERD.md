@@ -222,9 +222,18 @@ erDiagram
   wholesale_customers ||--o{ wholesale_receivables : "công nợ"
 ```
 
-## 4. Thứ tự migration (chưa chạy)
+## 4. Thứ tự migration (M01–M02 đã chạy; cách áp: ADR-020)
 
-Prisma tạo bảng theo nhóm; `infra/sql` chạy sau mỗi nhóm cần ràng buộc đặc biệt. Số `NNN` là đề xuất.
+Prisma tạo bảng theo nhóm; SQL tay (CHECK, trigger, GRANT, RLS, seed) nhúng cuối `migration.sql` của mỗi nhóm
+(`apps/api/prisma/migrations/NNNN_<tên>/`); `infra/sql` chỉ còn phần trước Prisma. Cột "infra/sql" dưới đây từ M03 trở
+đi là tên gợi ý cho phần SQL tay, không còn là file riêng (ADR-020).
+
+**M02 đã làm (CP03 lát 1, `0001_foundation`):** users, recovery_codes, staff, staff_badges, permissions,
+role_permissions, user_role_assignments, user_permission_grants, approval_limits, sessions, refresh_tokens,
+auth_challenges, otp_challenges, viewer_profiles(+assignments), `reporting_private.viewer_profile_scopes`, files,
+`audit.logs/login_logs/export_logs/viewer_access`, `integration.outbox/processed_events/idempotency_keys` + M03 tối thiểu
+(stores, warehouses, registers, pos_devices — CP04 mở rộng). `code_sequences` chuyển CP07. Thêm
+`infra/sql/001_extension_privileges.sql`.
 
 | Nhóm | CP | Prisma | infra/sql |
 |---|---|---|---|

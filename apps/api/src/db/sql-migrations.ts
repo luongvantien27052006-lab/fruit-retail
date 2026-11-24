@@ -16,14 +16,53 @@ export const ROLE_PASSWORD_ENV = {
 } as const;
 
 const FILE_RE = /^\d{3}_[a-z0-9_]+\.sql$/;
+/** Thư mục migration Prisma: NNNN_ascii_snake/ chứa migration.sql (ADR-020). */
+const PRISMA_DIR_RE = /^\d{4}_[a-z0-9_]+$/;
 /** Khóa advisory cố định để 2 lần bootstrap chạy song song không đua nhau. */
 const LOCK_KEY = 4_211_021_000;
 
 export interface ApplyOptions {
   url: string;
+  /** infra/sql — bootstrap chạy trước (000_bootstrap.sql: extension, schema, role). */
   dir: URL;
+  /** apps/api/prisma/migrations — áp SAU infra/sql, ghi sổ với khóa "prisma/<thư mục>" (ADR-020). */
+  prismaDir?: URL;
   env: Record<string, string | undefined>;
   log?: (msg: string) => void;
+}
+
+interface Migration {
+  /** Khóa trong integration.sql_migrations */
+  key: string;
+  url: URL;
+}
+
+/** Liệt kê migration theo thứ tự áp: infra/sql (file NNN_x.sql) rồi Prisma (thư mục NNNN_x chứa migration.sql). */
+export function listMigrations(dir: URL, prismaDir?: URL): Migration[] {
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const bad = files.filter((f) => !FILE_RE.test(f));
+  if (bad.length) throw new Error(`Tên file SQL sai quy ước NNN_ascii_snake.sql: ${bad.join(', ')}`);
+  const out: Migration[] = files.map((f) => ({ key: f, url: new URL(f, dir) }));
+  if (prismaDir) {
+    const entries = readdirSync(prismaDir, { withFileTypes: true });
+    const dirs = entries
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+    const badDirs = dirs.filter((d) => !PRISMA_DIR_RE.test(d));
+    if (badDirs.length) throw new Error(`Thư mục migration Prisma sai quy ước NNNN_ascii_snake: ${badDirs.join(', ')}`);
+    const stray = entries.filter((e) => e.isFile() && e.name !== 'migration_lock.toml').map((e) => e.name);
+    if (stray.length) throw new Error(`File lạ trong thư mục migration Prisma: ${stray.join(', ')}`);
+    for (const d of dirs) {
+      const inner = readdirSync(new URL(`${d}/`, prismaDir));
+      if (inner.length !== 1 || inner[0] !== 'migration.sql')
+        throw new Error(`Migration ${d} phải chứa đúng một file migration.sql (có: ${inner.join(', ') || 'trống'})`);
+      out.push({ key: `prisma/${d}`, url: new URL(`${d}/migration.sql`, prismaDir) });
+    }
+  }
+  return out;
 }
 
 /** Kiểm mật khẩu role: có, đủ dài, không phải giá trị mẫu, không trùng nhau. */
@@ -59,16 +98,14 @@ export function scramSha256Verifier(password: string, iterations = 4096): string
 export async function applySqlMigrations({
   url,
   dir,
+  prismaDir,
   env,
   log = console.log,
 }: ApplyOptions): Promise<{ applied: string[] }> {
   validateRolePasswords(env);
 
-  const files = readdirSync(dir)
-    .filter((f) => f.endsWith('.sql'))
-    .sort();
-  const bad = files.filter((f) => !FILE_RE.test(f));
-  if (bad.length) throw new Error(`Tên file SQL sai quy ước NNN_ascii_snake.sql: ${bad.join(', ')}`);
+  const migrations = listMigrations(dir, prismaDir);
+  const files = migrations.map((m) => m.key);
 
   const client = new Client({ connectionString: url, connectionTimeoutMillis: 10_000 });
   await client.connect();
@@ -84,8 +121,8 @@ export async function applySqlMigrations({
     const vanished = [...done.keys()].filter((f) => !files.includes(f));
     if (vanished.length) throw new Error(`File đã áp nhưng không còn trong thư mục: ${vanished.join(', ')}`);
 
-    for (const f of files) {
-      const sql = readFileSync(new URL(f, dir), 'utf8');
+    for (const { key: f, url: fileUrl } of migrations) {
+      const sql = readFileSync(fileUrl, 'utf8');
       const sha = createHash('sha256').update(sql).digest('hex');
       const prev = done.get(f);
       if (prev) {

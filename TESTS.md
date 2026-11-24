@@ -29,7 +29,7 @@ Lệnh thật ở `docs/engineering/execution/command-catalog.md` (CP02).
 | TEST-WS-001 | SPEC §17-T14 | Đơn sỉ 20 kg cam giá sỉ 32.000đ/kg, cân thực 20,3 kg | 649.600đ theo 20,3 kg; phiếu giao in số đặt & số thực; ghi công nợ | unit, integration | CP16 | missing | — |
 | TEST-WS-002 | SPEC §17-T15 | Đơn sỉ mới khi khách đã vượt hạn mức nợ | Cảnh báo, Master quyết định | integration | CP16 | missing | — |
 | TEST-VIEWER-001 | SPEC §17-T16 | Viewer gọi `GET /v1/admin/reports/sales` | 403 | integration | CP03 | missing | — |
-| TEST-VIEWER-002 | SPEC §17-T17 | Role `viewer_ro` chạy `SELECT * FROM core.pos_sales` | Permission denied | integration (DB) | CP03 | missing | — |
+| TEST-VIEWER-002 | SPEC §17-T17 | Role `viewer_ro` chạy `SELECT * FROM core.pos_sales` | Permission denied | integration (DB) | CP03 | covered (lớp DB) | `apps/api/test/foundation-schema.test.ts` "T17": quét `pg_catalog` — viewer_ro không có quyền S/I/U/D trên MỌI bảng `core`/`audit`/`integration`/`reporting_private`/`public` (gồm bảng tạo ở migration sau, như `core.pos_sales` CP07); `SELECT core.users` → permission denied. `pnpm --filter @fruit/api run test` exit 0 (2026-11-24, CP03 lát 1). Lớp API (`/viewer/*` pool riêng) ở lát 6 |
 | TEST-VIEWER-003 | SPEC §17-T18 | Viewer `SHAREHOLDER` mở báo cáo tháng | Chỉ giá vốn thực tế; không tên NCC; khách chỉ số tổng hợp | integration | CP12 | missing | — |
 | TEST-PUB-001 | SPEC §17-T19 | Master phát hành lại báo cáo tháng | v2 thay v1; viewer thấy lịch sử phiên bản | integration | CP12 | missing | — |
 | TEST-INV-001 | SPEC §17-T20 | Kiểm kê: nho hao 2,1% với định mức 3% | Tự duyệt "hao hụt tự nhiên" | unit, integration | CP06 | missing | — |
@@ -57,7 +57,7 @@ Lệnh thật ở `docs/engineering/execution/command-catalog.md` (CP02).
 
 Tổng: 41 TEST-ID (25 từ §17, 16 từ §21.7).
 
-## 2b. TEST-ID kỹ thuật của CP02
+## 2b. TEST-ID kỹ thuật (CP02, CP03)
 
 | TEST-ID | Nguồn | Kiểm | Lệnh | Trạng thái | Bằng chứng |
 |---|---|---|---|---|---|
@@ -68,6 +68,7 @@ Tổng: 41 TEST-ID (25 từ §17, 16 từ §21.7).
 | TEST-CODEGEN-001 | ADR-017 | Client TS: VndAmount là string, /health có kiểu chi tiết, gọi được | `pnpm --filter @fruit/api_client_ts run test` + typecheck | covered | 4 test, exit 0 |
 | TEST-CODEGEN-002 | ADR-017 | Client Dart: VndAmount là String, HealthStatus.fromJson, ErrorCode đủ | cwd `packages/shared_models`: `dart test` | covered | 3 test, exit 0 |
 | TEST-DEV-001 | ADR-008 | libserialport nạp được trên Windows thật, liệt kê cổng COM | cwd `apps/staff_app`: `flutter test integration_test -d windows` | covered (spike) | exit 0; máy dev 0 cổng COM — đọc cân thật ở CP07 |
+| TEST-DB-001 | ADR-011/020, §2.2–2.3, §2.5, §10.3, FR-INV-05/10/18 | Migration nền CP03 (0001_foundation + 001_extension_privileges): thứ tự áp + idempotent; **Prisma schema khớp DB** (`migrate diff --exit-code`); quyền app_rw theo bảng (không DELETE trừ bảng tạm, không sửa mã quyền); audit.* chỉ-thêm (cả owner, cả TRUNCATE); outbox UPDATE theo cột; processed_events idempotent; viewer_ro chỉ EXECUTE 2 hàm; RLS khung lọc đúng cửa hàng / hồ sơ toàn chuỗi / hồ sơ lưu trữ / thiếu hồ sơ; `checkViewerRls` bắt bảng quên FORCE; seed mã quyền phủ mọi `x-permission` của OpenAPI; ma trận vai trò; hạn mức §2.3; ràng buộc vai trò–loại người dùng–phạm vi; người dùng/SĐT mã hóa; vòng đời thiết bị POS; hạn thử thách | `pnpm --filter @fruit/api run test` | covered | 15 test trên PostGIS thật, exit 0 (2026-11-24); test phát hiện và đã đóng: viewer_ro SELECT được bảng `topology`/`tiger`/PostGIS ở `public` (image tạo sẵn) |
 
 ## 3. TEST-ID đã đặt tên trong KẾ HOẠCH, định nghĩa chi tiết khi mở CP
 

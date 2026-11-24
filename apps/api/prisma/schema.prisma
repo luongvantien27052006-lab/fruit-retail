@@ -1,5 +1,8 @@
 // Schema Prisma (ADR-003). Bảng được thêm theo nhóm migration M02… ở các CP sau (ERD §4).
 // Schema, role, extension, raise_immutable() tạo bởi infra/sql/000_bootstrap.sql trước Prisma (ADR-017).
+// Migration: prisma/migrations/NNNN_<tên>/migration.sql = DDL Prisma sinh + SQL tay (CHECK, trigger, GRANT, RLS,
+// seed tham chiếu); áp bằng bộ chạy SQL của dự án, không dùng `prisma migrate deploy` (ADR-020).
+// Quy ước: id UUID v7 sinh ở ứng dụng (không default DB — ADR-017); tiền BIGINT; thời gian timestamptz.
 generator client {
   provider     = "prisma-client"
   output       = "../src/generated/prisma"
@@ -9,4 +12,597 @@ generator client {
 datasource db {
   provider = "postgresql"
   schemas  = ["core", "reporting", "reporting_private", "audit", "integration"]
+}
+
+// ───────────────────────────── Enum (schema core) ─────────────────────────────
+
+enum UserType {
+  MASTER
+  VIEWER
+  STAFF
+  CUSTOMER
+
+  @@schema("core")
+}
+
+enum UserStatus {
+  ACTIVE
+  LOCKED // khóa bởi Master (khác khóa tạm `locked_until` do nhập sai — SEC5)
+  DISABLED
+
+  @@schema("core")
+}
+
+enum Role {
+  MASTER_ADMIN
+  VIEW_ONLY_ADMIN
+  STORE_MANAGER
+  CASHIER
+  PICKER
+  WAREHOUSE_STAFF
+  SHIPPER
+  CUSTOMER
+
+  @@schema("core")
+}
+
+enum ScopeType {
+  ALL
+  STORE
+  WAREHOUSE
+
+  @@schema("core")
+}
+
+enum StoreStatus {
+  ACTIVE
+  INACTIVE
+
+  @@schema("core")
+}
+
+enum PosDeviceStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+
+  @@schema("core")
+}
+
+enum AuthChallengeKind {
+  MFA // mfa_challenge sau /auth/login (5 phút, 1 lần — ADR-012)
+  DEVICE_NONCE // nonce thiết bị POS ký khi /auth/pin, /auth/refresh
+
+  @@schema("core")
+}
+
+enum ApprovalAction {
+  LINE_DELETE
+  LINE_DISCOUNT
+  SALE_VOID
+  REFUND
+  SPOILAGE_APPROVE
+  STOCKTAKE_ADJUST
+  MANUAL_WEIGHT
+  NO_SALE_OPEN
+  MARKDOWN
+
+  @@schema("core")
+}
+
+enum FileStatus {
+  PENDING
+  READY
+  REJECTED
+
+  @@schema("core")
+}
+
+// ───────────────────────────── Tổ chức (M03 tối thiểu; CP04 mở rộng) ─────────────────────────────
+
+model Store {
+  id          String               @id @db.Uuid
+  code        String               @unique
+  name        String
+  address     String?
+  status      StoreStatus          @default(ACTIVE)
+  createdAt   DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt  DateTime?            @map("archived_at") @db.Timestamptz(6)
+  registers   Register[]
+  posDevices  PosDevice[]
+  viewerScope ViewerProfileScope[]
+
+  @@map("stores")
+  @@schema("core")
+}
+
+model Warehouse {
+  id         String    @id @db.Uuid
+  code       String    @unique
+  name       String
+  address    String?
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(6)
+
+  @@map("warehouses")
+  @@schema("core")
+}
+
+model Register {
+  id         String      @id @db.Uuid
+  storeId    String      @map("store_id") @db.Uuid
+  code       String
+  createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  store      Store       @relation(fields: [storeId], references: [id])
+  posDevices PosDevice[]
+
+  @@unique([storeId, code])
+  @@map("registers")
+  @@schema("core")
+}
+
+// ───────────────────────────── Người dùng & quyền (M02) ─────────────────────────────
+
+model User {
+  id                String                    @id @db.Uuid
+  type              UserType
+  /// Đăng nhập Master/Viewer; luôn chữ thường (CHECK)
+  email             String?                   @unique
+  /// SĐT mã hóa AES-256-GCM (ADR-015); tra cứu bằng phone_hash (HMAC, E.164)
+  phoneEnc          Bytes?                    @map("phone_enc")
+  phoneHash         Bytes?                    @unique @map("phone_hash")
+  passwordHash      String?                   @map("password_hash")
+  pinHash           String?                   @map("pin_hash")
+  totpSecretEnc     Bytes?                    @map("totp_secret_enc")
+  totpEnabledAt     DateTime?                 @map("totp_enabled_at") @db.Timestamptz(6)
+  status            UserStatus                @default(ACTIVE)
+  failedLoginCount  Int                       @default(0) @map("failed_login_count")
+  lockedUntil       DateTime?                 @map("locked_until") @db.Timestamptz(6)
+  lockCount         Int                       @default(0) @map("lock_count")
+  lastLoginAt       DateTime?                 @map("last_login_at") @db.Timestamptz(6)
+  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  version           Int                       @default(0)
+  staff             Staff?
+  recoveryCodes     RecoveryCode[]
+  roleAssignments   UserRoleAssignment[]
+  permissionGrants  UserPermissionGrant[]
+  sessions          Session[]
+  viewerAssignments ViewerProfileAssignment[]
+
+  @@map("users")
+  @@schema("core")
+}
+
+/// 10 mã khôi phục 2FA dùng một lần (Argon2id — ADR-012)
+model RecoveryCode {
+  id        String    @id @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  codeHash  String    @map("code_hash")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("recovery_codes")
+  @@schema("core")
+}
+
+model Staff {
+  userId    String       @id @map("user_id") @db.Uuid
+  staffCode String       @unique @map("staff_code")
+  fullName  String       @map("full_name")
+  hiredAt   DateTime?    @map("hired_at") @db.Date
+  leftAt    DateTime?    @map("left_at") @db.Date
+  user      User         @relation(fields: [userId], references: [id])
+  badges    StaffBadge[]
+
+  @@map("staff")
+  @@schema("core")
+}
+
+/// Thẻ nhân viên (§21.3.9) — chỉ lưu hash mã thẻ
+model StaffBadge {
+  id            String    @id @db.Uuid
+  staffId       String    @map("staff_id") @db.Uuid
+  badgeCodeHash Bytes     @unique @map("badge_code_hash")
+  issuedBy      String    @map("issued_by") @db.Uuid
+  issuedAt      DateTime  @default(now()) @map("issued_at") @db.Timestamptz(6)
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
+  staff         Staff     @relation(fields: [staffId], references: [userId])
+
+  @@index([staffId])
+  @@map("staff_badges")
+  @@schema("core")
+}
+
+/// Mã quyền §19.6/§21.8 + 5 mã NC-08 — dữ liệu tham chiếu, chỉ đổi bằng migration
+model Permission {
+  code             String                @id
+  description      String
+  addedOutsideSpec Boolean               @default(false) @map("added_outside_spec")
+  roles            RolePermission[]
+  grants           UserPermissionGrant[]
+
+  @@map("permissions")
+  @@schema("core")
+}
+
+/// Ánh xạ vai trò → mã quyền theo ma trận §2.2 (seed; chỉ đổi bằng migration)
+model RolePermission {
+  role           Role
+  permissionCode String     @map("permission_code")
+  permission     Permission @relation(fields: [permissionCode], references: [code])
+
+  @@id([role, permissionCode])
+  @@map("role_permissions")
+  @@schema("core")
+}
+
+model UserRoleAssignment {
+  id        String    @id @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  role      Role
+  scopeType ScopeType @map("scope_type")
+  /// store_id hoặc warehouse_id theo scope_type; NULL khi ALL (CHECK + trigger kiểm tồn tại)
+  scopeId   String?   @map("scope_id") @db.Uuid
+  createdBy String?   @map("created_by") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedBy String?   @map("revoked_by") @db.Uuid
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("user_role_assignments")
+  @@schema("core")
+}
+
+/// Quyền cấp riêng cho một người (vd WAREHOUSE_STAFF + purchase_price:write — §2.1)
+model UserPermissionGrant {
+  id             String     @id @db.Uuid
+  userId         String     @map("user_id") @db.Uuid
+  permissionCode String     @map("permission_code")
+  scopeType      ScopeType  @map("scope_type")
+  scopeId        String?    @map("scope_id") @db.Uuid
+  grantedBy      String     @map("granted_by") @db.Uuid
+  grantedAt      DateTime   @default(now()) @map("granted_at") @db.Timestamptz(6)
+  revokedBy      String?    @map("revoked_by") @db.Uuid
+  revokedAt      DateTime?  @map("revoked_at") @db.Timestamptz(6)
+  user           User       @relation(fields: [userId], references: [id])
+  permission     Permission @relation(fields: [permissionCode], references: [code])
+
+  @@index([userId])
+  @@map("user_permission_grants")
+  @@schema("core")
+}
+
+/// Hạn mức duyệt §2.3. Cả hai ngưỡng NULL = không giới hạn; có cả hai = đạt MỘT trong hai là được ("≤ 10% hoặc
+/// ≤ 50.000đ"). allowed=false = vai trò không được làm hành động này.
+model ApprovalLimit {
+  role         Role
+  action       ApprovalAction
+  allowed      Boolean        @default(true)
+  maxAmount    BigInt?        @map("max_amount")
+  /// phần trăm theo basis point (10% = 1000)
+  maxPctBp     Int?           @map("max_pct_bp")
+  sameDayOnly  Boolean        @default(false) @map("same_day_only")
+  requiresPin  Boolean        @default(false) @map("requires_pin")
+  requiresNote Boolean        @default(false) @map("requires_note")
+  updatedAt    DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?        @map("updated_by") @db.Uuid
+
+  @@id([role, action])
+  @@map("approval_limits")
+  @@schema("core")
+}
+
+// ───────────────────────────── Thiết bị, phiên, thử thách ─────────────────────────────
+
+/// Thiết bị POS (SEC3): máy tự sinh khóa Ed25519, đăng ký PENDING → kích hoạt → ACTIVE; thu hồi → REVOKED
+model PosDevice {
+  id           String          @id @db.Uuid
+  storeId      String          @map("store_id") @db.Uuid
+  registerId   String?         @map("register_id") @db.Uuid
+  name         String
+  platform     String
+  publicKey    Bytes           @map("public_key")
+  /// SHA-256 của public_key
+  fingerprint  Bytes           @unique
+  status       PosDeviceStatus @default(PENDING)
+  registeredAt DateTime        @default(now()) @map("registered_at") @db.Timestamptz(6)
+  activatedBy  String?         @map("activated_by") @db.Uuid
+  activatedAt  DateTime?       @map("activated_at") @db.Timestamptz(6)
+  revokedBy    String?         @map("revoked_by") @db.Uuid
+  revokedAt    DateTime?       @map("revoked_at") @db.Timestamptz(6)
+  revokeReason String?         @map("revoke_reason")
+  lastSeenAt   DateTime?       @map("last_seen_at") @db.Timestamptz(6)
+  store        Store           @relation(fields: [storeId], references: [id])
+  register     Register?       @relation(fields: [registerId], references: [id])
+  sessions     Session[]
+
+  @@index([storeId])
+  @@map("pos_devices")
+  @@schema("core")
+}
+
+/// Một phiên = một họ refresh token (ADR-012 `family_id`); xoay vòng lưu ở refresh_tokens
+model Session {
+  id           String         @id @db.Uuid
+  userId       String         @map("user_id") @db.Uuid
+  userType     UserType       @map("user_type")
+  posDeviceId  String?        @map("pos_device_id") @db.Uuid
+  /// X-Device-Id của app khách / trình duyệt admin (không phải POS)
+  clientDevice String?        @map("client_device")
+  amr          String[]
+  stepUpUntil  DateTime?      @map("step_up_until") @db.Timestamptz(6)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastUsedAt   DateTime       @default(now()) @map("last_used_at") @db.Timestamptz(6)
+  expiresAt    DateTime       @map("expires_at") @db.Timestamptz(6)
+  revokedAt    DateTime?      @map("revoked_at") @db.Timestamptz(6)
+  revokeReason String?        @map("revoke_reason")
+  ipHash       Bytes?         @map("ip_hash")
+  userAgent    String?        @map("user_agent")
+  user         User           @relation(fields: [userId], references: [id])
+  posDevice    PosDevice?     @relation(fields: [posDeviceId], references: [id])
+  tokens       RefreshToken[]
+
+  @@index([userId])
+  @@index([posDeviceId])
+  @@map("sessions")
+  @@schema("core")
+}
+
+model RefreshToken {
+  id           String    @id @db.Uuid
+  sessionId    String    @map("session_id") @db.Uuid
+  /// SHA-256 của refresh token 256-bit
+  tokenHash    Bytes     @unique @map("token_hash")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// đã xoay (dùng lại token đã xoay ⇒ thu hồi cả phiên — ADR-012)
+  usedAt       DateTime? @map("used_at") @db.Timestamptz(6)
+  replacedById String?   @map("replaced_by_id") @db.Uuid
+  session      Session   @relation(fields: [sessionId], references: [id])
+
+  @@index([sessionId])
+  @@map("refresh_tokens")
+  @@schema("core")
+}
+
+model AuthChallenge {
+  id          String            @id @db.Uuid
+  kind        AuthChallengeKind
+  userId      String?           @map("user_id") @db.Uuid
+  posDeviceId String?           @map("pos_device_id") @db.Uuid
+  secretHash  Bytes             @unique @map("secret_hash")
+  attempts    Int               @default(0)
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt   DateTime          @map("expires_at") @db.Timestamptz(6)
+  usedAt      DateTime?         @map("used_at") @db.Timestamptz(6)
+
+  @@index([expiresAt])
+  @@map("auth_challenges")
+  @@schema("core")
+}
+
+/// OTP khách (SEC6): mã 6 số hạn 5 phút, tối đa 5 lần thử; giới hạn gửi theo phone_hash / device / IP
+model OtpChallenge {
+  id         String    @id @db.Uuid
+  phoneHash  Bytes     @map("phone_hash")
+  deviceId   String?   @map("device_id")
+  ipHash     Bytes?    @map("ip_hash")
+  codeHash   String    @map("code_hash")
+  attempts   Int       @default(0)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+
+  @@index([phoneHash, createdAt])
+  @@map("otp_challenges")
+  @@schema("core")
+}
+
+// ───────────────────────────── Viewer (§2.5, §10.3) ─────────────────────────────
+
+model ViewerProfile {
+  id                   String                    @id @db.Uuid
+  code                 String                    @unique
+  name                 String
+  /// true = toàn chuỗi (mọi cửa hàng, kể cả mở sau); false = theo viewer_profile_scopes
+  allStores            Boolean                   @default(false) @map("all_stores")
+  modules              String[]
+  customerVisibility   String                    @map("customer_visibility")
+  costVisibility       String                    @map("cost_visibility")
+  supplierVisibility   String                    @map("supplier_visibility")
+  posControlVisibility String                    @map("pos_control_visibility")
+  createdAt            DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  archivedAt           DateTime?                 @map("archived_at") @db.Timestamptz(6)
+  assignments          ViewerProfileAssignment[]
+  scopes               ViewerProfileScope[]
+
+  @@map("viewer_profiles")
+  @@schema("core")
+}
+
+model ViewerProfileAssignment {
+  userId          String        @map("user_id") @db.Uuid
+  viewerProfileId String        @map("viewer_profile_id") @db.Uuid
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  user            User          @relation(fields: [userId], references: [id])
+  viewerProfile   ViewerProfile @relation(fields: [viewerProfileId], references: [id])
+
+  @@id([userId, viewerProfileId])
+  @@map("viewer_profile_assignments")
+  @@schema("core")
+}
+
+/// Cửa hàng của hồ sơ viewer — đọc bởi reporting.allowed_stores() (SECURITY DEFINER); viewer không có USAGE schema này
+model ViewerProfileScope {
+  profileId String        @map("profile_id") @db.Uuid
+  storeId   String        @map("store_id") @db.Uuid
+  profile   ViewerProfile @relation(fields: [profileId], references: [id])
+  store     Store         @relation(fields: [storeId], references: [id])
+
+  @@id([profileId, storeId])
+  @@map("viewer_profile_scopes")
+  @@schema("reporting_private")
+}
+
+// ───────────────────────────── File (ADR-014) ─────────────────────────────
+
+model File {
+  id             String     @id @db.Uuid
+  kind           String
+  mime           String
+  ownerType      String?    @map("owner_type")
+  ownerId        String?    @map("owner_id") @db.Uuid
+  storageKey     String     @unique @map("storage_key")
+  declaredBytes  Int        @map("declared_bytes")
+  declaredSha256 Bytes      @map("declared_sha256")
+  /// do server tính lại sau khi tải object (ADR-014)
+  bytes          Int?
+  sha256         Bytes?
+  status         FileStatus @default(PENDING)
+  rejectReason   String?    @map("reject_reason")
+  duplicateOfId  String?    @map("duplicate_of_id") @db.Uuid
+  captureSource  String?    @map("capture_source")
+  capturedAt     DateTime?  @map("captured_at") @db.Timestamptz(6)
+  deviceId       String?    @map("device_id")
+  createdBy      String     @map("created_by") @db.Uuid
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt    DateTime?  @map("completed_at") @db.Timestamptz(6)
+
+  @@index([sha256])
+  @@index([ownerType, ownerId])
+  @@map("files")
+  @@schema("core")
+}
+
+// ───────────────────────────── audit (chỉ thêm — ADR-011) ─────────────────────────────
+
+model AuditLog {
+  id           String   @id @db.Uuid
+  at           DateTime @default(now()) @db.Timestamptz(6)
+  actorId      String?  @map("actor_id") @db.Uuid
+  actorType    String?  @map("actor_type")
+  role         String?
+  ip           String?  @db.Inet
+  deviceId     String?  @map("device_id")
+  requestId    String?  @map("request_id")
+  action       String
+  resourceType String   @map("resource_type")
+  resourceId   String?  @map("resource_id")
+  before       Json?
+  after        Json?
+  reason       String?
+
+  @@index([resourceType, resourceId])
+  @@index([actorId, at])
+  @@index([at])
+  @@map("logs")
+  @@schema("audit")
+}
+
+model LoginLog {
+  id             String   @id @db.Uuid
+  at             DateTime @default(now()) @db.Timestamptz(6)
+  userId         String?  @map("user_id") @db.Uuid
+  /// HMAC của email/SĐT/mã NV đã nhập (không lưu rõ)
+  identifierHash Bytes?   @map("identifier_hash")
+  result         String
+  ip             String?  @db.Inet
+  device         String?
+  userAgent      String?  @map("user_agent")
+
+  @@index([userId, at])
+  @@index([at])
+  @@map("login_logs")
+  @@schema("audit")
+}
+
+model ExportLog {
+  id         String   @id @db.Uuid
+  at         DateTime @default(now()) @db.Timestamptz(6)
+  userId     String   @map("user_id") @db.Uuid
+  exportType String   @map("export_type")
+  filters    Json
+  rows       Int
+  fileId     String?  @map("file_id") @db.Uuid
+
+  @@index([userId, at])
+  @@map("export_logs")
+  @@schema("audit")
+}
+
+model ViewerAccess {
+  id         String   @id @db.Uuid
+  at         DateTime @default(now()) @db.Timestamptz(6)
+  userId     String   @map("user_id") @db.Uuid
+  profileId  String   @map("profile_id") @db.Uuid
+  resource   String
+  snapshotId String?  @map("snapshot_id") @db.Uuid
+
+  @@index([userId, at])
+  @@map("viewer_access")
+  @@schema("audit")
+}
+
+// ───────────────────────────── integration (ADR-007) ─────────────────────────────
+
+model Outbox {
+  id            String    @id @db.Uuid
+  eventType     String    @map("event_type")
+  schemaVersion Int       @map("schema_version")
+  aggregateType String    @map("aggregate_type")
+  aggregateId   String    @map("aggregate_id")
+  payload       Json
+  occurredAt    DateTime  @map("occurred_at") @db.Timestamptz(6)
+  publishedAt   DateTime? @map("published_at") @db.Timestamptz(6)
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  lastError     String?   @map("last_error")
+  deadAt        DateTime? @map("dead_at") @db.Timestamptz(6)
+
+  @@index([publishedAt, deadAt, nextAttemptAt])
+  @@map("outbox")
+  @@schema("integration")
+}
+
+model ProcessedEvent {
+  consumer String
+  eventId  String   @map("event_id") @db.Uuid
+  at       DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([consumer, eventId])
+  @@map("processed_events")
+  @@schema("integration")
+}
+
+/// Sổ migration của bộ chạy SQL — bảng tạo bởi infra/sql/000_bootstrap.sql (KHÔNG có trong migration Prisma); khai
+/// báo ở đây chỉ để `prisma migrate diff` không coi là lệch. Không role ứng dụng nào có quyền trên bảng này.
+model SqlMigration {
+  file      String   @id
+  sha256    String
+  appliedAt DateTime @default(now()) @map("applied_at") @db.Timestamptz(6)
+
+  @@map("sql_migrations")
+  @@schema("integration")
+}
+
+/// Idempotency-Key HTTP (ADR-007): scope = principal + method + route; giữ 48 giờ
+model IdempotencyKey {
+  scope          String
+  key            String    @db.Uuid
+  requestHash    Bytes     @map("request_hash")
+  status         String
+  responseStatus Int?      @map("response_status")
+  response       Json?
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt    DateTime? @map("completed_at") @db.Timestamptz(6)
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+
+  @@id([scope, key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+  @@schema("integration")
 }

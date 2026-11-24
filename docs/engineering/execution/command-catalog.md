@@ -23,6 +23,8 @@ Yêu cầu: Node 24.22.3, pnpm 11.2.2 (Corepack), Flutter 3.44.6 / Dart 3.12.2, 
 | Test (API dùng Testcontainers → cần Docker) | gốc | `pnpm run test` |
 | Build | gốc | `pnpm run build` |
 | Kiểm hợp đồng (OpenAPI, sự kiện, máy trạng thái, đối chiếu SPEC) | gốc | `pnpm run check:contracts` |
+| Sinh migration Prisma mới (ADR-020) | `apps/api` | DB dev đã áp mọi migration, rồi `DATABASE_URL_MIGRATE=<owner> pnpm exec prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script` → thư mục `prisma/migrations/NNNN_<tên>/migration.sql` + SQL tay cuối file. Migration đầu: `--from-empty` (vẫn cần `DATABASE_URL_MIGRATE`, URL giả được) |
+| Kiểm Prisma khớp DB | `apps/api` | tự chạy trong `test/foundation-schema.test.ts` (`migrate diff --exit-code`) |
 | Một package | gốc | `pnpm --filter <tên> run <script>` — tên: `@fruit/api`, `@fruit/admin-web`, `@fruit/contracts`, `@fruit/money_weight`, `@fruit/api_client_ts` |
 
 ## Dart / Flutter

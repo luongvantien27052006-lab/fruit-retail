@@ -30,3 +30,4 @@
 | 2026-11-24 | CP02 | Tiến quyết tạm bỏ qua phần hạ tầng thật (VPS/domain/S3/Sentry/Telegram); CP02 giữ CHẶN ở các cổng đó. |
 | 2026-11-24 | CP03 | Mở CP03 (ngoại lệ tiên quyết CP02 theo quyết định trên); soạn kế hoạch con 10 lát, chờ Tiến duyệt. |
 | 2026-11-24 | CP03 | Lát 1 (schema nền: 28 bảng, quyền theo cột, RLS khung, seed quyền, bộ chạy migration Prisma — ADR-020) qua 4 vòng kiểm thử agent → SẠCH (4144712). NC-19 (seed vai trò → quyền) chờ Tiến. |
+| 2026-11-25 | CP03 | Lát 2 (khung request: transaction + audit + outbox, deny-by-default, envelope lỗi, chặn ghi ngoài transaction, DB sập → 503) qua 4 vòng kiểm thử agent → SẠCH (7c32799). Thêm mã lỗi `INTERNAL_ERROR` vào hợp đồng. |

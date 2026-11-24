@@ -8522,6 +8522,7 @@ components:
         - MFA_CHALLENGE_INVALID
         - RATE_LIMITED
         - OTP_RATE_LIMITED
+        - INTERNAL_ERROR
         - CONFIGURATION_NOT_READY
         - DEPENDENCY_UNAVAILABLE
       x-http-status:
@@ -8569,6 +8570,7 @@ components:
         MFA_CHALLENGE_INVALID: 401
         RATE_LIMITED: 429
         OTP_RATE_LIMITED: 429
+        INTERNAL_ERROR: 500
         CONFIGURATION_NOT_READY: 503
         DEPENDENCY_UNAVAILABLE: 503
     Error:

@@ -51,8 +51,20 @@
       "exact": null
     },
     "@nestjs-cls/transactional": {
-      "line": "latest-stable@CP02",
-      "exact": null
+      "line": "4",
+      "exact": "4.0.2"
+    },
+    "nestjs-cls": {
+      "line": "7",
+      "exact": "7.0.2"
+    },
+    "@nestjs-cls/transactional-adapter-prisma": {
+      "line": "2",
+      "exact": "2.0.2"
+    },
+    "uuid": {
+      "line": "14",
+      "exact": "14.0.3"
     }
   },
   "web": {

@@ -1,10 +1,21 @@
-import { type DynamicModule, Module } from '@nestjs/common';
-import { LoggerModule } from 'nestjs-pino';
+import { type DynamicModule, Module, type Provider, type Type } from '@nestjs/common';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, DiscoveryModule } from '@nestjs/core';
+import { ClsPluginTransactional } from '@nestjs-cls/transactional';
+import { TransactionalAdapterPrisma } from '@nestjs-cls/transactional-adapter-prisma';
+import type { IncomingMessage } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { ENV, type Env } from './config/env';
+import { ClsModule } from 'nestjs-cls';
+import { LoggerModule } from 'nestjs-pino';
+import { AccessGuard } from './common/access.guard';
+import { AuditOutboxService } from './common/audit-outbox.service';
+import { ErrorFilter } from './common/error.filter';
+import { MutationInterceptor } from './common/mutation.interceptor';
+import { DEVICE_ID_RE, type RequestStore } from './common/request-context';
+import { SerializeInterceptor } from './common/serialize.interceptor';
+import type { Env } from './config/env';
 import { HealthController } from './health/health.controller';
+import { InfraModule } from './infra/infra.module';
 import { PrismaService } from './infra/prisma.service';
-import { RedisService } from './infra/redis.service';
 
 // Log JSON có request_id; che dữ liệu nhạy cảm (§15, ADR-015, FR-INV-18).
 export const REDACT_PATHS = [
@@ -22,9 +33,25 @@ export const REDACT_PATHS = [
 
 export const REQUEST_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
 
+/** Một request_id duy nhất cho log, audit, envelope lỗi: X-Request-Id hợp lệ hoặc UUID mới (gán vào req.id). */
+export function resolveRequestId(req: IncomingMessage & { id?: unknown }): string {
+  if (typeof req.id === 'string' && req.id) return req.id;
+  const h = req.headers['x-request-id'];
+  const id = typeof h === 'string' && REQUEST_ID_RE.test(h) ? h : randomUUID();
+  req.id = id;
+  return id;
+}
+
+export interface AppExtras {
+  /** chỉ dùng trong test: module/controller bổ sung */
+  imports?: (Type | DynamicModule)[];
+  controllers?: Type[];
+  providers?: Provider[];
+}
+
 @Module({})
 export class AppModule {
-  static forRoot(env: Env): DynamicModule {
+  static forRoot(env: Env, extras: AppExtras = {}): DynamicModule {
     return {
       module: AppModule,
       imports: [
@@ -32,16 +59,45 @@ export class AppModule {
           pinoHttp: {
             level: env.LOG_LEVEL,
             // Chỉ nhận X-Request-Id đúng dạng; sai/thiếu thì tạo UUID mới (không để client làm rối truy vết).
-            genReqId: (req) => {
-              const h = req.headers['x-request-id'];
-              return typeof h === 'string' && REQUEST_ID_RE.test(h) ? h : randomUUID();
-            },
+            genReqId: (req) => resolveRequestId(req),
             redact: REDACT_PATHS,
           },
         }),
+        InfraModule.forRoot(env),
+        ClsModule.forRoot({
+          global: true,
+          middleware: {
+            mount: true,
+            setup: (cls, req: IncomingMessage & { id?: unknown; ip?: string }) => {
+              const store = cls as unknown as { set<K extends keyof RequestStore>(k: K, v: RequestStore[K]): void };
+              store.set('requestId', resolveRequestId(req));
+              if (req.ip) store.set('ip', req.ip);
+              const dev = req.headers['x-device-id'];
+              if (typeof dev === 'string' && DEVICE_ID_RE.test(dev)) store.set('deviceId', dev);
+              store.set('auditCount', 0);
+            },
+          },
+          plugins: [
+            new ClsPluginTransactional({
+              imports: [InfraModule],
+              adapter: new TransactionalAdapterPrisma({ prismaInjectionToken: PrismaService }),
+            }),
+          ],
+        }),
+        DiscoveryModule,
+        ...(extras.imports ?? []),
       ],
-      controllers: [HealthController],
-      providers: [{ provide: ENV, useValue: env }, PrismaService, RedisService],
+      controllers: [HealthController, ...(extras.controllers ?? [])],
+      providers: [
+        AuditOutboxService,
+        { provide: APP_FILTER, useClass: ErrorFilter },
+        { provide: APP_GUARD, useClass: AccessGuard },
+        // Thứ tự: Mutation (ngoài, mở transaction) → Serialize (trong) — lỗi tuần tự hóa cũng rollback
+        { provide: APP_INTERCEPTOR, useClass: MutationInterceptor },
+        { provide: APP_INTERCEPTOR, useClass: SerializeInterceptor },
+        ...(extras.providers ?? []),
+      ],
+      exports: [AuditOutboxService],
     };
   }
 }

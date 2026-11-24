@@ -393,6 +393,29 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     }
   });
 
+  it('T6 — sinh lại mã khôi phục hai lần song song: chỉ còn đúng 10 mã, đúng bộ trả về sau cùng', async () => {
+    const m = await enrolledMaster();
+    const t = await fullLogin(m);
+    const b = `Bearer ${t.access_token}`;
+    expect(
+      (
+        await http()
+          .post('/v1/auth/step-up')
+          .set('Authorization', b)
+          .send({ code: await totp(m.userId) })
+      ).status,
+    ).toBe(200);
+    const res = await Promise.all(
+      [0, 1].map(() => http().post('/v1/auth/2fa/recovery-codes').set('Authorization', b).send({})),
+    );
+    expect(res.map((r) => r.status)).toEqual([200, 200]);
+    const [n] = await rows(
+      `SELECT count(*)::int AS n FROM core.recovery_codes WHERE user_id = $1 AND used_at IS NULL`,
+      [m.userId],
+    );
+    expect(Number(n?.n)).toBe(10);
+  });
+
   it('T1 — login song song: email có thật (bị chen ngang) và email bịa trả cùng 401, không lộ qua 429', async () => {
     const m = await enrolledMaster();
     const real = await Promise.all(

@@ -459,7 +459,8 @@ export class AuthService {
     if (!pre.totpEnabledAt) throw new AppError('INVALID_STATE_TRANSITION', 'Chưa bật 2FA');
     const fresh = await this.newRecoveryCodes();
     return this.txHost.withTransaction(async () => {
-      const u = await this.adminUser(p);
+      // khóa dòng user: hai lần sinh lại song song chạy tuần tự ⇒ chỉ còn đúng 1 bộ 10 mã (kiểm thử lát 3 T6)
+      const u = await this.adminUser(p, true);
       if (!u.totpEnabledAt) throw new AppError('INVALID_STATE_TRANSITION', 'Chưa bật 2FA');
       const codes = await this.replaceRecoveryCodes(u.id, fresh);
       await this.ao.recordAudit({ action: 'auth.recovery_codes_regenerate', resourceType: 'user', resourceId: u.id });

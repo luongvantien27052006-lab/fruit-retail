@@ -21,6 +21,12 @@ export async function createApp(
   if (!quiet) app.useLogger(app.get(Logger));
   // Không lộ framework qua header (X-Powered-By: Express).
   app.disable('x-powered-by');
+  // Response API chứa token/secret/dữ liệu riêng — không cho trình duyệt/proxy lưu đệm (RFC 6749 §5.1; kiểm thử lát 3 S5)
+  app.use((_req: unknown, res: { setHeader(k: string, v: string): void }, next: () => void) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Pragma', 'no-cache');
+    next();
+  });
   // IP client: chỉ tin X-Forwarded-For từ proxy trong mạng nội bộ (Caddy ghi đè XFF — Caddyfile, ADR-019)
   app.set('trust proxy', 'loopback, linklocal, uniquelocal');
   app.setGlobalPrefix('v1');

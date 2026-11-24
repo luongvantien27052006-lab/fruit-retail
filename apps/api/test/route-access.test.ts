@@ -1,8 +1,8 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, SetMetadata } from '@nestjs/common';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { testAuthEnv } from './helpers/auth-env';
 import { createApp } from '../src/bootstrap';
-import { Authenticated, Public, RequirePermission } from '../src/common/access';
+import { Authenticated, Public, RequirePermission, STEP_UP_KEY } from '../src/common/access';
 import { listRoutes } from '../src/common/route-access';
 import { loadEnv } from '../src/config/env';
 
@@ -53,6 +53,17 @@ class ProtectedWithAuthenticatedMethod {
   }
 }
 
+// @RequireStepUp ở class (kiểu TS chặn, nhưng SetMetadata thô lọt được) ⇒ không khởi động (lát 3 S7)
+@SetMetadata(STEP_UP_KEY, true)
+@Authenticated()
+@Controller('_test7')
+class ClassLevelStepUp {
+  @Get('x')
+  x() {
+    return 1;
+  }
+}
+
 @Public()
 @Controller('_test5')
 class MultiPathController {
@@ -92,6 +103,9 @@ describe('kiểm quyền route lúc khởi động', () => {
     await expect(
       createApp(env, { logger: false }, { controllers: [ProtectedWithAuthenticatedMethod] }),
     ).rejects.toThrow(/nới lỏng hơn class.*\/_test6\/any/);
+    await expect(createApp(env, { logger: false }, { controllers: [ClassLevelStepUp] })).rejects.toThrow(
+      /ClassLevelStepUp: @RequireStepUp/,
+    );
     const a2 = await createApp(env, { logger: false }, { controllers: [MultiPathController] });
     try {
       const paths = listRoutes(a2)

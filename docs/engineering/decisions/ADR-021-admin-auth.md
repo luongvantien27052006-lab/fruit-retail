@@ -20,20 +20,27 @@ sau 5 lần sai). Khi hiện thực cần chốt thêm các điểm ADR-012 đ�
 4. **Access token:** header `alg=EdDSA, typ=at+jwt, kid`; claim `iss=fruit-api, aud=fruit, sub, sid, typ, amr,
    step_up_until?, iat, exp, jti`. Server chỉ tin `sub`/`sid` sau khi kiểm chữ ký; mọi trạng thái (phiên còn hiệu lực,
    người dùng ACTIVE, amr, step-up, quyền) đọc lại từ DB mỗi request ⇒ thu hồi/khóa có hiệu lực ngay.
-5. **Đăng ký 2FA lần đầu:** tài khoản chưa bật TOTP đăng nhập bằng mật khẩu ⇒ phiên `amr=[pwd]` chỉ gọi được route
+5. **Đăng ký 2FA lần đầu** (setup/confirm khóa dòng user `FOR UPDATE`, setup ghi secret có điều kiện chưa bật — S2;
+   confirm thu hồi các phiên chỉ-mật-khẩu khác của user): tài khoản chưa bật TOTP đăng nhập bằng mật khẩu ⇒ phiên `amr=[pwd]` chỉ gọi được route
    `@AllowWithoutMfa` (setup, confirm, logout); route khác ⇒ 403 `TWO_FACTOR_ENROLLMENT_REQUIRED`. Confirm xong ⇒ phiên
    đó thành `amr=[pwd,otp]`. Đã bật TOTP thì mật khẩu đúng chỉ ra `mfa_challenge` (5 phút, 1 lần, ≤ 5 lần thử).
    Setup lại khi đã bật ⇒ 409 (đăng ký lại qua Master reset — lát 6/8).
 6. **Chống dùng lại TOTP:** cột `users.totp_last_step` (migration 0002); mã cùng bước 30 s hoặc cũ hơn bị từ chối, cập
    nhật có điều kiện (`< step`) nên hai request song song cùng mã chỉ một cái qua. Dung sai ±1 bước.
 7. **Khóa tạm (SEC5):** bộ đếm `failed_login_count` cộng chung cho mật khẩu sai, TOTP sai (verify, step-up) và mã khôi
-   phục sai; cộng nguyên tử trong SQL. Đủ 5 ⇒ `locked_until = now + 15 phút × 2^lock_count` (trần 24 giờ), bộ đếm về 0.
-   Đang khóa ⇒ từ chối TRƯỚC khi kiểm mật khẩu (không thành "máy báo mật khẩu đúng"). Mật khẩu đúng KHÔNG xóa bộ đếm —
-   chỉ đăng nhập trọn vẹn (qua 2FA) mới xóa cả bộ đếm và mức khóa. Khóa tạm không giết phiên đang có (tránh kẻ xấu
-   khóa Master đang làm việc); Master khóa tài khoản (`status=LOCKED`) thì phiên mất hiệu lực ngay.
+   phục sai. **Giữ chỗ trước khi kiểm** (kiểm thử agent lần 1, S1): mỗi lần thử trước hết `UPDATE … SET failed_login_count
+   + 1 WHERE status=ACTIVE AND không khóa AND failed_login_count < 5` (nguyên tử); 0 dòng ⇒ từ chối, không kiểm thật. Lần
+   sai giữ chỗ, đủ 5 ⇒ `locked_until = now + 15 phút × 2^lock_count` (trần 24 giờ), bộ đếm về 0 — một đợt song song chỉ
+   thử được ≤ 5 lần và chỉ tăng `lock_count` một lần. Lần đúng chốt trong transaction thành công, chỉ khi tài khoản vẫn
+   ACTIVE và không bị khóa trong lúc kiểm: mật khẩu đúng (đã bật 2FA) chỉ trả lại chỗ, KHÔNG xóa các lần sai trước; đăng
+   nhập trọn vẹn (qua 2FA) xóa cả bộ đếm và mức khóa. `/auth/login` trả CÙNG lỗi 401 cho sai email / sai mật khẩu / đang
+   khóa / bị Master khóa / vô hiệu (S3 — không liệt kê email qua trạng thái khóa; nhánh từ chối vẫn chạy Argon2 giả);
+   `2fa/verify`, `2fa/recover`, `step-up` (đã qua mật khẩu/phiên) trả 403 `ACCOUNT_LOCKED` kèm `retry_after_s`. Khóa tạm
+   không giết phiên đang có (tránh kẻ xấu khóa Master đang làm việc); Master khóa tài khoản (`status=LOCKED`) thì phiên
+   mất hiệu lực ngay. Tối đa 2 Argon2 chạy cùng lúc, hàng đợi 64, đầy ⇒ 429 (S6).
 8. **Lần sai phải được lưu dù request trả lỗi:** route `@OwnTransaction(lý do)` (login, 2fa/verify, 2fa/recover,
    refresh, step-up) — MutationInterceptor không bọc; handler ghi lần sai trong transaction riêng đã commit rồi mới ném
-   lỗi; phần thành công là một transaction. Không lồng transaction (tránh giữ 2 kết nối/request khi bị dò).
+   lỗi; phần thành công là một transaction. login_logs của lần sai ghi SAU khi commit bộ đếm (S4). Không lồng transaction (tránh giữ 2 kết nối/request khi bị dò).
 9. **Nhật ký đăng nhập:** mọi lần thử ghi `audit.login_logs` bằng pool `audit_writer` riêng (`DATABASE_URL_AUDIT`, bắt
    buộc với API) — còn lại dù nghiệp vụ rollback; lần thành công ghi trước khi commit (ghi lỗi ⇒ không ra phiên). Định
    danh = HMAC(pepper, `email:<chuẩn hóa>`), không lưu email rõ. Thao tác đổi trạng thái (setup/enable 2FA, sinh lại mã,
@@ -46,6 +53,9 @@ sau 5 lần sai). Khi hiện thực cần chốt thêm các điểm ADR-012 đ�
     phiên đã qua 2FA (hoặc không gửi X-Device-Id); tính cả lần kích hoạt 2FA. Không đưa IP/User-Agent vào sự kiện.
 12. **Tài khoản Master đầu tiên:** lệnh `node dist/cli/create-master.js --email …` (role app_rw) tạo user + vai trò
     MASTER_ADMIN + audit, in mật khẩu tạm 120 bit MỘT lần ra terminal; lần đăng nhập đầu bắt buộc đăng ký 2FA.
+
+13. Mọi response API có `Cache-Control: no-store`, `Pragma: no-cache` (S5). `@RequireStepUp`/`@AllowWithoutMfa`/
+    `@OwnTransaction` đặt ở class ⇒ không khởi động (S7).
 
 ## Để lát sau
 - Giới hạn tần suất theo IP cho `/auth/login`, `/auth/2fa/*` (Redis) — lát 5 dựng bộ giới hạn chung, áp luôn cho các

@@ -52,6 +52,9 @@ export function listRoutes(app: INestApplication): RouteInfo[] {
     if (!instance || !type) continue;
     if (Reflect.getMetadata(VERSION_METADATA, type) !== undefined)
       throw new Error(`${type.name}: dự án dùng tiền tố /v1 cố định, không dùng versioning của Nest`);
+    // guard chỉ đọc @RequireStepUp/@AllowWithoutMfa/@OwnTransaction ở method — đặt ở class sẽ bị bỏ qua lặng lẽ ⇒ cấm
+    if ([STEP_UP_KEY, ALLOW_WITHOUT_MFA_KEY, OWN_TX_KEY].some((k) => Reflect.getMetadata(k, type) !== undefined))
+      throw new Error(`${type.name}: @RequireStepUp/@AllowWithoutMfa/@OwnTransaction chỉ đặt ở method`);
     const bases = asPaths(Reflect.getMetadata(PATH_METADATA, type));
     const proto = Object.getPrototypeOf(instance) as object;
     for (const name of allMethodNames(proto)) {

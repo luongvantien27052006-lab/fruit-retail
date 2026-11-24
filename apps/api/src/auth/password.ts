@@ -1,4 +1,5 @@
 import { argon2, randomBytes, timingSafeEqual } from 'node:crypto';
+import { AppError } from '../common/errors';
 
 /**
  * Argon2id (ADR-012) bằng `node:crypto.argon2` có sẵn trong Node 24 (không cần thư viện native). Lưu dạng chuỗi PHC
@@ -23,9 +24,36 @@ const TAG_LEN = 32;
 /** Giới hạn độ dài đầu vào (chống DoS bằng chuỗi cực dài; mật khẩu admin thật không dài vậy) */
 export const MAX_SECRET_LEN = 256;
 
+/**
+ * Giới hạn số Argon2 chạy cùng lúc (kiểm thử lát 3 S6): route đăng nhập không cần xác thực, mỗi lần 64 MiB — không để
+ * một đợt request chiếm hết threadpool libuv (crypto/fs/dns khác bị nghẽn) hay RAM. Hàng đợi đầy ⇒ 429 ngay.
+ */
+const MAX_CONCURRENT = 2;
+const MAX_QUEUE = 64;
+let active = 0;
+const waiting: (() => void)[] = [];
+
+async function withSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (active >= MAX_CONCURRENT) {
+    if (waiting.length >= MAX_QUEUE) throw new AppError('RATE_LIMITED', 'Hệ thống đang bận, thử lại sau ít giây');
+    await new Promise<void>((r) => waiting.push(r));
+  } else active++;
+  try {
+    return await fn();
+  } finally {
+    const next = waiting.shift();
+    if (next)
+      next(); // chuyển suất cho người chờ (active giữ nguyên)
+    else active--;
+  }
+}
+
 function run(message: string, nonce: Buffer, p: Profile, tagLength = TAG_LEN): Promise<Buffer> {
-  return new Promise((resolve, reject) =>
-    argon2('argon2id', { message, nonce, tagLength, ...p }, (err, out) => (err ? reject(err) : resolve(out))),
+  return withSlot(
+    () =>
+      new Promise<Buffer>((resolve, reject) =>
+        argon2('argon2id', { message, nonce, tagLength, ...p }, (err, out) => (err ? reject(err) : resolve(out))),
+      ),
   );
 }
 

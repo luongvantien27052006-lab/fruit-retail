@@ -217,9 +217,21 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     expect(u?.lock_count).toBe(1);
     expect(Number(u?.left_s)).toBeGreaterThan(14 * 60);
     expect(Number(u?.left_s)).toBeLessThanOrEqual(15 * 60);
+    // /auth/login: đang khóa trả CÙNG lỗi với sai email (không liệt kê email — S3); mật khẩu đúng cũng không qua
     const locked = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
-    expect([locked.status, locked.body.code]).toEqual([403, 'ACCOUNT_LOCKED']);
-    expect(locked.body.details.retry_after_s).toBeGreaterThan(800);
+    const unknown = await http().post('/v1/auth/login').send({ email: 'khong-ton-tai@fruit.test', password: 'x' });
+    expect([locked.status, locked.body.code, locked.body.message]).toEqual([
+      unknown.status,
+      unknown.body.code,
+      unknown.body.message,
+    ]);
+    // người đã qua bước mật khẩu (giữ mfa_challenge) được báo rõ ACCOUNT_LOCKED + thời gian chờ; mã đúng cũng không qua
+    const v = await http()
+      .post('/v1/auth/2fa/verify')
+      .set('Authorization', `Bearer ${l.body.mfa_challenge as string}`)
+      .send({ code: await totp(m.userId) });
+    expect([v.status, v.body.code]).toEqual([403, 'ACCOUNT_LOCKED']);
+    expect(v.body.details.retry_after_s).toBeGreaterThan(800);
     // lần khóa kế tiếp gấp đôi (30 phút)
     await unlock(m.userId);
     for (let i = 0; i < 5; i++) await http().post('/v1/auth/login').send({ email: m.email, password: 'sai' });
@@ -238,22 +250,117 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     expect(results.some((r) => r.result === 'LOCKED')).toBe(true);
   });
 
-  it('SEC5 — 10 lần sai song song không mất lần đếm (cộng nguyên tử trong SQL)', async () => {
+  const countResult = async (userId: string, result: string) =>
+    Number(
+      (
+        await rows(`SELECT count(*)::int AS n FROM audit.login_logs WHERE user_id = $1 AND result = $2`, [
+          userId,
+          result,
+        ])
+      )[0]?.n,
+    );
+
+  it('S1 — đợt 40 mật khẩu sai + 1 đúng song song: tối đa 5 lần được kiểm, mật khẩu đúng không lộ, khóa một lần', async () => {
     const m = await enrolledMaster();
-    await Promise.all(
-      Array.from({ length: 10 }, () => http().post('/v1/auth/login').send({ email: m.email, password: 'sai' })),
-    );
-    const [u] = await rows(`SELECT failed_login_count, lock_count, locked_until FROM core.users WHERE id = $1`, [
-      m.userId,
+    const res = await Promise.all([
+      ...Array.from({ length: 40 }, () => http().post('/v1/auth/login').send({ email: m.email, password: 'sai' })),
+      http().post('/v1/auth/login').send({ email: m.email, password: m.password }),
     ]);
-    const bad = await rows(
-      `SELECT count(*)::int AS n FROM audit.login_logs WHERE user_id = $1 AND result = 'BAD_CREDENTIALS'`,
-      [m.userId],
-    );
-    // mỗi lần sai đã qua kiểm khóa đều được đếm: lock_count*5 + failed = số lần BAD_CREDENTIALS
-    expect(Number(u?.lock_count) * 5 + Number(u?.failed_login_count)).toBe(bad[0]?.n);
-    expect(Number(u?.lock_count)).toBeGreaterThanOrEqual(1);
+    const right = res[40];
+    expect(await countResult(m.userId, 'BAD_CREDENTIALS')).toBeLessThanOrEqual(5);
+    // mọi phản hồi là 401 chung, trừ khi mật khẩu đúng lọt vào trước khi đủ 5 lần sai (khi đó mới ra MFA_REQUIRED)
+    expect(res.slice(0, 40).every((r) => r.status === 401)).toBe(true);
+    const [u] = await rows(`SELECT lock_count, locked_until FROM core.users WHERE id = $1`, [m.userId]);
+    expect(Number(u?.lock_count)).toBe(1);
     expect(u?.locked_until).not.toBeNull();
+    if (right?.status === 200) expect(right.body.status).toBe('MFA_REQUIRED');
+    else expect(right?.status).toBe(401);
+    // sau đợt: đang khóa ⇒ mật khẩu đúng không ra gì
+    const after = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+    expect(after.status).toBe(401);
+  });
+
+  it('S1 — tài khoản chưa đăng ký 2FA: đợt song song không lấy được phiên khi đã đủ lần sai', async () => {
+    const m = await createMaster(db.roleUrl('app_rw'), `burst-${randomBytes(3).toString('hex')}@fruit.test`);
+    const res = await Promise.all([
+      ...Array.from({ length: 30 }, () => http().post('/v1/auth/login').send({ email: m.email, password: 'sai' })),
+      http().post('/v1/auth/login').send({ email: m.email, password: m.password }),
+    ]);
+    expect(await countResult(m.userId, 'BAD_CREDENTIALS')).toBeLessThanOrEqual(5);
+    const [u] = await rows(`SELECT lock_count FROM core.users WHERE id = $1`, [m.userId]);
+    expect(Number(u?.lock_count)).toBe(1);
+    // phiên (nếu có) chỉ được cấp khi lần đúng giữ chỗ được trước lúc khóa — và khi đó tài khoản KHÔNG bị khóa lúc cấp
+    const sessions = await rows(`SELECT count(*)::int AS n FROM core.sessions WHERE user_id = $1`, [m.userId]);
+    expect(Number(sessions[0]?.n)).toBe(res[30]?.status === 200 ? 1 : 0);
+    const after = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+    expect(after.status).toBe(401);
+  });
+
+  it('S1 — 30 mã TOTP sai song song trên một challenge / 20 step-up sai song song: tối đa 5 lần được kiểm', async () => {
+    const m = await enrolledMaster();
+    const t = await fullLogin(m);
+    const su = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        http().post('/v1/auth/step-up').set('Authorization', `Bearer ${t.access_token}`).send({ code: '000000' }),
+      ),
+    );
+    expect(await countResult(m.userId, 'STEP_UP_FAILED')).toBeLessThanOrEqual(5);
+    expect(su.filter((r) => r.body.code === 'ACCOUNT_LOCKED').length).toBeGreaterThanOrEqual(15);
+    // đang khóa ⇒ mã đúng cũng không step-up được
+    const ok = await http()
+      .post('/v1/auth/step-up')
+      .set('Authorization', `Bearer ${t.access_token}`)
+      .send({ code: await totp(m.userId) });
+    expect([ok.status, ok.body.code]).toEqual([403, 'ACCOUNT_LOCKED']);
+
+    const m2 = await enrolledMaster();
+    const l = await http().post('/v1/auth/login').send({ email: m2.email, password: m2.password });
+    const ch = `Bearer ${l.body.mfa_challenge as string}`;
+    await Promise.all(
+      Array.from({ length: 30 }, () =>
+        http().post('/v1/auth/2fa/verify').set('Authorization', ch).send({ code: '000000' }),
+      ),
+    );
+    expect(await countResult(m2.userId, 'BAD_TOTP')).toBeLessThanOrEqual(5);
+    const [c] = await rows(`SELECT attempts FROM core.auth_challenges WHERE user_id = $1`, [m2.userId]);
+    expect(Number(c?.attempts)).toBeLessThanOrEqual(5);
+  });
+
+  it('S2 — setup chạy đua với confirm không ghi đè secret đã bật; confirm thu hồi phiên chỉ-mật-khẩu khác', async () => {
+    for (let i = 0; i < 3; i++) {
+      const m = await createMaster(db.roleUrl('app_rw'), `race-${i}-${randomBytes(3).toString('hex')}@fruit.test`);
+      const a = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+      const b = await http().post('/v1/auth/login').send({ email: m.email, password: m.password }); // "kẻ biết mật khẩu"
+      const ba = `Bearer ${a.body.access_token as string}`;
+      const bb = `Bearer ${b.body.access_token as string}`;
+      const s1 = await http().post('/v1/auth/2fa/setup').set('Authorization', ba).send({});
+      const code = await totp(m.userId);
+      const [confirm, setup2] = await Promise.all([
+        http().post('/v1/auth/2fa/confirm').set('Authorization', ba).send({ code }),
+        new Promise((r) => setTimeout(r, 20 * i)).then(() =>
+          http().post('/v1/auth/2fa/setup').set('Authorization', bb).send({}),
+        ),
+      ]);
+      const [u] = await rows(`SELECT totp_secret_enc, totp_enabled_at FROM core.users WHERE id = $1`, [m.userId]);
+      const stored = cipher.decrypt(u?.totp_secret_enc as Buffer, totpAad(m.userId)).toString('utf8');
+      if (confirm.status === 200) {
+        // đã bật ⇒ secret phải là secret mà người confirm đã quét
+        expect(u?.totp_enabled_at).not.toBeNull();
+        expect(stored).toBe(s1.body.secret);
+        expect(setup2.status).toBe(409);
+        // phiên chỉ-mật-khẩu của "kẻ biết mật khẩu" bị thu hồi
+        const [sb] = await rows(`SELECT revoke_reason FROM core.sessions WHERE id = $1`, [b.body.session_id]);
+        expect(sb?.revoke_reason).toBe('TOTP_ENABLED');
+      } else {
+        // setup thứ hai thắng trước: confirm theo secret cũ thất bại, 2FA chưa bật
+        expect(u?.totp_enabled_at).toBeNull();
+      }
+    }
+  });
+
+  it('S5 — response API có Cache-Control: no-store', async () => {
+    const r = await http().post('/v1/auth/login').send({ email: 'x@fruit.test', password: 'x' });
+    expect(r.headers['cache-control']).toBe('no-store');
   });
 
   it('SEC4 — refresh xoay vòng; dùng lại refresh đã xoay ⇒ thu hồi cả họ (token mới + access token đều chết)', async () => {
@@ -410,14 +517,15 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     ]);
   });
 
-  it('tài khoản bị Master khóa ⇒ 403 ACCOUNT_LOCKED và phiên đang có mất hiệu lực; STAFF không đăng nhập qua /auth/login', async () => {
+  it('tài khoản bị Master khóa ⇒ login 401 chung, phiên đang có mất hiệu lực; STAFF không đăng nhập qua /auth/login', async () => {
     const m = await enrolledMaster();
     const t = await fullLogin(m);
     await rows(`UPDATE core.users SET status = 'LOCKED' WHERE id = $1`, [m.userId]);
     const r = await http().get('/v1/auth/sessions').set('Authorization', `Bearer ${t.access_token}`);
     expect([r.status, r.body.code]).toEqual([401, 'SESSION_REVOKED']);
     const l = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
-    expect([l.status, l.body.code]).toEqual([403, 'ACCOUNT_LOCKED']);
+    expect([l.status, l.body.code]).toEqual([401, 'AUTHENTICATION_REQUIRED']);
+    expect(await countResult(m.userId, 'LOCKED')).toBeGreaterThanOrEqual(1);
     expect((await http().post('/v1/auth/refresh').send({ refresh_token: t.refresh_token })).status).toBe(401);
     // STAFF có email + mật khẩu (dữ liệu bất thường) vẫn không vào được luồng admin
     const sid = (await rows(`SELECT gen_random_uuid() AS id`))[0]?.id as string;

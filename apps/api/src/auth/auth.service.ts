@@ -120,7 +120,14 @@ export class AuthService {
     const user = (await this.tx.user.findUnique({ where: { email }, select: USER_AUTH_SELECT })) as UserAuthRow | null;
     if (!user || !isAdmin(user.type) || !user.passwordHash) {
       // cùng thời gian với nhánh sai mật khẩu
-      await withArgonSlot(this.slotKey(), async () => void (await verifySecret(await dummyHash(), password)));
+      try {
+        await withArgonSlot(this.slotKey(), async () => void (await verifySecret(await dummyHash(), password)));
+      } catch (e) {
+        // hết suất: ghi nhật ký như nhánh email có thật (T4)
+        if (e instanceof AppError && e.code === 'RATE_LIMITED')
+          await this.loginLog(null, 'RATE_LIMITED', identifierHash);
+        throw e;
+      }
       await this.loginLog(null, 'UNKNOWN_USER', identifierHash);
       throw invalidCredentials();
     }
@@ -391,14 +398,29 @@ export class AuthService {
     p: Principal,
     code: string,
   ): Promise<{ recovery_codes: string[] } & Omit<TokenPair, 'refresh_token'>> {
-    // băm mã khôi phục TRƯỚC khi khóa dòng user (không giữ khóa DB trong lúc chờ suất Argon2 — tránh khóa chéo)
+    // @OwnTransaction (T2/T3): (1) kiểm mã TOTP trước — rẻ, chưa giữ gì; sai ⇒ 401 không tốn Argon2;
+    // (2) băm mã khôi phục khi CHƯA mở transaction (không giữ kết nối/khóa trong lúc chờ suất Argon2);
+    // (3) transaction: khóa dòng user, đọc lại, secret phải là secret đã kiểm ở (1) (setup chen vào ⇒ 409).
+    const pre = await this.adminUser(p);
+    if (pre.totpEnabledAt || !pre.totpSecretEnc)
+      throw new AppError('INVALID_STATE_TRANSITION', 'Chưa bắt đầu đăng ký 2FA hoặc 2FA đã bật');
+    const step = totpStep(this.totpSecret(pre, true), code, null);
+    if (step === undefined) throw otpInvalid();
+    const checkedSecret = Buffer.from(pre.totpSecretEnc);
     const fresh = await this.newRecoveryCodes();
+    return this.txHost.withTransaction(() => this.enableTotp(p, step, checkedSecret, fresh));
+  }
+
+  private async enableTotp(
+    p: Principal,
+    step: number,
+    checkedSecret: Buffer,
+    fresh: { codes: string[]; hashes: string[] },
+  ): Promise<{ recovery_codes: string[] } & Omit<TokenPair, 'refresh_token'>> {
     // khóa dòng user đến hết transaction: setup song song phải chờ, rồi thấy 2FA đã bật (S2)
     const u = await this.adminUser(p, true);
-    if (u.totpEnabledAt || !u.totpSecretEnc)
-      throw new AppError('INVALID_STATE_TRANSITION', 'Chưa bắt đầu đăng ký 2FA hoặc 2FA đã bật');
-    const step = totpStep(this.totpSecret(u, true), code, null);
-    if (step === undefined) throw otpInvalid();
+    if (u.totpEnabledAt || !u.totpSecretEnc || !checkedSecret.equals(Buffer.from(u.totpSecretEnc)))
+      throw new AppError('INVALID_STATE_TRANSITION', 'Đăng ký 2FA vừa thay đổi — quét lại mã QR mới nhất');
     const enabled = await this.tx.user.updateMany({
       where: { id: u.id, totpEnabledAt: null },
       data: { totpEnabledAt: new Date(), totpLastStep: BigInt(step) },
@@ -432,11 +454,17 @@ export class AuthService {
   }
 
   async regenerateRecoveryCodes(p: Principal): Promise<{ recovery_codes: string[] }> {
-    const u = await this.adminUser(p);
-    if (!u.totpEnabledAt) throw new AppError('INVALID_STATE_TRANSITION', 'Chưa bật 2FA');
-    const codes = await this.replaceRecoveryCodes(u.id, await this.newRecoveryCodes());
-    await this.ao.recordAudit({ action: 'auth.recovery_codes_regenerate', resourceType: 'user', resourceId: u.id });
-    return { recovery_codes: codes };
+    // @OwnTransaction (T2): băm trước, transaction sau — không giữ kết nối khi chờ suất Argon2
+    const pre = await this.adminUser(p);
+    if (!pre.totpEnabledAt) throw new AppError('INVALID_STATE_TRANSITION', 'Chưa bật 2FA');
+    const fresh = await this.newRecoveryCodes();
+    return this.txHost.withTransaction(async () => {
+      const u = await this.adminUser(p);
+      if (!u.totpEnabledAt) throw new AppError('INVALID_STATE_TRANSITION', 'Chưa bật 2FA');
+      const codes = await this.replaceRecoveryCodes(u.id, fresh);
+      await this.ao.recordAudit({ action: 'auth.recovery_codes_regenerate', resourceType: 'user', resourceId: u.id });
+      return { recovery_codes: codes };
+    });
   }
 
   async stepUp(
@@ -531,7 +559,11 @@ export class AuthService {
       this.txHost.withTransaction(async (): Promise<Out> => {
         const [lk] = await this.tx.$queryRaw<{ ok: boolean }[]>`
           SELECT pg_try_advisory_xact_lock(hashtextextended('auth:' || ${g.userId}, 0)) AS ok`;
-        if (!lk?.ok) return { kind: 'busy' };
+        if (!lk?.ok) {
+          // /auth/login: nhánh bận phải giống hệt sai mật khẩu (thời gian + mã lỗi) — không lộ email có thật (T1)
+          if (g.dummy) await g.dummy();
+          return { kind: 'busy' };
+        }
         const [st] = await this.tx.$queryRaw<{ status: string; locked_until: Date | null; locked: boolean }[]>`
           SELECT status::text AS status, locked_until, (locked_until IS NOT NULL AND locked_until > now()) AS locked
           FROM core.users WHERE id = ${g.userId}::uuid`;
@@ -577,6 +609,7 @@ export class AuthService {
         return out.value;
       case 'busy':
         await this.loginLog(g.userId, 'RATE_LIMITED', g.identifierHash);
+        if (g.publicLogin) throw invalidCredentials();
         throw new AppError(
           'RATE_LIMITED',
           'Đang xử lý một lần đăng nhập khác của tài khoản này — thử lại sau giây lát',

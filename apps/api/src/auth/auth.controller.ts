@@ -27,6 +27,7 @@ const RefreshBody = z.object({ refresh_token: z.string().min(1).max(128) }).stri
 const EmptyBody = z.object({}).strict().default({});
 
 const OWN_TX = 'luồng xác thực: lần sai phải được ghi (đếm sai/khóa/thu hồi) dù request trả lỗi';
+const OWN_TX_HASH = 'băm mã khôi phục (Argon2) trước khi mở transaction — không giữ kết nối khi chờ suất';
 const MFA_BEARER_RE = /^Bearer ([A-Za-z0-9_-]{43})$/;
 
 /** /v1/auth/* cho Master/Viewer (SEC1, SEC2, SEC4, SEC5 — ADR-012, ADR-021). POS/khách: lát 4/5. */
@@ -78,6 +79,7 @@ export class AuthController {
 
   @Authenticated()
   @AllowWithoutMfa()
+  @OwnTransaction(OWN_TX_HASH)
   @Post('2fa/confirm')
   @HttpCode(200)
   confirm(@Body(new ZodPipe(CodeBody)) b: z.infer<typeof CodeBody>) {
@@ -86,6 +88,7 @@ export class AuthController {
 
   @Authenticated()
   @RequireStepUp()
+  @OwnTransaction(OWN_TX_HASH)
   @Post('2fa/recovery-codes')
   @HttpCode(200)
   recoveryCodes(@Body(new ZodPipe(EmptyBody)) body: unknown) {

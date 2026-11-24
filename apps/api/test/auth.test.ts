@@ -393,6 +393,21 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     }
   });
 
+  it('T1 — login song song: email có thật (bị chen ngang) và email bịa trả cùng 401, không lộ qua 429', async () => {
+    const m = await enrolledMaster();
+    const real = await Promise.all(
+      [0, 1, 2].map(() => http().post('/v1/auth/login').send({ email: m.email, password: 'sai' })),
+    );
+    const fake = await Promise.all(
+      [0, 1, 2].map(() => http().post('/v1/auth/login').send({ email: 'bia-t1@fruit.test', password: 'sai' })),
+    );
+    expect(real.map((r) => [r.status, r.body.code, r.body.message])).toEqual(
+      fake.map((r) => [r.status, r.body.code, r.body.message]),
+    );
+    expect(real.every((r) => r.status === 401)).toBe(true);
+    await expectNoLeak(m.userId, 'BAD_CREDENTIALS');
+  });
+
   it('S5 — response API có Cache-Control: no-store', async () => {
     const r = await http().post('/v1/auth/login').send({ email: 'x@fruit.test', password: 'x' });
     expect(r.headers['cache-control']).toBe('no-store');

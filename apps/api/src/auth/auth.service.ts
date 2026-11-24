@@ -10,7 +10,7 @@ import type { Principal } from '../common/access';
 import { AppError } from '../common/errors';
 import type { RequestStore } from '../common/request-context';
 import { AuditWriterService, type LoginResult } from '../infra/audit-writer.service';
-import { ARGON_PROFILES, dummyHash, hashSecret, verifySecret } from './password';
+import { ARGON_PROFILES, dummyHash, hashSecret, verifySecret, withArgonSlot } from './password';
 import { PiiCipher, totpAad } from './pii-cipher';
 import {
   AccessTokens,
@@ -52,8 +52,6 @@ export type LoginResponse =
 // /auth/login trả CÙNG một lỗi cho sai email, sai mật khẩu, tài khoản khóa/vô hiệu (không liệt kê được email — S3)
 const invalidCredentials = () =>
   new AppError('AUTHENTICATION_REQUIRED', 'Email hoặc mật khẩu không đúng, hoặc tài khoản đang tạm khóa');
-/** challenge đã dùng/hết lượt lúc giữ chỗ — rollback cả phần giữ chỗ của user */
-class ChallengeGone extends Error {}
 const challengeInvalid = () =>
   new AppError('MFA_CHALLENGE_INVALID', 'Phiên xác minh 2FA không hợp lệ hoặc đã hết hạn — đăng nhập lại');
 const otpInvalid = () => new AppError('OTP_INVALID', 'Mã xác minh không đúng');
@@ -121,99 +119,124 @@ export class AuthService {
     const identifierHash = this.cipher.hmac(`email:${email}`);
     const user = (await this.tx.user.findUnique({ where: { email }, select: USER_AUTH_SELECT })) as UserAuthRow | null;
     if (!user || !isAdmin(user.type) || !user.passwordHash) {
-      await verifySecret(await dummyHash(), password); // cùng thời gian với nhánh sai mật khẩu
+      // cùng thời gian với nhánh sai mật khẩu
+      await withArgonSlot(this.slotKey(), async () => void (await verifySecret(await dummyHash(), password)));
       await this.loginLog(null, 'UNKNOWN_USER', identifierHash);
       throw invalidCredentials();
     }
-    // GIỮ CHỖ lần thử TRƯỚC khi kiểm mật khẩu (S1): đang khóa / đã đủ 5 lần đang chạy ⇒ từ chối, không kiểm thật
-    if ((await this.reserveAttempt(user.id)) !== 'ok') {
-      await verifySecret(await dummyHash(), password);
-      await this.logDenied(user.id, identifierHash);
-      throw invalidCredentials();
-    }
-    if (!(await verifySecret(user.passwordHash, password))) {
-      await this.recordFailure(user.id, 'BAD_CREDENTIALS', identifierHash);
-      throw invalidCredentials();
-    }
-    // mật khẩu đúng KHÔNG xóa bộ đếm sai: chỉ đăng nhập trọn vẹn (qua 2FA) mới xóa — chặn dò mã 2FA không giới hạn
-    if (user.totpEnabledAt) {
-      const challenge = randomToken();
-      const expiresAt = new Date(Date.now() + MFA_CHALLENGE_TTL_S * 1000);
-      await this.txHost.withTransaction(async () => {
-        // trả lại chỗ đã giữ (mật khẩu đúng không tính là sai, nhưng cũng KHÔNG xóa các lần sai trước)
-        await this.settle(user.id, 'refund', identifierHash, invalidCredentials);
-        await this.tx.authChallenge.create({
-          data: { id: uuidv7(), kind: 'MFA', userId: user.id, secretHash: sha256(challenge), expiresAt },
-          select: { id: true },
-        });
-        await this.loginLog(user.id, 'MFA_REQUIRED', identifierHash);
-      });
-      return { status: 'MFA_REQUIRED', mfa_challenge: challenge, mfa_challenge_expires_at: expiresAt.toISOString() };
-    }
-    // Chưa đăng ký 2FA (tài khoản mới tạo / vừa reset 2FA): phiên chỉ gọi được route đăng ký (AccessGuard)
-    const pair = await this.txHost.withTransaction(async () => {
-      await this.settle(user.id, 'clear', identifierHash, invalidCredentials);
-      const p = await this.createSession(user, ['pwd']);
-      await this.loginLog(user.id, 'ENROLLMENT_REQUIRED', identifierHash);
-      return p;
-    });
-    return { status: 'ENROLLMENT_REQUIRED', ...pair };
+    const hash = user.passwordHash;
+    return this.attempt(
+      {
+        userId: user.id,
+        identifierHash,
+        argon: true,
+        publicLogin: true,
+        failResult: 'BAD_CREDENTIALS',
+        dummy: async () => void (await verifySecret(await dummyHash(), password)),
+      },
+      () => verifySecret(hash, password),
+      async () => {
+        // mật khẩu đúng KHÔNG xóa bộ đếm sai khi đã bật 2FA: chỉ đăng nhập trọn vẹn mới xóa (chặn dò mã 2FA vô hạn)
+        if (user.totpEnabledAt) {
+          const challenge = randomToken();
+          const expiresAt = new Date(Date.now() + MFA_CHALLENGE_TTL_S * 1000);
+          await this.tx.authChallenge.create({
+            data: { id: uuidv7(), kind: 'MFA', userId: user.id, secretHash: sha256(challenge), expiresAt },
+            select: { id: true },
+          });
+          await this.loginLog(user.id, 'MFA_REQUIRED', identifierHash);
+          return {
+            status: 'MFA_REQUIRED' as const,
+            mfa_challenge: challenge,
+            mfa_challenge_expires_at: expiresAt.toISOString(),
+          };
+        }
+        // Chưa đăng ký 2FA (tài khoản mới / vừa reset 2FA): mật khẩu là yếu tố duy nhất ⇒ xóa bộ đếm; phiên chỉ gọi
+        // được route đăng ký (AccessGuard)
+        await this.clearFailures(user.id, false);
+        const p = await this.createSession(user, ['pwd']);
+        await this.loginLog(user.id, 'ENROLLMENT_REQUIRED', identifierHash);
+        return { status: 'ENROLLMENT_REQUIRED' as const, ...p };
+      },
+    );
   }
 
   async verifyMfa(challenge: string, code: string): Promise<TokenPair> {
     const { ch, user } = await this.loadChallenge(challenge);
-    await this.reserveOrThrow(user.id, ch.id);
-    const step = totpStep(this.totpSecret(user), code, user.totpLastStep);
-    if (step === undefined) {
-      await this.recordFailure(user.id, 'BAD_TOTP', null);
-      throw otpInvalid();
-    }
-    return this.txHost.withTransaction(async () => {
-      await this.consumeChallenge(ch.id);
-      await this.useTotpStep(user.id, step);
-      await this.settle(user.id, 'full', null, () => this.lockedError());
-      const pair = await this.createSession(user, ['pwd', 'otp']);
-      await this.maybeNewDevice(user.id, pair.session_id);
-      await this.loginLog(user.id, 'SUCCESS', null); // bước cuối trước commit (ghi lỗi ⇒ không ra phiên)
-      return pair;
-    });
+    let step: number | undefined;
+    return this.attempt(
+      {
+        userId: user.id,
+        identifierHash: null,
+        challengeId: ch.id,
+        argon: false,
+        publicLogin: false,
+        failResult: 'BAD_TOTP',
+      },
+      () => {
+        step = totpStep(this.totpSecret(user), code, user.totpLastStep);
+        return Promise.resolve(step !== undefined);
+      },
+      async () => {
+        await this.consumeChallenge(ch.id);
+        await this.useTotpStep(user.id, step ?? -1);
+        await this.clearFailures(user.id, true);
+        const pair = await this.createSession(user, ['pwd', 'otp']);
+        await this.maybeNewDevice(user.id, pair.session_id);
+        await this.loginLog(user.id, 'SUCCESS', null); // bước cuối trước commit (ghi lỗi ⇒ không ra phiên)
+        return pair;
+      },
+    );
   }
 
   async recover(challenge: string, codeRaw: string): Promise<TokenPair & { recovery_codes_remaining: number }> {
     const { ch, user } = await this.loadChallenge(challenge);
-    await this.reserveOrThrow(user.id, ch.id);
     const code = normalizeRecoveryCode(codeRaw);
-    const codes = await this.tx.recoveryCode.findMany({
-      where: { userId: user.id, usedAt: null },
-      select: { id: true, codeHash: true },
-    });
     let matched: string | undefined;
-    // kiểm hết danh sách (không dừng sớm) — thời gian không lộ vị trí mã
-    for (const c of codes) if ((await verifySecret(c.codeHash, code)) && !matched) matched = c.id;
-    if (!matched) {
-      await this.recordFailure(user.id, 'BAD_RECOVERY', null);
-      throw otpInvalid();
-    }
-    const id = matched;
-    return this.txHost.withTransaction(async () => {
-      await this.consumeChallenge(ch.id);
-      const used = await this.tx.recoveryCode.updateMany({
-        where: { id, usedAt: null },
-        data: { usedAt: new Date() },
-      });
-      if (used.count !== 1) throw otpInvalid(); // dùng song song cùng một mã
-      await this.settle(user.id, 'full', null, () => this.lockedError());
-      const pair = await this.createSession(user, ['pwd', 'rcv']);
-      await this.ao.recordAudit({
-        action: 'auth.recovery_code_use',
-        resourceType: 'user',
-        resourceId: user.id,
-        actor: { userId: user.id, userType: user.type as AdminType },
-      });
-      await this.maybeNewDevice(user.id, pair.session_id);
-      await this.loginLog(user.id, 'SUCCESS_RECOVERY', null);
-      return { ...pair, recovery_codes_remaining: codes.length - 1 };
+    let remaining = 0;
+    return this.attempt(
+      {
+        userId: user.id,
+        identifierHash: null,
+        challengeId: ch.id,
+        argon: true,
+        publicLogin: false,
+        failResult: 'BAD_RECOVERY',
+      },
+      async () => {
+        const codes = await this.tx.recoveryCode.findMany({
+          where: { userId: user.id, usedAt: null },
+          select: { id: true, codeHash: true },
+        });
+        remaining = codes.length - 1;
+        // kiểm hết danh sách (không dừng sớm) — thời gian không lộ vị trí mã
+        for (const c of codes) if ((await verifySecret(c.codeHash, code)) && !matched) matched = c.id;
+        return matched !== undefined;
+      },
+      () => this.finishRecover(user, ch.id, matched ?? '', remaining),
+    );
+  }
+
+  private async finishRecover(
+    user: UserAuthRow,
+    challengeId: string,
+    id: string,
+    remaining: number,
+  ): Promise<TokenPair & { recovery_codes_remaining: number }> {
+    await this.consumeChallenge(challengeId);
+    const used = await this.tx.recoveryCode.updateMany({ where: { id, usedAt: null }, data: { usedAt: new Date() } });
+    if (used.count !== 1) throw otpInvalid(); // dùng song song cùng một mã
+    await this.clearFailures(user.id, true);
+    const pair = await this.createSession(user, ['pwd', 'rcv']);
+    await this.ao.recordAudit({
+      action: 'auth.recovery_code_use',
+      resourceType: 'user',
+      resourceId: user.id,
+      actor: { userId: user.id, userType: user.type as AdminType },
     });
+    await this.maybeNewDevice(user.id, pair.session_id);
+    await this.loginLog(user.id, 'SUCCESS_RECOVERY', null);
+    return { ...pair, recovery_codes_remaining: remaining };
   }
 
   // ───────────────────────────── refresh / phiên ─────────────────────────────
@@ -368,6 +391,8 @@ export class AuthService {
     p: Principal,
     code: string,
   ): Promise<{ recovery_codes: string[] } & Omit<TokenPair, 'refresh_token'>> {
+    // băm mã khôi phục TRƯỚC khi khóa dòng user (không giữ khóa DB trong lúc chờ suất Argon2 — tránh khóa chéo)
+    const fresh = await this.newRecoveryCodes();
     // khóa dòng user đến hết transaction: setup song song phải chờ, rồi thấy 2FA đã bật (S2)
     const u = await this.adminUser(p, true);
     if (u.totpEnabledAt || !u.totpSecretEnc)
@@ -379,7 +404,7 @@ export class AuthService {
       data: { totpEnabledAt: new Date(), totpLastStep: BigInt(step) },
     });
     if (enabled.count !== 1) throw new AppError('INVALID_STATE_TRANSITION', '2FA đã bật');
-    const codes = await this.replaceRecoveryCodes(u.id);
+    const codes = await this.replaceRecoveryCodes(u.id, fresh);
     const amr: Amr[] = ['pwd', 'otp'];
     const live = await this.tx.session.updateMany({ where: { id: p.sessionId, revokedAt: null }, data: { amr } });
     if (live.count !== 1) throw new AppError('SESSION_REVOKED', 'Phiên đã bị thu hồi — đăng nhập lại');
@@ -409,7 +434,7 @@ export class AuthService {
   async regenerateRecoveryCodes(p: Principal): Promise<{ recovery_codes: string[] }> {
     const u = await this.adminUser(p);
     if (!u.totpEnabledAt) throw new AppError('INVALID_STATE_TRANSITION', 'Chưa bật 2FA');
-    const codes = await this.replaceRecoveryCodes(u.id);
+    const codes = await this.replaceRecoveryCodes(u.id, await this.newRecoveryCodes());
     await this.ao.recordAudit({ action: 'auth.recovery_codes_regenerate', resourceType: 'user', resourceId: u.id });
     return { recovery_codes: codes };
   }
@@ -420,36 +445,38 @@ export class AuthService {
   ): Promise<{ step_up_until: string; access_token: string; access_token_expires_at: string }> {
     const u = await this.adminUser(p);
     if (!u.totpEnabledAt) throw new AppError('INVALID_STATE_TRANSITION', 'Chưa bật 2FA');
-    await this.reserveOrThrow(u.id);
-    const step = totpStep(this.totpSecret(u), code, u.totpLastStep);
-    if (step === undefined) {
-      await this.recordFailure(u.id, 'STEP_UP_FAILED', null);
-      throw otpInvalid();
-    }
-    return this.txHost.withTransaction(async () => {
-      await this.useTotpStep(u.id, step);
-      await this.settle(u.id, 'clear', null, () => this.lockedError());
-      const until = new Date(Date.now() + STEP_UP_TTL_S * 1000);
-      // phiên phải còn hiệu lực (thu hồi song song ⇒ 0 dòng)
-      const s = await this.tx.session.updateMany({
-        where: { id: p.sessionId, revokedAt: null },
-        data: { stepUpUntil: until },
-      });
-      if (s.count !== 1) throw new AppError('SESSION_REVOKED', 'Phiên đã bị thu hồi — đăng nhập lại');
-      await this.ao.recordAudit({ action: 'auth.step_up', resourceType: 'session', resourceId: p.sessionId });
-      const access = await this.tokens.sign({
-        sub: u.id,
-        typ: tokenTyp(u.type),
-        sid: p.sessionId,
-        amr: [...p.amr] as Amr[],
-        step_up_until: Math.floor(until.getTime() / 1000),
-      });
-      return {
-        step_up_until: until.toISOString(),
-        access_token: access.token,
-        access_token_expires_at: access.expiresAt.toISOString(),
-      };
-    });
+    let step: number | undefined;
+    return this.attempt(
+      { userId: u.id, identifierHash: null, argon: false, publicLogin: false, failResult: 'STEP_UP_FAILED' },
+      () => {
+        step = totpStep(this.totpSecret(u), code, u.totpLastStep);
+        return Promise.resolve(step !== undefined);
+      },
+      async () => {
+        await this.useTotpStep(u.id, step ?? -1);
+        await this.clearFailures(u.id, false);
+        const until = new Date(Date.now() + STEP_UP_TTL_S * 1000);
+        // phiên phải còn hiệu lực (thu hồi song song ⇒ 0 dòng)
+        const s = await this.tx.session.updateMany({
+          where: { id: p.sessionId, revokedAt: null },
+          data: { stepUpUntil: until },
+        });
+        if (s.count !== 1) throw new AppError('SESSION_REVOKED', 'Phiên đã bị thu hồi — đăng nhập lại');
+        await this.ao.recordAudit({ action: 'auth.step_up', resourceType: 'session', resourceId: p.sessionId });
+        const access = await this.tokens.sign({
+          sub: u.id,
+          typ: tokenTyp(u.type),
+          sid: p.sessionId,
+          amr: [...p.amr] as Amr[],
+          step_up_until: Math.floor(until.getTime() / 1000),
+        });
+        return {
+          step_up_until: until.toISOString(),
+          access_token: access.token,
+          access_token_expires_at: access.expiresAt.toISOString(),
+        };
+      },
+    );
   }
 
   // ───────────────────────────── nội bộ ─────────────────────────────
@@ -471,55 +498,104 @@ export class AuthService {
   }
 
   /**
-   * S1 — GIỮ CHỖ một lần thử TRƯỚC khi kiểm (nguyên tử trong SQL): chỉ tài khoản ACTIVE, không đang khóa, và tổng số lần
-   * sai + lần đang kiểm < 5. Lần đúng trả lại chỗ (`settle`); lần sai giữ chỗ và có thể kích khóa (`recordFailure`). Một
-   * đợt request song song vì vậy chỉ được thử tối đa 5 lần. Có challenge ⇒ giữ luôn một lượt thử của challenge.
+   * MỘT lần thử xác thực = MỘT transaction (kiểm thử lát 3 S1/R1/R3):
+   * 1. lấy suất Argon2 (nếu cần) TRƯỚC khi mở transaction — hàng đợi đầy ⇒ 429, chưa động vào DB;
+   * 2. `pg_try_advisory_xact_lock` theo tài khoản — lần thử khác của cùng tài khoản đang chạy ⇒ 429 ngay (không chờ, không
+   *    giữ kết nối), nên mọi lần thử của một tài khoản chạy TUẦN TỰ;
+   * 3. đọc trạng thái khóa MỚI NHẤT; khóa/vô hiệu ⇒ từ chối không kiểm thật; có challenge ⇒ tính một lượt (attempts + 1);
+   * 4. kiểm (mật khẩu/mã); sai ⇒ cộng bộ đếm (đủ 5 ⇒ khóa có hạn) và COMMIT; đúng ⇒ `onSuccess` trong cùng transaction.
+   * Không có "chỗ giữ" nào tồn tại ngoài transaction: request chết giữa chừng ⇒ rollback, không rò, không khóa vĩnh viễn.
+   * login_logs của lần bị từ chối/sai ghi SAU khi commit (pool audit_writer lỗi không làm mất lần đếm — S4).
    */
-  private async reserveAttempt(userId: string, challengeId?: string): Promise<'ok' | 'locked' | 'challenge'> {
-    try {
-      return await this.txHost.withTransaction(async () => {
-        const r = await this.tx.$queryRaw<{ n: number }[]>`
-          UPDATE core.users SET failed_login_count = failed_login_count + 1
-          WHERE id = ${userId}::uuid AND status = 'ACTIVE' AND (locked_until IS NULL OR locked_until <= now())
-            AND failed_login_count < ${MAX_FAILED}
-          RETURNING failed_login_count AS n`;
-        if (r.length !== 1) return 'locked' as const;
-        if (challengeId) {
+  private async attempt<T>(
+    g: {
+      userId: string;
+      identifierHash: Uint8Array | null;
+      challengeId?: string;
+      /** cần suất Argon2 (mật khẩu, mã khôi phục) */
+      argon: boolean;
+      /** /auth/login: mọi từ chối trả cùng 401 (S3) */
+      publicLogin: boolean;
+      failResult: LoginResult;
+      /** cân thời gian nhánh bị từ chối của /auth/login */
+      dummy?: () => Promise<void>;
+    },
+    check: () => Promise<boolean>,
+    onSuccess: () => Promise<T>,
+  ): Promise<T> {
+    type Out =
+      | { kind: 'ok'; value: T }
+      | { kind: 'busy' | 'challenge' | 'fail' }
+      | { kind: 'locked'; status: string; until: Date | null };
+    const run = (): Promise<Out> =>
+      this.txHost.withTransaction(async (): Promise<Out> => {
+        const [lk] = await this.tx.$queryRaw<{ ok: boolean }[]>`
+          SELECT pg_try_advisory_xact_lock(hashtextextended('auth:' || ${g.userId}, 0)) AS ok`;
+        if (!lk?.ok) return { kind: 'busy' };
+        const [st] = await this.tx.$queryRaw<{ status: string; locked_until: Date | null; locked: boolean }[]>`
+          SELECT status::text AS status, locked_until, (locked_until IS NOT NULL AND locked_until > now()) AS locked
+          FROM core.users WHERE id = ${g.userId}::uuid`;
+        if (!st || st.status !== 'ACTIVE' || st.locked) {
+          if (g.dummy) await g.dummy();
+          return { kind: 'locked', status: st?.status ?? 'DISABLED', until: st?.locked ? st.locked_until : null };
+        }
+        if (g.challengeId) {
           const c = await this.tx.authChallenge.updateMany({
             where: {
-              id: challengeId,
+              id: g.challengeId,
               usedAt: null,
               attempts: { lt: MFA_CHALLENGE_MAX_ATTEMPTS },
               expiresAt: { gt: new Date() },
             },
             data: { attempts: { increment: 1 } },
           });
-          if (c.count !== 1) throw new ChallengeGone();
+          if (c.count !== 1) return { kind: 'challenge' };
         }
-        return 'ok' as const;
+        if (!(await check())) {
+          await this.tx.$executeRaw`
+            UPDATE core.users SET
+              lock_count = CASE WHEN failed_login_count + 1 >= ${MAX_FAILED} THEN lock_count + 1 ELSE lock_count END,
+              locked_until = CASE WHEN failed_login_count + 1 >= ${MAX_FAILED}
+                THEN now() + make_interval(mins => LEAST(${LOCK_BASE_MIN} * (2 ^ LEAST(lock_count, 7))::int, ${LOCK_MAX_MIN}))
+                ELSE locked_until END,
+              failed_login_count = CASE WHEN failed_login_count + 1 >= ${MAX_FAILED} THEN 0 ELSE failed_login_count + 1 END
+            WHERE id = ${g.userId}::uuid`;
+          return { kind: 'fail' };
+        }
+        return { kind: 'ok', value: await onSuccess() };
       });
+    let out: Out;
+    try {
+      out = g.argon ? await withArgonSlot(this.slotKey(), run) : await run();
     } catch (e) {
-      if (e instanceof ChallengeGone) return 'challenge';
+      if (e instanceof AppError && e.code === 'RATE_LIMITED')
+        await this.loginLog(g.userId, 'RATE_LIMITED', g.identifierHash);
       throw e;
     }
+    switch (out.kind) {
+      case 'ok':
+        return out.value;
+      case 'busy':
+        await this.loginLog(g.userId, 'RATE_LIMITED', g.identifierHash);
+        throw new AppError(
+          'RATE_LIMITED',
+          'Đang xử lý một lần đăng nhập khác của tài khoản này — thử lại sau giây lát',
+        );
+      case 'challenge':
+        await this.loginLog(g.userId, 'CHALLENGE_INVALID', null);
+        throw challengeInvalid();
+      case 'locked':
+        await this.loginLog(g.userId, out.status === 'DISABLED' ? 'DISABLED' : 'LOCKED', g.identifierHash);
+        throw g.publicLogin ? invalidCredentials() : this.lockedError(out.until);
+      case 'fail':
+        await this.loginLog(g.userId, g.failResult, g.identifierHash);
+        throw g.publicLogin ? invalidCredentials() : otpInvalid();
+    }
   }
 
-  /** Giữ chỗ cho 2fa/verify, 2fa/recover, step-up — người gọi đã chứng minh mật khẩu/phiên nên báo rõ ACCOUNT_LOCKED. */
-  private async reserveOrThrow(userId: string, challengeId?: string): Promise<void> {
-    const r = await this.reserveAttempt(userId, challengeId);
-    if (r === 'challenge') {
-      await this.loginLog(userId, 'CHALLENGE_INVALID', null);
-      throw challengeInvalid();
-    }
-    if (r === 'locked') {
-      await this.logDenied(userId, null);
-      throw this.lockedError(await this.lockedUntil(userId));
-    }
-  }
-
-  private async lockedUntil(userId: string): Promise<Date | null> {
-    const u = await this.tx.user.findUnique({ where: { id: userId }, select: { lockedUntil: true, status: true } });
-    return u?.status === 'ACTIVE' && u.lockedUntil && u.lockedUntil.getTime() > Date.now() ? u.lockedUntil : null;
+  /** Khóa giới hạn suất Argon2 theo nguồn (IP đã qua trust proxy) */
+  private slotKey(): string {
+    return `ip:${this.cls.get('ip') ?? '?'}`;
   }
 
   private lockedError(until?: Date | null): AppError {
@@ -530,37 +606,13 @@ export class AuthService {
     );
   }
 
-  /** login_logs cho lần bị từ chối vì trạng thái tài khoản (khóa tạm, Master khóa, vô hiệu). */
-  private async logDenied(userId: string, identifierHash: Uint8Array | null): Promise<void> {
-    const u = await this.tx.user.findUnique({ where: { id: userId }, select: { status: true } });
-    await this.loginLog(userId, u?.status === 'DISABLED' ? 'DISABLED' : 'LOCKED', identifierHash);
-  }
-
-  /**
-   * Chốt lần thử ĐÚNG trong transaction thành công — chỉ khi tài khoản vẫn ACTIVE và không bị khóa trong lúc kiểm
-   * (lần sai song song vừa kích khóa ⇒ 0 dòng ⇒ từ chối). refund: trả chỗ đã giữ; clear: xóa bộ đếm; full: đăng nhập
-   * trọn vẹn — xóa cả mức khóa tăng dần.
-   */
-  private async settle(
-    userId: string,
-    mode: 'refund' | 'clear' | 'full',
-    identifierHash: Uint8Array | null,
-    onLocked: () => AppError,
-  ): Promise<void> {
-    const n =
-      mode === 'refund'
-        ? await this.tx.$executeRaw`UPDATE core.users SET failed_login_count = GREATEST(failed_login_count - 1, 0)
-            WHERE id = ${userId}::uuid AND status = 'ACTIVE' AND (locked_until IS NULL OR locked_until <= now())`
-        : mode === 'clear'
-          ? await this.tx.$executeRaw`UPDATE core.users SET failed_login_count = 0
-            WHERE id = ${userId}::uuid AND status = 'ACTIVE' AND (locked_until IS NULL OR locked_until <= now())`
-          : await this.tx.$executeRaw`UPDATE core.users
-            SET failed_login_count = 0, lock_count = 0, locked_until = NULL, last_login_at = now()
-            WHERE id = ${userId}::uuid AND status = 'ACTIVE' AND (locked_until IS NULL OR locked_until <= now())`;
-    if (n !== 1) {
-      await this.logDenied(userId, identifierHash);
-      throw onLocked();
-    }
+  /** Lần thử đúng (trong transaction của `attempt`, đã giữ khóa tài khoản): full = đăng nhập trọn vẹn, xóa cả mức khóa. */
+  private async clearFailures(userId: string, full: boolean): Promise<void> {
+    await this.tx.user.update({
+      where: { id: userId },
+      data: { failedLoginCount: 0, ...(full ? { lockCount: 0, lockedUntil: null, lastLoginAt: new Date() } : {}) },
+      select: { id: true },
+    });
   }
 
   private async loadChallenge(challenge: string) {
@@ -593,7 +645,7 @@ export class AuthService {
 
   private async consumeChallenge(id: string): Promise<void> {
     const r = await this.tx.authChallenge.updateMany({
-      // lượt hiện tại đã được giữ chỗ ở reserveAttempt ⇒ ≤ 5
+      // lượt hiện tại đã được tính (attempts + 1) trong cùng transaction ⇒ ≤ 5
       where: { id, usedAt: null, attempts: { lte: MFA_CHALLENGE_MAX_ATTEMPTS }, expiresAt: { gt: new Date() } },
       data: { usedAt: new Date() },
     });
@@ -607,25 +659,6 @@ export class AuthService {
       data: { totpLastStep: BigInt(step) },
     });
     if (r.count !== 1) throw otpInvalid();
-  }
-
-  /**
-   * Lần sai (chỗ đã giữ ở `reserveAttempt` thành lần sai): transaction RIÊNG commit TRƯỚC khi request trả lỗi. Đủ 5 ⇒
-   * khóa 15 phút × 2^lock_count (trần 24 giờ), bộ đếm về 0 — chỉ một lần cho cả đợt song song. login_logs ghi SAU khi
-   * commit: pool audit_writer lỗi cũng không làm mất lần đếm (S4).
-   */
-  private async recordFailure(userId: string, result: LoginResult, identifierHash: Uint8Array | null): Promise<void> {
-    await this.txHost.withTransaction(async () => {
-      await this.tx.$executeRaw`
-        UPDATE core.users SET
-          lock_count = CASE WHEN failed_login_count >= ${MAX_FAILED} THEN lock_count + 1 ELSE lock_count END,
-          locked_until = CASE WHEN failed_login_count >= ${MAX_FAILED}
-            THEN now() + make_interval(mins => LEAST(${LOCK_BASE_MIN} * (2 ^ LEAST(lock_count, 7))::int, ${LOCK_MAX_MIN}))
-            ELSE locked_until END,
-          failed_login_count = CASE WHEN failed_login_count >= ${MAX_FAILED} THEN 0 ELSE failed_login_count END
-        WHERE id = ${userId}::uuid`;
-    });
-    await this.loginLog(userId, result, identifierHash);
   }
 
   private async createSession(u: UserAuthRow, amr: Amr[]): Promise<TokenPair> {
@@ -696,12 +729,23 @@ export class AuthService {
     });
   }
 
-  private async replaceRecoveryCodes(userId: string): Promise<string[]> {
-    await this.tx.recoveryCode.deleteMany({ where: { userId } });
+  /** 10 mã mới + hash (một suất Argon2, băm tuần tự) — gọi khi CHƯA giữ khóa dòng nào */
+  private async newRecoveryCodes(): Promise<{ codes: string[]; hashes: string[] }> {
     const codes = Array.from({ length: RECOVERY_CODES }, newRecoveryCode);
-    const hashes = await Promise.all(codes.map((c) => hashSecret(normalizeRecoveryCode(c), ARGON_PROFILES.CODE)));
-    await this.tx.recoveryCode.createMany({ data: hashes.map((codeHash) => ({ id: uuidv7(), userId, codeHash })) });
-    return codes;
+    const hashes = await withArgonSlot(this.slotKey(), async () => {
+      const out: string[] = [];
+      for (const c of codes) out.push(await hashSecret(normalizeRecoveryCode(c), ARGON_PROFILES.CODE));
+      return out;
+    });
+    return { codes, hashes };
+  }
+
+  private async replaceRecoveryCodes(userId: string, fresh: { codes: string[]; hashes: string[] }): Promise<string[]> {
+    await this.tx.recoveryCode.deleteMany({ where: { userId } });
+    await this.tx.recoveryCode.createMany({
+      data: fresh.hashes.map((codeHash) => ({ id: uuidv7(), userId, codeHash })),
+    });
+    return fresh.codes;
   }
 
   private async loginLog(userId: string | null, result: LoginResult, identifierHash: Uint8Array | null): Promise<void> {

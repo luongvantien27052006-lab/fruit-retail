@@ -25,35 +25,44 @@ const TAG_LEN = 32;
 export const MAX_SECRET_LEN = 256;
 
 /**
- * Giới hạn số Argon2 chạy cùng lúc (kiểm thử lát 3 S6): route đăng nhập không cần xác thực, mỗi lần 64 MiB — không để
- * một đợt request chiếm hết threadpool libuv (crypto/fs/dns khác bị nghẽn) hay RAM. Hàng đợi đầy ⇒ 429 ngay.
+ * Suất Argon2 (kiểm thử lát 3 S6/R2): route đăng nhập không cần xác thực, mỗi lần 64 MiB — tối đa 2 chạy cùng lúc (không
+ * chiếm hết threadpool libuv/RAM). Mỗi khóa (IP) chỉ được giữ tối đa 3 suất đang chạy + chờ, cả hệ thống tối đa 64 chờ
+ * ⇒ 429 ngay (chưa đếm lần thử nào). Người gọi lấy suất TRƯỚC khi mở transaction/khóa DB (không giữ kết nối khi chờ).
+ * Giới hạn theo IP đầy đủ (Redis, nhiều IP) ở lát 5.
  */
 const MAX_CONCURRENT = 2;
 const MAX_QUEUE = 64;
+const MAX_PER_KEY = 3;
 let active = 0;
 const waiting: (() => void)[] = [];
+const perKey = new Map<string, number>();
 
-async function withSlot<T>(fn: () => Promise<T>): Promise<T> {
-  if (active >= MAX_CONCURRENT) {
-    if (waiting.length >= MAX_QUEUE) throw new AppError('RATE_LIMITED', 'Hệ thống đang bận, thử lại sau ít giây');
-    await new Promise<void>((r) => waiting.push(r));
-  } else active++;
+export async function withArgonSlot<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const held = perKey.get(key) ?? 0;
+  if (held >= MAX_PER_KEY || (active >= MAX_CONCURRENT && waiting.length >= MAX_QUEUE))
+    throw new AppError('RATE_LIMITED', 'Hệ thống đang bận, thử lại sau ít giây');
+  perKey.set(key, held + 1);
   try {
-    return await fn();
+    if (active >= MAX_CONCURRENT) await new Promise<void>((r) => waiting.push(r));
+    else active++;
+    try {
+      return await fn();
+    } finally {
+      const next = waiting.shift();
+      if (next)
+        next(); // chuyển suất cho người chờ (active giữ nguyên)
+      else active--;
+    }
   } finally {
-    const next = waiting.shift();
-    if (next)
-      next(); // chuyển suất cho người chờ (active giữ nguyên)
-    else active--;
+    const n = (perKey.get(key) ?? 1) - 1;
+    if (n <= 0) perKey.delete(key);
+    else perKey.set(key, n);
   }
 }
 
 function run(message: string, nonce: Buffer, p: Profile, tagLength = TAG_LEN): Promise<Buffer> {
-  return withSlot(
-    () =>
-      new Promise<Buffer>((resolve, reject) =>
-        argon2('argon2id', { message, nonce, tagLength, ...p }, (err, out) => (err ? reject(err) : resolve(out))),
-      ),
+  return new Promise<Buffer>((resolve, reject) =>
+    argon2('argon2id', { message, nonce, tagLength, ...p }, (err, out) => (err ? reject(err) : resolve(out))),
   );
 }
 

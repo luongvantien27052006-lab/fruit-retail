@@ -17,7 +17,8 @@ export type LoginResult =
   | 'BAD_RECOVERY'
   | 'CHALLENGE_INVALID'
   | 'REFRESH_REUSE'
-  | 'STEP_UP_FAILED';
+  | 'STEP_UP_FAILED'
+  | 'RATE_LIMITED';
 
 export interface LoginLogEntry {
   userId?: string | null;

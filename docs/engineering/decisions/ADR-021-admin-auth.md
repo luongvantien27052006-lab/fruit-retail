@@ -27,17 +27,20 @@ sau 5 lần sai). Khi hiện thực cần chốt thêm các điểm ADR-012 đ�
    Setup lại khi đã bật ⇒ 409 (đăng ký lại qua Master reset — lát 6/8).
 6. **Chống dùng lại TOTP:** cột `users.totp_last_step` (migration 0002); mã cùng bước 30 s hoặc cũ hơn bị từ chối, cập
    nhật có điều kiện (`< step`) nên hai request song song cùng mã chỉ một cái qua. Dung sai ±1 bước.
-7. **Khóa tạm (SEC5):** bộ đếm `failed_login_count` cộng chung cho mật khẩu sai, TOTP sai (verify, step-up) và mã khôi
-   phục sai. **Giữ chỗ trước khi kiểm** (kiểm thử agent lần 1, S1): mỗi lần thử trước hết `UPDATE … SET failed_login_count
-   + 1 WHERE status=ACTIVE AND không khóa AND failed_login_count < 5` (nguyên tử); 0 dòng ⇒ từ chối, không kiểm thật. Lần
-   sai giữ chỗ, đủ 5 ⇒ `locked_until = now + 15 phút × 2^lock_count` (trần 24 giờ), bộ đếm về 0 — một đợt song song chỉ
-   thử được ≤ 5 lần và chỉ tăng `lock_count` một lần. Lần đúng chốt trong transaction thành công, chỉ khi tài khoản vẫn
-   ACTIVE và không bị khóa trong lúc kiểm: mật khẩu đúng (đã bật 2FA) chỉ trả lại chỗ, KHÔNG xóa các lần sai trước; đăng
-   nhập trọn vẹn (qua 2FA) xóa cả bộ đếm và mức khóa. `/auth/login` trả CÙNG lỗi 401 cho sai email / sai mật khẩu / đang
-   khóa / bị Master khóa / vô hiệu (S3 — không liệt kê email qua trạng thái khóa; nhánh từ chối vẫn chạy Argon2 giả);
-   `2fa/verify`, `2fa/recover`, `step-up` (đã qua mật khẩu/phiên) trả 403 `ACCOUNT_LOCKED` kèm `retry_after_s`. Khóa tạm
-   không giết phiên đang có (tránh kẻ xấu khóa Master đang làm việc); Master khóa tài khoản (`status=LOCKED`) thì phiên
-   mất hiệu lực ngay. Tối đa 2 Argon2 chạy cùng lúc, hàng đợi 64, đầy ⇒ 429 (S6).
+7. **Khóa tạm (SEC5):** bộ đếm  cộng chung cho mật khẩu sai, TOTP sai (verify, step-up) và mã khôi
+   phục sai. **Một lần thử = một transaction** (kiểm thử agent lần 1–2, S1/R1/R3): lấy suất Argon2 trước (hết suất ⇒ 429,
+   chưa động DB) →  theo tài khoản (lần thử khác của tài khoản đang chạy ⇒ 429 ngay, không
+   đếm) → đọc trạng thái khóa mới nhất → kiểm → sai thì cộng bộ đếm (đủ 5 ⇒ , trần 24 giờ, bộ đếm về 0) rồi COMMIT; đúng thì làm phần thành công trong cùng transaction. Các lần thử
+   của một tài khoản vì vậy chạy tuần tự: một đợt song song chỉ kiểm được ≤ 5 lần; không có "chỗ giữ" nằm ngoài
+   transaction nên request chết giữa chừng chỉ rollback — không rò, không khóa vĩnh viễn (bản giữ chỗ ở 4abee95 bị rò khi
+   hàng đợi đầy, R1). Mật khẩu đúng khi đã bật 2FA KHÔNG xóa các lần sai trước; đăng nhập trọn vẹn (qua 2FA) xóa cả bộ
+   đếm và mức khóa.  trả CÙNG lỗi 401 cho sai email / sai mật khẩu / đang khóa / bị Master khóa / vô hiệu
+   (S3; nhánh từ chối vẫn chạy Argon2 giả); , ,  trả 403  kèm
+    chỉ khi THẬT SỰ khóa. Khóa tạm không giết phiên đang có; Master khóa tài khoản () thì
+   phiên mất hiệu lực ngay. Suất Argon2: 2 chạy cùng lúc, tối đa 3 suất (chạy + chờ) mỗi IP, 64 chờ toàn hệ thống; đầy ⇒
+   429 có ghi login_logs (S6/R2). **Rủi ro chấp nhận đến lát 5:** kẻ dùng nhiều IP vẫn làm đầy hàng đợi ⇒ đăng nhập hợp
+   lệ nhận 429 trong lúc bị bắn (không mất dữ liệu, không khóa) — lát 5 thêm giới hạn tần suất Redis theo IP/tài khoản.
+   Mã khôi phục được băm TRƯỚC khi khóa dòng user (confirm) để không giữ khóa DB khi chờ suất.
 8. **Lần sai phải được lưu dù request trả lỗi:** route `@OwnTransaction(lý do)` (login, 2fa/verify, 2fa/recover,
    refresh, step-up) — MutationInterceptor không bọc; handler ghi lần sai trong transaction riêng đã commit rồi mới ném
    lỗi; phần thành công là một transaction. login_logs của lần sai ghi SAU khi commit bộ đếm (S4). Không lồng transaction (tránh giữ 2 kết nối/request khi bị dò).

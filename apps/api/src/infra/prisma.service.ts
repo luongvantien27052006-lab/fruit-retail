@@ -11,11 +11,15 @@ export class PrismaService extends PrismaClient implements OnModuleDestroy {
     super({
       adapter: new PrismaPg({
         connectionString: env.DATABASE_URL_APP,
+        // pool tường minh (mặc định pg = 10); đủ cho 1 API trên VPS 2 vCPU — chỉnh qua env khi tải tăng
+        max: 20,
         connectionTimeoutMillis: 5_000,
         statement_timeout: 15_000,
         query_timeout: 20_000,
         idle_in_transaction_session_timeout: 30_000,
       }),
+      // lỗi gọn (không in mã nguồn/tham số vào message — FR-INV-18)
+      errorFormat: 'minimal',
     });
   }
 

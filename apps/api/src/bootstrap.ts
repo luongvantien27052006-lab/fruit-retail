@@ -26,6 +26,11 @@ export async function createApp(
   app.setGlobalPrefix('v1');
   app.enableShutdownHooks();
   // Deny-by-default: route thiếu khai báo quyền ⇒ không khởi động (CP03)
-  assertRoutesDeclareAccess(app);
+  try {
+    assertRoutesDeclareAccess(app);
+  } catch (e) {
+    await app.close();
+    throw e;
+  }
   return app;
 }

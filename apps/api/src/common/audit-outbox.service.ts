@@ -4,11 +4,11 @@ import type { TransactionalAdapterPrisma } from '@nestjs-cls/transactional-adapt
 import { ClsService } from 'nestjs-cls';
 import { v7 as uuidv7 } from 'uuid';
 import { Prisma } from '../generated/prisma/client';
-import type { PrismaService } from '../infra/prisma.service';
+import type { TxPrisma } from '../infra/tx-prisma';
 import { toJsonSafe } from './json-safe';
 import type { RequestStore } from './request-context';
 
-export type Tx = TransactionHost<TransactionalAdapterPrisma<PrismaService>>;
+export type Tx = TransactionHost<TransactionalAdapterPrisma<TxPrisma>>;
 
 const ACTION_RE = /^[a-z_]+(\.[a-z_]+)+$/;
 const EVENT_TYPE_RE = /^[a-z_]+\.[a-z_]+$/;
@@ -61,7 +61,8 @@ export class AuditOutboxService {
         actorType: p?.userType ?? null,
         role: p?.role ?? null,
         ip: ip && IPV4_OR_6_RE.test(ip) ? ip : null,
-        deviceId: p?.posDeviceId ?? this.cls.get('deviceId') ?? null,
+        // chỉ thiết bị POS đã xác minh (khóa thiết bị); X-Device-Id client tự khai không ghi vào nhật ký
+        deviceId: p?.posDeviceId ?? null,
         requestId: this.cls.get('requestId') ?? null,
         action: e.action,
         resourceType: e.resourceType,
@@ -88,8 +89,8 @@ export class AuditOutboxService {
         schemaVersion: e.schemaVersion,
         aggregateType: e.aggregateType,
         aggregateId: e.aggregateId,
-        // payload sự kiện: tiền là chuỗi (codec), bí mật bị che — sự kiện đi qua BullMQ/log (ADR-016)
-        payload: toJsonSafe(e.payload, true) as Prisma.InputJsonValue,
+        // payload sự kiện: tiền là chuỗi (codec); có khóa nhạy cảm ⇒ ném lỗi (sự kiện đi qua BullMQ/log — ADR-015/016)
+        payload: toJsonSafe(e.payload, 'reject') as Prisma.InputJsonValue,
         occurredAt: new Date(),
       },
       select: { id: true },
@@ -100,5 +101,5 @@ export class AuditOutboxService {
 
 function jsonOrNull(v: unknown): Prisma.InputJsonValue | typeof Prisma.JsonNull {
   if (v === undefined || v === null) return Prisma.JsonNull;
-  return toJsonSafe(v, true) as Prisma.InputJsonValue;
+  return toJsonSafe(v, 'redact') as Prisma.InputJsonValue;
 }

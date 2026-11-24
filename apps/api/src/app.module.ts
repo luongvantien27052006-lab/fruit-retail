@@ -3,19 +3,18 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, DiscoveryModule } from '@nestjs
 import { ClsPluginTransactional } from '@nestjs-cls/transactional';
 import { TransactionalAdapterPrisma } from '@nestjs-cls/transactional-adapter-prisma';
 import type { IncomingMessage } from 'node:http';
-import { randomUUID } from 'node:crypto';
 import { ClsModule } from 'nestjs-cls';
 import { LoggerModule } from 'nestjs-pino';
 import { AccessGuard } from './common/access.guard';
 import { AuditOutboxService } from './common/audit-outbox.service';
 import { ErrorFilter } from './common/error.filter';
 import { MutationInterceptor } from './common/mutation.interceptor';
-import { DEVICE_ID_RE, type RequestStore } from './common/request-context';
+import { DEVICE_ID_RE, type RequestStore, resolveRequestId } from './common/request-context';
 import { SerializeInterceptor } from './common/serialize.interceptor';
 import type { Env } from './config/env';
 import { HealthController } from './health/health.controller';
 import { InfraModule } from './infra/infra.module';
-import { PrismaService } from './infra/prisma.service';
+import { TX_PRISMA } from './infra/tx-prisma';
 
 // Log JSON có request_id; che dữ liệu nhạy cảm (§15, ADR-015, FR-INV-18).
 export const REDACT_PATHS = [
@@ -29,18 +28,18 @@ export const REDACT_PATHS = [
   '*.pin',
   '*.password',
   '*.account_number',
+  '*.accountNumber',
+  '*.secret',
+  '*.api_key',
+  '*.totp_secret',
+  '*.access_token',
+  '*.refresh_token',
+  '*.*.phone',
+  '*.*.password',
+  '*.*.token',
 ];
 
-export const REQUEST_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
-
-/** Một request_id duy nhất cho log, audit, envelope lỗi: X-Request-Id hợp lệ hoặc UUID mới (gán vào req.id). */
-export function resolveRequestId(req: IncomingMessage & { id?: unknown }): string {
-  if (typeof req.id === 'string' && req.id) return req.id;
-  const h = req.headers['x-request-id'];
-  const id = typeof h === 'string' && REQUEST_ID_RE.test(h) ? h : randomUUID();
-  req.id = id;
-  return id;
-}
+export { REQUEST_ID_RE, resolveRequestId } from './common/request-context';
 
 export interface AppExtras {
   /** chỉ dùng trong test: module/controller bổ sung */
@@ -80,7 +79,11 @@ export class AppModule {
           plugins: [
             new ClsPluginTransactional({
               imports: [InfraModule],
-              adapter: new TransactionalAdapterPrisma({ prismaInjectionToken: PrismaService }),
+              adapter: new TransactionalAdapterPrisma({
+                prismaInjectionToken: TX_PRISMA,
+                // Khớp timeout của pg (statement_timeout 15 s, PrismaService): transaction tối đa 20 s, chờ kết nối 5 s
+                defaultTxOptions: { timeout: 20_000, maxWait: 5_000, isolationLevel: 'ReadCommitted' },
+              }),
             }),
           ],
         }),

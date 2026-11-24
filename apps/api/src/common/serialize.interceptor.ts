@@ -9,6 +9,6 @@ import { toJsonSafe } from './json-safe';
 @Injectable()
 export class SerializeInterceptor implements NestInterceptor {
   intercept(_ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
-    return next.handle().pipe(map((v) => (v === undefined ? v : toJsonSafe(v, false))));
+    return next.handle().pipe(map((v) => (v === undefined ? v : toJsonSafe(v, 'raw'))));
   }
 }

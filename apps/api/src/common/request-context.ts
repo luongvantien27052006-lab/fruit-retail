@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import type { IncomingMessage } from 'node:http';
 import type { ClsStore } from 'nestjs-cls';
 import type { Principal } from './access';
 
@@ -13,3 +15,14 @@ export interface RequestStore extends ClsStore {
 }
 
 export const DEVICE_ID_RE = /^[A-Za-z0-9._:-]{8,128}$/;
+
+export const REQUEST_ID_RE = /^[A-Za-z0-9._-]{8,128}$/;
+
+/** Một request_id duy nhất cho log, audit, envelope lỗi: X-Request-Id hợp lệ hoặc UUID mới (gán vào req.id). */
+export function resolveRequestId(req: IncomingMessage & { id?: unknown }): string {
+  if (typeof req.id === 'string' && req.id) return req.id;
+  const h = req.headers['x-request-id'];
+  const id = typeof h === 'string' && REQUEST_ID_RE.test(h) ? h : randomUUID();
+  req.id = id;
+  return id;
+}

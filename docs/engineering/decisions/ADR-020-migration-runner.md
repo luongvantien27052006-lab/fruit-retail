@@ -69,6 +69,11 @@ ADR-017 chốt "SQL tay nhúng trong `migration.sql` của Prisma, một lịch 
   đời bảng người dùng (người dùng không bị xóa). Hàm SECURITY DEFINER thuộc owner (superuser), `search_path = pg_catalog,
   pg_temp`, mọi tên ghi đủ schema — tách role chủ hàm NOLOGIN để CP19.
 
+- **Khung request (CP03 lát 2, làm rõ ADR-016):** nghiệp vụ truy cập DB qua `TransactionHost` với client `TX_PRISMA`
+  (Prisma extension: thao tác ghi ngoài transaction ⇒ ném lỗi); `PrismaService` thô chỉ cho hạ tầng (lint
+  `no-restricted-imports`). Transaction mặc định READ COMMITTED, timeout 20 s, chờ 5 s. **Một app Nest mỗi process**:
+  nestjs-cls giữ trạng thái plugin ở biến tĩnh — test tạo nhiều app phải tách file (vitest mỗi file một worker).
+
 ## Phương án đã cân nhắc
 | Phương án | Lý do loại |
 |---|---|

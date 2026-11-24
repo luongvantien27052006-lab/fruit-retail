@@ -1,5 +1,7 @@
 import { type ArgumentsHost, Catch, type ExceptionFilter, HttpException, Logger } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { resolveRequestId } from './request-context';
+import { findSqlState, isDbError, mapDbError } from './db-errors';
 import { AppError, type ErrorCode, ERROR_HTTP_STATUS, isErrorCode } from './errors';
 
 interface Envelope {
@@ -9,21 +11,25 @@ interface Envelope {
   request_id: string;
 }
 
-/** Mã lỗi mặc định khi lỗi đến từ HttpException của Nest (route không có, JSON sai, body quá lớn…). */
-function codeForStatus(status: number): ErrorCode {
-  if (status === 401) return 'AUTHENTICATION_REQUIRED';
-  if (status === 403) return 'ACTION_FORBIDDEN';
-  if (status === 404) return 'RESOURCE_NOT_FOUND';
-  if (status === 409) return 'VERSION_CONFLICT';
-  if (status === 429) return 'RATE_LIMITED';
-  if (status === 503) return 'DEPENDENCY_UNAVAILABLE';
-  if (status >= 400 && status < 500) return 'INVALID_REQUEST';
-  return 'INTERNAL_ERROR';
+/**
+ * HttpException của Nest/Express (route không có, JSON hỏng, body quá lớn, URI hỏng…) → mã §13.1 + thông báo CỐ ĐỊNH
+ * (không lặp lại chi tiết parser/đầu vào). 413 → 400 INVALID_REQUEST (hợp đồng không có mã riêng cho body quá lớn).
+ */
+function fromHttpStatus(status: number): { status: number; code: ErrorCode; message: string } {
+  if (status === 401) return { status, code: 'AUTHENTICATION_REQUIRED', message: 'Cần đăng nhập' };
+  if (status === 403) return { status, code: 'ACTION_FORBIDDEN', message: 'Không có quyền thực hiện' };
+  if (status === 404) return { status, code: 'RESOURCE_NOT_FOUND', message: 'Không tìm thấy' };
+  if (status === 413) return { status: 400, code: 'INVALID_REQUEST', message: 'Dữ liệu gửi lên quá lớn' };
+  if (status === 429) return { status, code: 'RATE_LIMITED', message: 'Gửi quá nhiều yêu cầu' };
+  if (status === 503) return { status, code: 'DEPENDENCY_UNAVAILABLE', message: 'Dịch vụ tạm thời không sẵn sàng' };
+  if (status >= 400 && status < 500) return { status: 400, code: 'INVALID_REQUEST', message: 'Yêu cầu không hợp lệ' };
+  return { status: 500, code: 'INTERNAL_ERROR', message: 'Lỗi hệ thống' };
 }
 
 /**
- * Mọi lỗi → envelope chuẩn §13.1 (`Error` trong OpenAPI). Lỗi không lường trước → 500 INTERNAL_ERROR, KHÔNG lộ chi
- * tiết/stack ra client (ghi log đầy đủ kèm request_id để truy vết).
+ * Mọi lỗi → envelope chuẩn §13.1 (`Error` trong OpenAPI); request_id luôn có (kể cả lỗi xảy ra trước middleware).
+ * Lỗi không lường trước → 500 INTERNAL_ERROR, KHÔNG lộ chi tiết ra client; log đủ để truy vết nhưng lỗi DB chỉ ghi
+ * mã/SQLSTATE (message Prisma có thể chứa tham số/PII — FR-INV-18).
  */
 @Catch()
 export class ErrorFilter implements ExceptionFilter {
@@ -33,33 +39,40 @@ export class ErrorFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const req = ctx.getRequest<Request>();
     const res = ctx.getResponse<Response>();
-    const requestId = String(req.id ?? '');
+    const requestId = resolveRequestId(req);
+    const mapped = exception instanceof AppError ? exception : mapDbError(exception);
     let status: number;
     let body: Envelope;
 
-    if (exception instanceof AppError) {
-      status = exception.status;
+    if (mapped) {
+      status = mapped.status;
       body = {
-        code: exception.code,
-        message: exception.message,
-        ...(exception.details ? { details: exception.details } : {}),
+        code: mapped.code,
+        message: mapped.message,
+        ...(mapped.details ? { details: mapped.details } : {}),
         request_id: requestId,
       };
     } else if (exception instanceof HttpException) {
-      status = exception.getStatus();
       const r = exception.getResponse();
-      // Body đã ở dạng envelope (vd health 503) → giữ code/details, ép request_id
+      // Body đã ở dạng envelope (vd health 503) → giữ code/details
       if (typeof r === 'object' && r !== null && isErrorCode((r as { code?: unknown }).code)) {
         const e = r as { code: ErrorCode; message?: string; details?: Record<string, unknown> };
+        status = ERROR_HTTP_STATUS[e.code];
         body = {
           code: e.code,
-          message: e.message ?? exception.message,
+          message: e.message ?? 'Lỗi',
           ...(e.details ? { details: e.details } : {}),
           request_id: requestId,
         };
       } else {
-        const code = codeForStatus(status);
-        body = { code, message: status === 404 ? 'Không tìm thấy' : exception.message, request_id: requestId };
+        const f = fromHttpStatus(exception.getStatus());
+        status = f.status;
+        body = { code: f.code, message: f.message, request_id: requestId };
+        if (status < 500)
+          this.log.warn(
+            { request_id: requestId, method: req.method, status: exception.getStatus() },
+            `từ chối: ${exception.name}`,
+          );
       }
     } else {
       status = ERROR_HTTP_STATUS.INTERNAL_ERROR;
@@ -67,8 +80,17 @@ export class ErrorFilter implements ExceptionFilter {
     }
 
     if (status >= 500) {
-      const err = exception instanceof Error ? exception : new Error(String(exception));
-      this.log.error({ err, request_id: requestId, method: req.method, url: req.originalUrl }, 'request lỗi 5xx');
+      const where = { request_id: requestId, method: req.method, route: req.route?.path as string | undefined };
+      if (isDbError(exception)) {
+        const e = exception as { name?: string; code?: string };
+        this.log.error(
+          { ...where, db_error: e.name, prisma_code: e.code, sqlstate: findSqlState(exception) },
+          'lỗi DB 5xx',
+        );
+      } else {
+        const err = exception instanceof Error ? exception : new Error(String(exception));
+        this.log.error({ ...where, err }, 'request lỗi 5xx');
+      }
     }
     if (!res.headersSent) res.status(status).json(body);
   }

@@ -25,6 +25,7 @@ import { createApp } from '../src/bootstrap';
 import { Authenticated, NoAudit, type Principal, Public, RequirePermission } from '../src/common/access';
 import { AuditOutboxService, type Tx } from '../src/common/audit-outbox.service';
 import { AppError, ERROR_HTTP_STATUS } from '../src/common/errors';
+import { isSensitiveKey, toJsonSafe } from '../src/common/json-safe';
 import type { RequestStore } from '../src/common/request-context';
 import { listRoutes } from '../src/common/route-access';
 import { ZodPipe } from '../src/common/zod.pipe';
@@ -123,20 +124,87 @@ class TestController {
   boom(): never {
     throw new Error('chi tiết nội bộ: password=abc');
   }
+
+  // ───── thêm theo kiểm thử agent lần 1 ─────
+
+  @RequirePermission('store:write')
+  @Post('stores/:id/audit-body')
+  async auditBody(@Param('id') id: string, @Body() body: Record<string, unknown>) {
+    await this.ao.recordAudit({ action: 'store.probe', resourceType: 'store', resourceId: id, after: body });
+    return { ok: true };
+  }
+
+  @RequirePermission('store:write')
+  @Post('stores/:id/event-with-phone')
+  async eventWithPhone(@Param('id') id: string) {
+    await this.tx.store.update({ where: { id }, data: { name: 'SỰ KIỆN CÓ SĐT' } });
+    await this.ao.recordAudit({ action: 'store.rename', resourceType: 'store', resourceId: id });
+    await this.ao.emitEvent({
+      eventType: 'store.renamed',
+      schemaVersion: 1,
+      aggregateType: 'store',
+      aggregateId: id,
+      payload: { store_id: id, customer_phone: '0901234567' },
+    });
+    return { ok: true };
+  }
+
+  @RequirePermission('store:write')
+  @Post('stores/:id/rename-missing')
+  async renameMissing() {
+    await this.ao.recordAudit({ action: 'store.rename', resourceType: 'store' });
+    await this.tx.store.findUniqueOrThrow({ where: { id: randomUUID() } });
+    return { ok: true };
+  }
+
+  @RequirePermission('store:write')
+  @Post('stores/create')
+  async createStore(@Body() body: { code: string }) {
+    await this.ao.recordAudit({ action: 'store.create', resourceType: 'store' });
+    await this.tx.store.create({ data: { id: randomUUID(), code: body.code, name: 'x' } });
+    return { ok: true };
+  }
+
+  @RequirePermission('store:write')
+  @Post('stores/:id/bad-response')
+  async badResponse(@Param('id') id: string) {
+    await this.tx.store.update({ where: { id }, data: { name: 'SAU ĐÓ LỖI TUẦN TỰ' } });
+    await this.ao.recordAudit({ action: 'store.rename', resourceType: 'store', resourceId: id });
+    return { n: Number.NaN };
+  }
+
+  @RequirePermission('store:write')
+  @Post('stores/:id/rename-to')
+  async renameTo(@Param('id') id: string, @Body() body: { name: string }) {
+    await this.tx.store.update({ where: { id }, data: { name: body.name } });
+    await this.ao.recordAudit({ action: 'store.rename', resourceType: 'store', resourceId: id });
+    return { ok: true };
+  }
+
+  @Public()
+  @Get('stores/:id/write-in-get')
+  async writeInGet(@Param('id') id: string) {
+    await this.tx.store.update({ where: { id }, data: { name: 'GHI TRONG GET' } });
+    return { ok: true };
+  }
+
+  @RequirePermission('store:write')
+  @Post('stores/:id/fire-and-forget')
+  async fireAndForget(@Param('id') id: string) {
+    await this.ao.recordAudit({ action: 'store.rename', resourceType: 'store', resourceId: id });
+    lateWrite = new Promise((res) => setTimeout(res, 200)).then(() =>
+      this.tx.store.update({ where: { id }, data: { name: 'GHI SAU RESPONSE' } }),
+    );
+    return { ok: true };
+  }
 }
+
+let lateWrite: Promise<unknown> | undefined;
 
 @Module({ providers: [TestPrincipalMiddleware] })
 class TestPrincipalModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(TestPrincipalMiddleware).forRoutes('*');
-  }
-}
-
-@Controller('_test2')
-class UndeclaredController {
-  @Get('x')
-  x() {
-    return 1;
   }
 }
 
@@ -195,7 +263,7 @@ describe('khung request (CP03 lát 2)', () => {
       resource_id: store,
       actor_type: 'MASTER',
       role: 'MASTER_ADMIN',
-      device_id: 'browser-abc-123',
+      device_id: null, // X-Device-Id client tự khai không ghi vào audit (chỉ thiết bị POS đã xác minh)
       before: { name: 'Cửa hàng gốc' },
       after: { name: 'Tên mới', password_hash: '[REDACTED]' },
     });
@@ -309,12 +377,6 @@ describe('khung request (CP03 lát 2)', () => {
     expect(got.map((r) => r.n)).toEqual(ids.map((_, i) => `Song song ${i}`));
   });
 
-  it('deny-by-default: route thiếu khai báo quyền ⇒ app KHÔNG khởi động', async () => {
-    await expect(createApp(env, { logger: false }, { controllers: [UndeclaredController] })).rejects.toThrow(
-      /chưa khai báo quyền.*GET \/_test2\/x/,
-    );
-  });
-
   it('quyền khai báo ở route thật khớp x-permission của OpenAPI (không lệch hợp đồng)', () => {
     const spec = parse(readFileSync(resolve(process.cwd(), '../../packages/contracts/openapi.yaml'), 'utf8')) as {
       paths: Record<string, Record<string, { 'x-permission'?: string }>>;
@@ -343,5 +405,163 @@ describe('khung request (CP03 lát 2)', () => {
     const ec = spec.components.schemas.ErrorCode;
     expect(Object.keys(ERROR_HTTP_STATUS).sort()).toEqual([...ec.enum].sort());
     expect(ERROR_HTTP_STATUS).toEqual(ec['x-http-status']);
+  });
+
+  // ───── theo kiểm thử agent lần 1 ─────
+
+  it('H1 — audit che đúng khóa bí mật/PII theo token, KHÔNG che nhầm dữ liệu nghiệp vụ', async () => {
+    const rid = 'req-redact-0001';
+    const res = await http()
+      .post(`/v1/_test/stores/${store}/audit-body`)
+      .set('x-test-principal', principal(['store:write']))
+      .set('X-Request-Id', rid)
+      .send({
+        shipping_fee: '15000',
+        address: '12 Lê Lợi',
+        opinion: 'tốt',
+        mapping: 'x',
+        customer_phone: '0901234567',
+        receiverPhone: '0909',
+        account_number: '123456789',
+        api_key: 'sk',
+        shipping_address: '99 Nguyễn Huệ',
+        pin_hash: 'h',
+        nested: { refreshToken: 't', note: 'n' },
+      });
+    expect(res.status).toBe(201);
+    const [a] = await rows(`SELECT after FROM audit.logs WHERE request_id = $1`, [rid]);
+    expect(a?.after).toEqual({
+      shipping_fee: '15000',
+      address: '12 Lê Lợi',
+      opinion: 'tốt',
+      mapping: 'x',
+      customer_phone: '[REDACTED]',
+      receiverPhone: '[REDACTED]',
+      account_number: '[REDACTED]',
+      api_key: '[REDACTED]',
+      shipping_address: '[REDACTED]',
+      pin_hash: '[REDACTED]',
+      nested: { refreshToken: '[REDACTED]', note: 'n' },
+    });
+  });
+
+  it('H1 — sự kiện chứa khóa nhạy cảm ⇒ lỗi + rollback (không che âm thầm làm hỏng dữ liệu sự kiện)', async () => {
+    const res = await http()
+      .post(`/v1/_test/stores/${store}/event-with-phone`)
+      .set('x-test-principal', principal(['store:write']));
+    expect(res.status).toBe(500);
+    const [s] = await rows(`SELECT name FROM core.stores WHERE id = $1`, [store]);
+    expect(s?.name).not.toBe('SỰ KIỆN CÓ SĐT');
+  });
+
+  it('M5 — toJsonSafe từ chối Set/Map/class (không làm mất dữ liệu âm thầm); isSensitiveKey theo token', () => {
+    expect(() => toJsonSafe({ s: new Set([1]) })).toThrow(/object thuần/);
+    expect(() => toJsonSafe({ m: new Map() })).toThrow(/object thuần/);
+    class Decimalish {
+      v = 1;
+      toJSON() {
+        return '1';
+      }
+    }
+    expect(() => toJsonSafe({ d: new Decimalish() })).toThrow(/Decimalish/);
+    expect(toJsonSafe({ a: [1n, new Date(0)], b: Object.create(null) as object })).toEqual({
+      a: ['1', '1970-01-01T00:00:00.000Z'],
+      b: {},
+    });
+    for (const k of ['shipping_fee', 'opinion', 'mapping', 'address', 'spinner', 'tokenizer_mode'])
+      expect({ k, s: isSensitiveKey(k) }).toEqual({ k, s: false });
+    for (const k of [
+      'password',
+      'pinHash',
+      'phone_enc',
+      'customerPhone',
+      'api_key',
+      'accountNumber',
+      'deliveryAddress',
+      'otp',
+    ])
+      expect({ k, s: isSensitiveKey(k) }).toEqual({ k, s: true });
+  });
+
+  it('M2 — lỗi parser/body quá lớn/URI hỏng: envelope có request_id, thông báo cố định, mã HTTP khớp hợp đồng', async () => {
+    const p = principal(['store:write']);
+    const a = await http()
+      .post(`/v1/_test/stores/${store}/rename`)
+      .set('x-test-principal', p)
+      .set('X-Request-Id', 'req-badjson-01')
+      .set('Content-Type', 'application/json')
+      .send('{"name": "x", hỏng');
+    expect(a.status).toBe(400);
+    expect(a.body).toEqual({ code: 'INVALID_REQUEST', message: 'Yêu cầu không hợp lệ', request_id: 'req-badjson-01' });
+    const b = await http()
+      .post(`/v1/_test/stores/${store}/rename`)
+      .set('x-test-principal', p)
+      .set('X-Request-Id', 'req-toolarge-1')
+      .send({ name: 'x'.repeat(3 * 1024 * 1024) });
+    expect(b.status).toBe(400);
+    expect(b.body).toEqual({
+      code: 'INVALID_REQUEST',
+      message: 'Dữ liệu gửi lên quá lớn',
+      request_id: 'req-toolarge-1',
+    });
+    const c = await http().get('/v1/_test/stores/%E0%A4%A/write-in-get').set('X-Request-Id', 'req-baduri-001');
+    expect(c.status).toBe(400);
+    expect(c.body.request_id).toBe('req-baduri-001');
+    expect(c.body.message).toBe('Yêu cầu không hợp lệ');
+  });
+
+  it('M3 — lỗi DB ánh xạ đúng mã: P2025 → 404, trùng khóa → 409, vi phạm CHECK → 400; đều rollback', async () => {
+    const p = principal(['store:write']);
+    const a = await http().post(`/v1/_test/stores/${store}/rename-missing`).set('x-test-principal', p);
+    expect(a.status).toBe(404);
+    expect(a.body.code).toBe('RESOURCE_NOT_FOUND');
+    const b = await http().post('/v1/_test/stores/create').set('x-test-principal', p).send({ code: 'RF-1' });
+    expect(b.status).toBe(409);
+    expect(b.body).toMatchObject({ code: 'VERSION_CONFLICT', details: { reason: 'UNIQUE' } });
+    const c = await http().post('/v1/_test/stores/create').set('x-test-principal', p).send({ code: 'sai định dạng' });
+    expect(c.status).toBe(400);
+    expect(c.body).toMatchObject({ code: 'INVALID_REQUEST', details: { reason: '23514' } });
+    expect(
+      await rows(`SELECT 1 FROM audit.logs WHERE request_id = ANY($1)`, [
+        [a.body.request_id, b.body.request_id, c.body.request_id],
+      ]),
+    ).toEqual([]);
+  });
+
+  it('M6 — ghi DB ngoài transaction bị chặn: GET ghi dữ liệu ⇒ 500; ghi "fire-and-forget" sau response ⇒ lỗi', async () => {
+    const a = await http().get(`/v1/_test/stores/${store}/write-in-get`);
+    expect(a.status).toBe(500);
+    const b = await http()
+      .post(`/v1/_test/stores/${store}/fire-and-forget`)
+      .set('x-test-principal', principal(['store:write']));
+    expect(b.status).toBe(201);
+    await expect(lateWrite).rejects.toThrow(/Ghi DB ngoài transaction bị chặn/);
+    const [s] = await rows(`SELECT name FROM core.stores WHERE id = $1`, [store]);
+    expect(s?.name).not.toMatch(/GHI TRONG GET|GHI SAU RESPONSE/);
+  });
+
+  it('L6 — lỗi tuần tự hóa response ⇒ rollback; lỗi lúc COMMIT (trigger trì hoãn) ⇒ 500 + rollback', async () => {
+    const p = principal(['store:write']);
+    const a = await http().post(`/v1/_test/stores/${store}/bad-response`).set('x-test-principal', p);
+    expect(a.status).toBe(500);
+    const [s1] = await rows(`SELECT name FROM core.stores WHERE id = $1`, [store]);
+    expect(s1?.name).not.toBe('SAU ĐÓ LỖI TUẦN TỰ');
+    await db.q(`CREATE FUNCTION core._commit_fail() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN IF NEW.name = 'COMMIT-FAIL' THEN RAISE EXCEPTION 'lỗi lúc commit'; END IF; RETURN NULL; END $$;
+                CREATE CONSTRAINT TRIGGER _commit_fail AFTER UPDATE ON core.stores DEFERRABLE INITIALLY DEFERRED
+                FOR EACH ROW EXECUTE FUNCTION core._commit_fail();`);
+    try {
+      const b = await http()
+        .post(`/v1/_test/stores/${store}/rename-to`)
+        .set('x-test-principal', p)
+        .set('X-Request-Id', 'req-commitfail')
+        .send({ name: 'COMMIT-FAIL' });
+      expect(b.status).toBe(500);
+      expect(await rows(`SELECT 1 FROM audit.logs WHERE request_id = 'req-commitfail'`)).toEqual([]);
+      const [s2] = await rows(`SELECT name FROM core.stores WHERE id = $1`, [store]);
+      expect(s2?.name).not.toBe('COMMIT-FAIL');
+    } finally {
+      await db.q(`DROP TRIGGER _commit_fail ON core.stores; DROP FUNCTION core._commit_fail()`);
+    }
   });
 });

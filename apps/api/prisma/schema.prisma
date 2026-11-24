@@ -138,6 +138,7 @@ model Register {
   posDevices PosDevice[]
 
   @@unique([storeId, code])
+  @@unique([id, storeId])
   @@map("registers")
   @@schema("core")
 }
@@ -170,6 +171,8 @@ model User {
   permissionGrants  UserPermissionGrant[]
   sessions          Session[]
   viewerAssignments ViewerProfileAssignment[]
+  authChallenges    AuthChallenge[]
+  filesCreated      File[]
 
   @@map("users")
   @@schema("core")
@@ -236,6 +239,7 @@ model RolePermission {
   permission     Permission @relation(fields: [permissionCode], references: [code])
 
   @@id([role, permissionCode])
+  @@index([permissionCode])
   @@map("role_permissions")
   @@schema("core")
 }
@@ -254,6 +258,7 @@ model UserRoleAssignment {
   user      User      @relation(fields: [userId], references: [id])
 
   @@index([userId])
+  @@index([scopeType, scopeId])
   @@map("user_role_assignments")
   @@schema("core")
 }
@@ -273,6 +278,7 @@ model UserPermissionGrant {
   permission     Permission @relation(fields: [permissionCode], references: [code])
 
   @@index([userId])
+  @@index([permissionCode])
   @@map("user_permission_grants")
   @@schema("core")
 }
@@ -286,6 +292,8 @@ model ApprovalLimit {
   maxAmount    BigInt?        @map("max_amount")
   /// phần trăm theo basis point (10% = 1000)
   maxPctBp     Int?           @map("max_pct_bp")
+  /// ANY = đạt MỘT trong hai ngưỡng là được ("hoặc" — §2.3); ALL = phải đạt cả hai
+  limitMode    String         @default("ANY") @map("limit_mode")
   sameDayOnly  Boolean        @default(false) @map("same_day_only")
   requiresPin  Boolean        @default(false) @map("requires_pin")
   requiresNote Boolean        @default(false) @map("requires_note")
@@ -318,10 +326,13 @@ model PosDevice {
   revokeReason String?         @map("revoke_reason")
   lastSeenAt   DateTime?       @map("last_seen_at") @db.Timestamptz(6)
   store        Store           @relation(fields: [storeId], references: [id])
-  register     Register?       @relation(fields: [registerId], references: [id])
+  /// quầy phải thuộc cùng cửa hàng (FK kép register_id + store_id)
+  register     Register?       @relation(fields: [registerId, storeId], references: [id, storeId], onDelete: Restrict, onUpdate: Restrict)
   sessions     Session[]
+  challenges   AuthChallenge[]
 
   @@index([storeId])
+  @@index([registerId])
   @@map("pos_devices")
   @@schema("core")
 }
@@ -349,20 +360,23 @@ model Session {
 
   @@index([userId])
   @@index([posDeviceId])
+  @@index([expiresAt])
   @@map("sessions")
   @@schema("core")
 }
 
 model RefreshToken {
-  id           String    @id @db.Uuid
-  sessionId    String    @map("session_id") @db.Uuid
+  id           String        @id @db.Uuid
+  sessionId    String        @map("session_id") @db.Uuid
   /// SHA-256 của refresh token 256-bit
-  tokenHash    Bytes     @unique @map("token_hash")
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  tokenHash    Bytes         @unique @map("token_hash")
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   /// đã xoay (dùng lại token đã xoay ⇒ thu hồi cả phiên — ADR-012)
-  usedAt       DateTime? @map("used_at") @db.Timestamptz(6)
-  replacedById String?   @map("replaced_by_id") @db.Uuid
-  session      Session   @relation(fields: [sessionId], references: [id])
+  usedAt       DateTime?     @map("used_at") @db.Timestamptz(6)
+  replacedById String?       @unique @map("replaced_by_id") @db.Uuid
+  session      Session       @relation(fields: [sessionId], references: [id])
+  replacedBy   RefreshToken? @relation("TokenRotation", fields: [replacedById], references: [id])
+  replaces     RefreshToken? @relation("TokenRotation")
 
   @@index([sessionId])
   @@map("refresh_tokens")
@@ -379,8 +393,12 @@ model AuthChallenge {
   createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   expiresAt   DateTime          @map("expires_at") @db.Timestamptz(6)
   usedAt      DateTime?         @map("used_at") @db.Timestamptz(6)
+  user        User?             @relation(fields: [userId], references: [id])
+  posDevice   PosDevice?        @relation(fields: [posDeviceId], references: [id])
 
   @@index([expiresAt])
+  @@index([userId])
+  @@index([posDeviceId])
   @@map("auth_challenges")
   @@schema("core")
 }
@@ -432,6 +450,7 @@ model ViewerProfileAssignment {
   viewerProfile   ViewerProfile @relation(fields: [viewerProfileId], references: [id])
 
   @@id([userId, viewerProfileId])
+  @@index([viewerProfileId])
   @@map("viewer_profile_assignments")
   @@schema("core")
 }
@@ -444,6 +463,7 @@ model ViewerProfileScope {
   store     Store         @relation(fields: [storeId], references: [id])
 
   @@id([profileId, storeId])
+  @@index([storeId])
   @@map("viewer_profile_scopes")
   @@schema("reporting_private")
 }
@@ -471,8 +491,13 @@ model File {
   createdBy      String     @map("created_by") @db.Uuid
   createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   completedAt    DateTime?  @map("completed_at") @db.Timestamptz(6)
+  creator        User       @relation(fields: [createdBy], references: [id])
+  duplicateOf    File?      @relation("FileDuplicate", fields: [duplicateOfId], references: [id])
+  duplicates     File[]     @relation("FileDuplicate")
 
   @@index([sha256])
+  @@index([createdBy])
+  @@index([duplicateOfId])
   @@index([ownerType, ownerId])
   @@map("files")
   @@schema("core")

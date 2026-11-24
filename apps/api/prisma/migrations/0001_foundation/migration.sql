@@ -1,5 +1,6 @@
 -- 0001_foundation — nhóm M02 + M03 tối thiểu (CP03 lát 1). Phần 1: DDL do Prisma sinh
--- (prisma migrate diff --from-empty --to-schema prisma/schema.prisma --script). Phần 2: SQL tay ở cuối file.
+-- (prisma migrate diff --from-empty --to-schema prisma/schema.prisma --script), BỎ bảng integration.sql_migrations
+-- (đã tạo bởi infra/sql/000 — ADR-020). Phần 2: SQL tay ở cuối file.
 
 -- CreateSchema
 CREATE SCHEMA IF NOT EXISTS "audit";
@@ -187,6 +188,7 @@ CREATE TABLE "core"."approval_limits" (
     "allowed" BOOLEAN NOT NULL DEFAULT true,
     "max_amount" BIGINT,
     "max_pct_bp" INTEGER,
+    "limit_mode" TEXT NOT NULL DEFAULT 'ANY',
     "same_day_only" BOOLEAN NOT NULL DEFAULT false,
     "requires_pin" BOOLEAN NOT NULL DEFAULT false,
     "requires_note" BOOLEAN NOT NULL DEFAULT false,
@@ -425,6 +427,7 @@ CREATE TABLE "integration"."processed_events" (
 );
 
 -- CreateTable
+-- CreateTable
 CREATE TABLE "integration"."idempotency_keys" (
     "scope" TEXT NOT NULL,
     "key" UUID NOT NULL,
@@ -449,6 +452,9 @@ CREATE UNIQUE INDEX "warehouses_code_key" ON "core"."warehouses"("code");
 CREATE UNIQUE INDEX "registers_store_id_code_key" ON "core"."registers"("store_id", "code");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "registers_id_store_id_key" ON "core"."registers"("id", "store_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "users_email_key" ON "core"."users"("email");
 
 -- CreateIndex
@@ -467,10 +473,19 @@ CREATE UNIQUE INDEX "staff_badges_badge_code_hash_key" ON "core"."staff_badges"(
 CREATE INDEX "staff_badges_staff_id_idx" ON "core"."staff_badges"("staff_id");
 
 -- CreateIndex
+CREATE INDEX "role_permissions_permission_code_idx" ON "core"."role_permissions"("permission_code");
+
+-- CreateIndex
 CREATE INDEX "user_role_assignments_user_id_idx" ON "core"."user_role_assignments"("user_id");
 
 -- CreateIndex
+CREATE INDEX "user_role_assignments_scope_type_scope_id_idx" ON "core"."user_role_assignments"("scope_type", "scope_id");
+
+-- CreateIndex
 CREATE INDEX "user_permission_grants_user_id_idx" ON "core"."user_permission_grants"("user_id");
+
+-- CreateIndex
+CREATE INDEX "user_permission_grants_permission_code_idx" ON "core"."user_permission_grants"("permission_code");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "pos_devices_fingerprint_key" ON "core"."pos_devices"("fingerprint");
@@ -479,13 +494,22 @@ CREATE UNIQUE INDEX "pos_devices_fingerprint_key" ON "core"."pos_devices"("finge
 CREATE INDEX "pos_devices_store_id_idx" ON "core"."pos_devices"("store_id");
 
 -- CreateIndex
+CREATE INDEX "pos_devices_register_id_idx" ON "core"."pos_devices"("register_id");
+
+-- CreateIndex
 CREATE INDEX "sessions_user_id_idx" ON "core"."sessions"("user_id");
 
 -- CreateIndex
 CREATE INDEX "sessions_pos_device_id_idx" ON "core"."sessions"("pos_device_id");
 
 -- CreateIndex
+CREATE INDEX "sessions_expires_at_idx" ON "core"."sessions"("expires_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "refresh_tokens_token_hash_key" ON "core"."refresh_tokens"("token_hash");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "refresh_tokens_replaced_by_id_key" ON "core"."refresh_tokens"("replaced_by_id");
 
 -- CreateIndex
 CREATE INDEX "refresh_tokens_session_id_idx" ON "core"."refresh_tokens"("session_id");
@@ -497,16 +521,34 @@ CREATE UNIQUE INDEX "auth_challenges_secret_hash_key" ON "core"."auth_challenges
 CREATE INDEX "auth_challenges_expires_at_idx" ON "core"."auth_challenges"("expires_at");
 
 -- CreateIndex
+CREATE INDEX "auth_challenges_user_id_idx" ON "core"."auth_challenges"("user_id");
+
+-- CreateIndex
+CREATE INDEX "auth_challenges_pos_device_id_idx" ON "core"."auth_challenges"("pos_device_id");
+
+-- CreateIndex
 CREATE INDEX "otp_challenges_phone_hash_created_at_idx" ON "core"."otp_challenges"("phone_hash", "created_at");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "viewer_profiles_code_key" ON "core"."viewer_profiles"("code");
 
 -- CreateIndex
+CREATE INDEX "viewer_profile_assignments_viewer_profile_id_idx" ON "core"."viewer_profile_assignments"("viewer_profile_id");
+
+-- CreateIndex
+CREATE INDEX "viewer_profile_scopes_store_id_idx" ON "reporting_private"."viewer_profile_scopes"("store_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "files_storage_key_key" ON "core"."files"("storage_key");
 
 -- CreateIndex
 CREATE INDEX "files_sha256_idx" ON "core"."files"("sha256");
+
+-- CreateIndex
+CREATE INDEX "files_created_by_idx" ON "core"."files"("created_by");
+
+-- CreateIndex
+CREATE INDEX "files_duplicate_of_id_idx" ON "core"."files"("duplicate_of_id");
 
 -- CreateIndex
 CREATE INDEX "files_owner_type_owner_id_idx" ON "core"."files"("owner_type", "owner_id");
@@ -566,7 +608,7 @@ ALTER TABLE "core"."user_permission_grants" ADD CONSTRAINT "user_permission_gran
 ALTER TABLE "core"."pos_devices" ADD CONSTRAINT "pos_devices_store_id_fkey" FOREIGN KEY ("store_id") REFERENCES "core"."stores"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "core"."pos_devices" ADD CONSTRAINT "pos_devices_register_id_fkey" FOREIGN KEY ("register_id") REFERENCES "core"."registers"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "core"."pos_devices" ADD CONSTRAINT "pos_devices_register_id_store_id_fkey" FOREIGN KEY ("register_id", "store_id") REFERENCES "core"."registers"("id", "store_id") ON DELETE RESTRICT ON UPDATE RESTRICT;
 
 -- AddForeignKey
 ALTER TABLE "core"."sessions" ADD CONSTRAINT "sessions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "core"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -576,6 +618,15 @@ ALTER TABLE "core"."sessions" ADD CONSTRAINT "sessions_pos_device_id_fkey" FOREI
 
 -- AddForeignKey
 ALTER TABLE "core"."refresh_tokens" ADD CONSTRAINT "refresh_tokens_session_id_fkey" FOREIGN KEY ("session_id") REFERENCES "core"."sessions"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "core"."refresh_tokens" ADD CONSTRAINT "refresh_tokens_replaced_by_id_fkey" FOREIGN KEY ("replaced_by_id") REFERENCES "core"."refresh_tokens"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "core"."auth_challenges" ADD CONSTRAINT "auth_challenges_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "core"."users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "core"."auth_challenges" ADD CONSTRAINT "auth_challenges_pos_device_id_fkey" FOREIGN KEY ("pos_device_id") REFERENCES "core"."pos_devices"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "core"."viewer_profile_assignments" ADD CONSTRAINT "viewer_profile_assignments_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "core"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -589,10 +640,16 @@ ALTER TABLE "reporting_private"."viewer_profile_scopes" ADD CONSTRAINT "viewer_p
 -- AddForeignKey
 ALTER TABLE "reporting_private"."viewer_profile_scopes" ADD CONSTRAINT "viewer_profile_scopes_store_id_fkey" FOREIGN KEY ("store_id") REFERENCES "core"."stores"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
+-- AddForeignKey
+ALTER TABLE "core"."files" ADD CONSTRAINT "files_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "core"."users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "core"."files" ADD CONSTRAINT "files_duplicate_of_id_fkey" FOREIGN KEY ("duplicate_of_id") REFERENCES "core"."files"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
 
 -- ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
--- PHẦN SQL TAY của 0001_foundation (ADR-003, ADR-011, ADR-017, ADR-020) — nối sau DDL Prisma sinh trong migration.sql.
--- Nguồn: apps/api/prisma/migrations/0001_foundation/manual.sql. KHÔNG sửa migration.sql đã áp — sửa bằng migration mới.
+-- PHẦN SQL TAY của 0001_foundation (ADR-003, ADR-011, ADR-017, ADR-020): CHECK, index biểu thức/partial, trigger,
+-- GRANT/REVOKE, RLS, seed. Một khi đã áp ở môi trường dùng chung: KHÔNG sửa file này — sửa bằng migration mới.
 -- ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 -- ─────────── 1. Ràng buộc dữ liệu Prisma không biểu diễn được ───────────
@@ -606,6 +663,7 @@ ALTER TABLE core.users
   ADD CONSTRAINT users_admin_credentials CHECK (type NOT IN ('MASTER', 'VIEWER') OR (email IS NOT NULL AND password_hash IS NOT NULL)),
   ADD CONSTRAINT users_customer_phone CHECK (type <> 'CUSTOMER' OR phone_hash IS NOT NULL),
   ADD CONSTRAINT users_pin_staff_only CHECK (pin_hash IS NULL OR type = 'STAFF'),
+  ADD CONSTRAINT users_totp_admin_only CHECK (totp_secret_enc IS NULL OR type IN ('MASTER', 'VIEWER')),
   ADD CONSTRAINT users_phone_pair CHECK ((phone_enc IS NULL) = (phone_hash IS NULL)),
   ADD CONSTRAINT users_phone_hash_len CHECK (phone_hash IS NULL OR octet_length(phone_hash) = 32),
   ADD CONSTRAINT users_totp_enabled_needs_secret CHECK (totp_enabled_at IS NULL OR totp_secret_enc IS NOT NULL),
@@ -630,6 +688,7 @@ CREATE UNIQUE INDEX upg_active_unique ON core.user_permission_grants
 
 ALTER TABLE core.approval_limits
   ADD CONSTRAINT approval_limits_values CHECK ((max_amount IS NULL OR max_amount >= 0) AND (max_pct_bp IS NULL OR max_pct_bp BETWEEN 0 AND 10000)),
+  ADD CONSTRAINT approval_limits_mode CHECK (limit_mode IN ('ANY', 'ALL')),
   ADD CONSTRAINT approval_limits_not_allowed_empty CHECK (allowed OR (max_amount IS NULL AND max_pct_bp IS NULL));
 
 ALTER TABLE core.pos_devices
@@ -640,15 +699,17 @@ ALTER TABLE core.pos_devices
     OR (status = 'REVOKED' AND revoked_at IS NOT NULL AND revoked_by IS NOT NULL));
 
 ALTER TABLE core.sessions
-  ADD CONSTRAINT sessions_times CHECK (expires_at > created_at),
+  -- trần 60 ngày = hạn dài nhất (khách, ADR-012); admin 12 giờ / staff 24 giờ do API đặt
+  ADD CONSTRAINT sessions_times CHECK (expires_at > created_at AND expires_at <= created_at + interval '60 days'),
   ADD CONSTRAINT sessions_staff_device CHECK (user_type <> 'STAFF' OR pos_device_id IS NOT NULL),
   ADD CONSTRAINT sessions_ip_hash_len CHECK (ip_hash IS NULL OR octet_length(ip_hash) = 32);
 ALTER TABLE core.refresh_tokens
   ADD CONSTRAINT refresh_tokens_hash_len CHECK (octet_length(token_hash) = 32),
+  ADD CONSTRAINT refresh_tokens_not_self CHECK (replaced_by_id IS NULL OR replaced_by_id <> id),
   ADD CONSTRAINT refresh_tokens_replaced_needs_used CHECK (replaced_by_id IS NULL OR used_at IS NOT NULL);
 ALTER TABLE core.auth_challenges
   ADD CONSTRAINT auth_challenges_hash_len CHECK (octet_length(secret_hash) = 32),
-  ADD CONSTRAINT auth_challenges_owner CHECK ((kind = 'MFA' AND user_id IS NOT NULL) OR (kind = 'DEVICE_NONCE' AND pos_device_id IS NOT NULL)),
+  ADD CONSTRAINT auth_challenges_owner CHECK ((kind = 'MFA' AND user_id IS NOT NULL AND pos_device_id IS NULL) OR (kind = 'DEVICE_NONCE' AND pos_device_id IS NOT NULL)),
   ADD CONSTRAINT auth_challenges_attempts CHECK (attempts BETWEEN 0 AND 5),
   ADD CONSTRAINT auth_challenges_ttl CHECK (expires_at > created_at AND expires_at <= created_at + interval '10 minutes');
 ALTER TABLE core.otp_challenges
@@ -666,6 +727,7 @@ ALTER TABLE core.viewer_profiles
 ALTER TABLE core.files
   ADD CONSTRAINT files_sizes CHECK (declared_bytes > 0 AND (bytes IS NULL OR bytes > 0)),
   ADD CONSTRAINT files_sha_len CHECK (octet_length(declared_sha256) = 32 AND (sha256 IS NULL OR octet_length(sha256) = 32)),
+  ADD CONSTRAINT files_not_self_dup CHECK (duplicate_of_id IS NULL OR duplicate_of_id <> id),
   ADD CONSTRAINT files_state CHECK (
     (status = 'PENDING' AND completed_at IS NULL)
     OR (status = 'READY' AND completed_at IS NOT NULL AND sha256 IS NOT NULL AND bytes IS NOT NULL)
@@ -681,36 +743,128 @@ ALTER TABLE integration.idempotency_keys
   ADD CONSTRAINT idem_completed CHECK ((status = 'COMPLETED') = (completed_at IS NOT NULL)),
   ADD CONSTRAINT idem_hash_len CHECK (octet_length(request_hash) = 32);
 
--- ─────────── 2. Trigger nghiệp vụ ───────────
+-- ─────────── 2. Trigger ───────────
 
--- Vai trò phải hợp với loại người dùng và phạm vi phải tồn tại (scope_id đa hình nên không dùng FK được)
-CREATE OR REPLACE FUNCTION core.check_scope_and_role() RETURNS trigger
-  LANGUAGE plpgsql
-  SET search_path = pg_catalog, core
+-- Thời điểm do server đặt (không tin giá trị bên chèn): created_at / at / updated_at
+CREATE OR REPLACE FUNCTION core.set_created_now() RETURNS trigger
+  LANGUAGE plpgsql SET search_path = pg_catalog
+AS $$ BEGIN NEW.created_at := now(); RETURN NEW; END; $$;
+CREATE OR REPLACE FUNCTION core.set_at_now() RETURNS trigger
+  LANGUAGE plpgsql SET search_path = pg_catalog
+AS $$ BEGIN NEW.at := now(); RETURN NEW; END; $$;
+CREATE OR REPLACE FUNCTION core.touch_updated_at() RETURNS trigger
+  LANGUAGE plpgsql SET search_path = pg_catalog
+AS $$ BEGIN NEW.updated_at := now(); RETURN NEW; END; $$;
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['core.sessions', 'core.refresh_tokens', 'core.auth_challenges', 'core.otp_challenges',
+                           'core.user_role_assignments', 'core.files', 'core.recovery_codes'] LOOP
+    EXECUTE format('CREATE TRIGGER set_created BEFORE INSERT ON %s FOR EACH ROW EXECUTE FUNCTION core.set_created_now()', t);
+  END LOOP;
+  FOREACH t IN ARRAY ARRAY['core.users', 'core.stores', 'core.approval_limits'] LOOP
+    EXECUTE format('CREATE TRIGGER touch_updated BEFORE UPDATE ON %s FOR EACH ROW EXECUTE FUNCTION core.touch_updated_at()', t);
+  END LOOP;
+  FOREACH t IN ARRAY ARRAY['audit.logs', 'audit.login_logs', 'audit.export_logs', 'audit.viewer_access'] LOOP
+    EXECUTE format('CREATE TRIGGER set_at BEFORE INSERT ON %s FOR EACH ROW EXECUTE FUNCTION core.set_at_now()', t);
+  END LOOP;
+END $$;
+
+CREATE OR REPLACE FUNCTION core.set_granted_now() RETURNS trigger
+  LANGUAGE plpgsql SET search_path = pg_catalog
+AS $$ BEGIN NEW.granted_at := now(); RETURN NEW; END; $$;
+CREATE TRIGGER set_granted BEFORE INSERT ON core.user_permission_grants FOR EACH ROW EXECUTE FUNCTION core.set_granted_now();
+
+-- Loại người dùng bất biến (mọi quyền/vai trò/phiên dựa vào nó)
+CREATE OR REPLACE FUNCTION core.users_guard() RETURNS trigger
+  LANGUAGE plpgsql SET search_path = pg_catalog
+AS $$
+BEGIN
+  IF NEW.id <> OLD.id OR NEW.type <> OLD.type THEN
+    RAISE EXCEPTION 'users: không đổi được id/type (tạo tài khoản mới thay thế)' USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER users_guard BEFORE UPDATE ON core.users FOR EACH ROW EXECUTE FUNCTION core.users_guard();
+
+-- Kiểm loại người dùng cho bảng gắn người dùng (kiểm ngay trong trigger: hàm trigger chạy với quyền người gọi,
+-- gọi hàm phụ sẽ cần EXECUTE — default privileges đã thu EXECUTE khỏi PUBLIC)
+CREATE OR REPLACE FUNCTION core.user_type_guard() RETURNS trigger
+  LANGUAGE plpgsql SET search_path = pg_catalog
 AS $$
 DECLARE
-  ut core."UserType";
+  ut text;
+  allowed text[];
+BEGIN
+  SELECT u.type::text INTO ut FROM core.users u WHERE u.id = NEW.user_id;
+  allowed := CASE TG_TABLE_NAME
+    WHEN 'staff' THEN ARRAY['STAFF']
+    WHEN 'recovery_codes' THEN ARRAY['MASTER', 'VIEWER']
+    WHEN 'viewer_profile_assignments' THEN ARRAY['VIEWER']
+  END;
+  IF ut IS NULL OR NOT (ut = ANY (allowed)) THEN
+    RAISE EXCEPTION '%: người dùng loại % không hợp lệ (chỉ %)', TG_TABLE_NAME, COALESCE(ut, '?'), array_to_string(allowed, '/')
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF TG_TABLE_NAME = 'viewer_profile_assignments' THEN
+    IF EXISTS (SELECT 1 FROM core.viewer_profiles vp WHERE vp.id = NEW.viewer_profile_id AND vp.archived_at IS NOT NULL) THEN
+      RAISE EXCEPTION 'viewer_profile_assignments: hồ sơ đã lưu trữ' USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER user_type_guard BEFORE INSERT OR UPDATE ON core.staff FOR EACH ROW EXECUTE FUNCTION core.user_type_guard();
+CREATE TRIGGER user_type_guard BEFORE INSERT OR UPDATE ON core.recovery_codes FOR EACH ROW EXECUTE FUNCTION core.user_type_guard();
+CREATE TRIGGER user_type_guard BEFORE INSERT OR UPDATE ON core.viewer_profile_assignments FOR EACH ROW EXECUTE FUNCTION core.user_type_guard();
+
+-- Gán vai trò / quyền riêng: INSERT kiểm đủ; UPDATE chỉ được thu hồi một lần (thu hồi là kết thúc)
+CREATE OR REPLACE FUNCTION core.check_scope_and_role() RETURNS trigger
+  LANGUAGE plpgsql SET search_path = pg_catalog
+AS $$
+DECLARE
+  ut text;
   r text;
 BEGIN
-  -- scope_id NULL để CHECK *_scope_shape báo lỗi (CHECK chạy sau trigger BEFORE)
-  IF NEW.scope_type = 'STORE' AND NEW.scope_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM core.stores s WHERE s.id = NEW.scope_id) THEN
-    RAISE EXCEPTION 'scope_id % không phải cửa hàng', NEW.scope_id USING ERRCODE = 'foreign_key_violation';
-  ELSIF NEW.scope_type = 'WAREHOUSE' AND NEW.scope_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM core.warehouses w WHERE w.id = NEW.scope_id) THEN
-    RAISE EXCEPTION 'scope_id % không phải kho', NEW.scope_id USING ERRCODE = 'foreign_key_violation';
-  END IF;
-  IF TG_TABLE_NAME = 'user_role_assignments' THEN
-    SELECT u.type INTO ut FROM core.users u WHERE u.id = NEW.user_id;
-    r := NEW.role::text;
-    IF NOT (
-      (r = 'MASTER_ADMIN' AND ut = 'MASTER' AND NEW.scope_type = 'ALL')
-      OR (r = 'VIEW_ONLY_ADMIN' AND ut = 'VIEWER' AND NEW.scope_type = 'ALL')
-      OR (r = 'CUSTOMER' AND ut = 'CUSTOMER' AND NEW.scope_type = 'ALL')
-      OR (r IN ('STORE_MANAGER', 'CASHIER', 'PICKER', 'SHIPPER') AND ut = 'STAFF' AND NEW.scope_type = 'STORE')
-      OR (r = 'WAREHOUSE_STAFF' AND ut = 'STAFF' AND NEW.scope_type = 'WAREHOUSE')
-    ) THEN
-      RAISE EXCEPTION 'Vai trò % không hợp với người dùng loại % / phạm vi %', r, ut, NEW.scope_type
-        USING ERRCODE = 'check_violation';
+  IF TG_OP = 'UPDATE' THEN
+    IF OLD.revoked_at IS NOT NULL THEN
+      RAISE EXCEPTION '%: dòng đã thu hồi không sửa được', TG_TABLE_NAME USING ERRCODE = 'check_violation';
     END IF;
+    IF (to_jsonb(NEW) - 'revoked_at' - 'revoked_by') <> (to_jsonb(OLD) - 'revoked_at' - 'revoked_by') THEN
+      RAISE EXCEPTION '%: chỉ được thu hồi (revoked_at, revoked_by)', TG_TABLE_NAME USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+  END IF;
+  -- scope_id NULL để CHECK *_scope_shape báo lỗi (CHECK chạy sau trigger BEFORE)
+  IF NEW.scope_type = 'STORE' AND NEW.scope_id IS NOT NULL AND NOT EXISTS
+       (SELECT 1 FROM core.stores s WHERE s.id = NEW.scope_id AND s.archived_at IS NULL) THEN
+    RAISE EXCEPTION 'scope_id % không phải cửa hàng đang hoạt động', NEW.scope_id USING ERRCODE = 'foreign_key_violation';
+  ELSIF NEW.scope_type = 'WAREHOUSE' AND NEW.scope_id IS NOT NULL AND NOT EXISTS
+       (SELECT 1 FROM core.warehouses w WHERE w.id = NEW.scope_id AND w.archived_at IS NULL) THEN
+    RAISE EXCEPTION 'scope_id % không phải kho đang hoạt động', NEW.scope_id USING ERRCODE = 'foreign_key_violation';
+  END IF;
+  IF NEW.revoked_at IS NOT NULL THEN
+    RAISE EXCEPTION '%: không tạo dòng đã thu hồi', TG_TABLE_NAME USING ERRCODE = 'check_violation';
+  END IF;
+  SELECT u.type::text INTO ut FROM core.users u WHERE u.id = NEW.user_id;
+  IF TG_TABLE_NAME = 'user_permission_grants' THEN
+    -- quyền cấp riêng chỉ cho nhân viên (§2.1: WAREHOUSE_STAFF + purchase_price:write); viewer chỉ xem (§2.5)
+    IF ut IS DISTINCT FROM 'STAFF' THEN
+      RAISE EXCEPTION 'Quyền cấp riêng chỉ cho người dùng STAFF (đang là %)', COALESCE(ut, '?') USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+  END IF;
+  r := NEW.role::text;
+  IF NOT (
+    (r = 'MASTER_ADMIN' AND ut = 'MASTER' AND NEW.scope_type = 'ALL')
+    OR (r = 'VIEW_ONLY_ADMIN' AND ut = 'VIEWER' AND NEW.scope_type = 'ALL')
+    OR (r = 'CUSTOMER' AND ut = 'CUSTOMER' AND NEW.scope_type = 'ALL')
+    OR (r IN ('STORE_MANAGER', 'CASHIER', 'PICKER', 'SHIPPER') AND ut = 'STAFF' AND NEW.scope_type = 'STORE')
+    OR (r = 'WAREHOUSE_STAFF' AND ut = 'STAFF' AND NEW.scope_type = 'WAREHOUSE')
+  ) THEN
+    RAISE EXCEPTION 'Vai trò % không hợp với người dùng loại % / phạm vi %', r, COALESCE(ut, '?'), NEW.scope_type
+      USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
 END;
@@ -720,14 +874,73 @@ CREATE TRIGGER ura_check BEFORE INSERT OR UPDATE ON core.user_role_assignments
 CREATE TRIGGER upg_check BEFORE INSERT OR UPDATE ON core.user_permission_grants
   FOR EACH ROW EXECUTE FUNCTION core.check_scope_and_role();
 
--- Vòng đời thiết bị POS chỉ đi tới: PENDING → ACTIVE → REVOKED, PENDING → REVOKED; khóa công khai bất biến
-CREATE OR REPLACE FUNCTION core.pos_device_transition() RETURNS trigger
-  LANGUAGE plpgsql
-  SET search_path = pg_catalog
+-- Phiên: user_type phải đúng loại người dùng; phiên nhân viên chỉ trên thiết bị ACTIVE; thu hồi là kết thúc
+CREATE OR REPLACE FUNCTION core.sessions_guard() RETURNS trigger
+  LANGUAGE plpgsql SET search_path = pg_catalog
+AS $$
+DECLARE ut text;
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF OLD.revoked_at IS NOT NULL THEN
+      RAISE EXCEPTION 'sessions: phiên đã thu hồi không sửa được' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+  END IF;
+  SELECT u.type::text INTO ut FROM core.users u WHERE u.id = NEW.user_id;
+  IF ut IS DISTINCT FROM NEW.user_type::text THEN
+    RAISE EXCEPTION 'sessions: user_type % khác loại người dùng %', NEW.user_type, COALESCE(ut, '?') USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.pos_device_id IS NOT NULL AND (NEW.user_type <> 'STAFF' OR NOT EXISTS
+       (SELECT 1 FROM core.pos_devices d WHERE d.id = NEW.pos_device_id AND d.status = 'ACTIVE')) THEN
+    RAISE EXCEPTION 'sessions: thiết bị POS phải ACTIVE và chỉ cho phiên nhân viên' USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.revoked_at IS NOT NULL THEN
+    RAISE EXCEPTION 'sessions: không tạo phiên đã thu hồi' USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER sessions_guard BEFORE INSERT OR UPDATE ON core.sessions FOR EACH ROW EXECUTE FUNCTION core.sessions_guard();
+
+-- Refresh token: đã dùng/đã thay là bất biến (không "hồi sinh" token đã xoay — ADR-012)
+CREATE OR REPLACE FUNCTION core.refresh_tokens_guard() RETURNS trigger
+  LANGUAGE plpgsql SET search_path = pg_catalog
 AS $$
 BEGIN
-  IF NEW.public_key <> OLD.public_key OR NEW.fingerprint <> OLD.fingerprint OR NEW.store_id <> OLD.store_id THEN
-    RAISE EXCEPTION 'pos_devices: không đổi được khóa/cửa hàng của thiết bị đã đăng ký' USING ERRCODE = 'check_violation';
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.used_at IS NOT NULL OR NEW.replaced_by_id IS NOT NULL THEN
+      RAISE EXCEPTION 'refresh_tokens: token mới phải chưa dùng' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF (OLD.used_at IS NOT NULL AND NEW.used_at IS DISTINCT FROM OLD.used_at)
+     OR (OLD.replaced_by_id IS NOT NULL AND NEW.replaced_by_id IS DISTINCT FROM OLD.replaced_by_id) THEN
+    RAISE EXCEPTION 'refresh_tokens: token đã xoay không sửa được' USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER refresh_tokens_guard BEFORE INSERT OR UPDATE ON core.refresh_tokens FOR EACH ROW EXECUTE FUNCTION core.refresh_tokens_guard();
+
+-- Thiết bị POS: PENDING → ACTIVE → REVOKED, PENDING → REVOKED; khóa/cửa hàng/mốc thời gian bất biến; REVOKED đóng băng
+CREATE OR REPLACE FUNCTION core.pos_device_transition() RETURNS trigger
+  LANGUAGE plpgsql SET search_path = pg_catalog
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status <> 'PENDING' THEN
+      RAISE EXCEPTION 'pos_devices: thiết bị mới phải PENDING (kích hoạt sau)' USING ERRCODE = 'check_violation';
+    END IF;
+    NEW.registered_at := now();
+    RETURN NEW;
+  END IF;
+  IF OLD.status = 'REVOKED' THEN
+    RAISE EXCEPTION 'pos_devices: thiết bị đã thu hồi không sửa được (đăng ký thiết bị mới)' USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.public_key <> OLD.public_key OR NEW.fingerprint <> OLD.fingerprint OR NEW.store_id <> OLD.store_id
+     OR NEW.registered_at <> OLD.registered_at
+     OR (OLD.activated_at IS NOT NULL AND (NEW.activated_at IS DISTINCT FROM OLD.activated_at OR NEW.activated_by IS DISTINCT FROM OLD.activated_by)) THEN
+    RAISE EXCEPTION 'pos_devices: không đổi được khóa/cửa hàng/mốc đăng ký/kích hoạt' USING ERRCODE = 'check_violation';
   END IF;
   IF NEW.status <> OLD.status AND NOT (
        (OLD.status = 'PENDING' AND NEW.status IN ('ACTIVE', 'REVOKED'))
@@ -737,10 +950,12 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-CREATE TRIGGER pos_device_transition BEFORE UPDATE ON core.pos_devices
+CREATE TRIGGER pos_device_transition BEFORE INSERT OR UPDATE ON core.pos_devices
   FOR EACH ROW EXECUTE FUNCTION core.pos_device_transition();
 
 -- ─────────── 3. Bảng chỉ-thêm: audit.* (FR-INV-05/10, ADR-011) ───────────
+-- Chặn mọi role ứng dụng (REVOKE + trigger). Superuser vẫn vượt được (session_replication_role) — giảm rủi ro bằng
+-- bản sao nhật ký ra lưu trữ ngoài (§14 F14), không dùng superuser lúc chạy app.
 DO $$
 DECLARE t text;
 BEGIN
@@ -752,12 +967,42 @@ BEGIN
 END $$;
 GRANT SELECT, INSERT ON audit.logs, audit.export_logs TO app_rw;     -- ghi cùng transaction nghiệp vụ; Master đọc (audit:read)
 GRANT SELECT ON audit.login_logs, audit.viewer_access TO app_rw;     -- Master đọc
-GRANT INSERT ON audit.login_logs TO audit_writer;                     -- log đăng nhập ngoài transaction nghiệp vụ
+-- audit_writer/viewer_act KHÔNG có SELECT ⇒ không dùng INSERT … RETURNING (Prisma `create`); dùng `createMany`/
+-- `$executeRaw` (ADR-020)
+GRANT INSERT ON audit.login_logs TO audit_writer;
 GRANT INSERT ON audit.viewer_access TO viewer_act;
 
--- ─────────── 4. Quyền theo bảng (ADR-011) ───────────
--- core: default privileges (000) cho app_rw SELECT/INSERT/UPDATE; thu hẹp ở bảng tham chiếu, mở DELETE cho bảng tạm.
-REVOKE INSERT, UPDATE ON core.permissions, core.role_permissions FROM app_rw;   -- chỉ đổi bằng migration
+-- ─────────── 4. Quyền theo bảng/cột (ADR-011) ───────────
+-- core: default privileges (000) cho app_rw SELECT/INSERT/UPDATE cả bảng. Ở đây thu UPDATE cả bảng về, chỉ mở UPDATE
+-- đúng các cột nghiệp vụ được sửa: không role ứng dụng nào sửa được khóa chính, loại người dùng, khóa thiết bị, mốc tạo.
+DO $$
+DECLARE t text;
+BEGIN
+  FOR t IN SELECT format('%I.%I', schemaname, tablename) FROM pg_tables WHERE schemaname = 'core' LOOP
+    EXECUTE format('REVOKE UPDATE ON %s FROM app_rw', t);
+  END LOOP;
+END $$;
+GRANT UPDATE (email, phone_enc, phone_hash, password_hash, pin_hash, totp_secret_enc, totp_enabled_at, status,
+              failed_login_count, locked_until, lock_count, last_login_at, updated_at, version) ON core.users TO app_rw;
+GRANT UPDATE (used_at) ON core.recovery_codes TO app_rw;
+GRANT UPDATE (full_name, hired_at, left_at) ON core.staff TO app_rw;
+GRANT UPDATE (revoked_at) ON core.staff_badges TO app_rw;
+GRANT UPDATE (revoked_at, revoked_by) ON core.user_role_assignments, core.user_permission_grants TO app_rw;
+GRANT UPDATE (allowed, max_amount, max_pct_bp, limit_mode, same_day_only, requires_pin, requires_note, updated_at, updated_by)
+  ON core.approval_limits TO app_rw;
+GRANT UPDATE (name, address, status, updated_at, archived_at) ON core.stores TO app_rw;
+GRANT UPDATE (name, address, archived_at) ON core.warehouses TO app_rw;
+GRANT UPDATE (code) ON core.registers TO app_rw;
+GRANT UPDATE (name, register_id, status, activated_by, activated_at, revoked_by, revoked_at, revoke_reason, last_seen_at)
+  ON core.pos_devices TO app_rw;
+GRANT UPDATE (amr, step_up_until, last_used_at, expires_at, revoked_at, revoke_reason, ip_hash, user_agent) ON core.sessions TO app_rw;
+GRANT UPDATE (used_at, replaced_by_id) ON core.refresh_tokens TO app_rw;
+GRANT UPDATE (attempts, used_at) ON core.auth_challenges TO app_rw;
+GRANT UPDATE (attempts, consumed_at) ON core.otp_challenges TO app_rw;
+GRANT UPDATE (name, all_stores, modules, customer_visibility, cost_visibility, supplier_visibility, pos_control_visibility,
+              archived_at) ON core.viewer_profiles TO app_rw;
+GRANT UPDATE (owner_type, owner_id, bytes, sha256, status, reject_reason, duplicate_of_id, completed_at) ON core.files TO app_rw;
+REVOKE INSERT ON core.permissions, core.role_permissions FROM app_rw;   -- chỉ đổi bằng migration
 GRANT DELETE ON core.otp_challenges, core.auth_challenges, core.recovery_codes, core.viewer_profile_assignments TO app_rw;
 -- reporting_private.viewer_profile_scopes: app_rw quản lý (Master sửa hồ sơ); không role viewer nào chạm
 GRANT USAGE ON SCHEMA reporting_private TO app_rw;
@@ -771,13 +1016,15 @@ GRANT SELECT, INSERT ON integration.processed_events TO projector_rw;  -- consum
 -- ─────────── 5. Khung RLS cho viewer (§2.5 lớp 3–4, ADR-011) ───────────
 CREATE OR REPLACE FUNCTION reporting.current_profile() RETURNS uuid
   LANGUAGE sql STABLE
-  SET search_path = pg_catalog
+  SET search_path = pg_catalog, pg_temp
 AS $$ SELECT NULLIF(current_setting('app.viewer_profile_id', true), '')::uuid $$;
 
--- SECURITY DEFINER: viewer không có USAGE reporting_private/core; hồ sơ lưu trữ hoặc NULL → mảng rỗng (0 dòng)
-CREATE OR REPLACE FUNCTION reporting.allowed_stores(p_profile uuid) RETURNS uuid[]
+-- Cửa hàng của hồ sơ đang đặt trong transaction (API đặt bằng set_config(..., true)). Không nhận tham số ⇒ viewer không
+-- liệt kê được cửa hàng của hồ sơ khác qua lời gọi trực tiếp. SECURITY DEFINER: viewer không có USAGE core/
+-- reporting_private. Hồ sơ lưu trữ hoặc thiếu ⇒ mảng rỗng (0 dòng, không lỗi).
+CREATE OR REPLACE FUNCTION reporting.allowed_stores() RETURNS uuid[]
   LANGUAGE sql STABLE SECURITY DEFINER
-  SET search_path = pg_catalog
+  SET search_path = pg_catalog, pg_temp
 AS $$
   SELECT COALESCE(
     (SELECT CASE WHEN vp.all_stores
@@ -785,11 +1032,11 @@ AS $$
                  ELSE (SELECT array_agg(sc.store_id) FROM reporting_private.viewer_profile_scopes sc WHERE sc.profile_id = vp.id)
             END
      FROM core.viewer_profiles vp
-     WHERE vp.id = p_profile AND vp.archived_at IS NULL),
+     WHERE vp.id = NULLIF(current_setting('app.viewer_profile_id', true), '')::uuid AND vp.archived_at IS NULL),
     '{}'::uuid[])
 $$;
-REVOKE EXECUTE ON FUNCTION reporting.current_profile(), reporting.allowed_stores(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION reporting.current_profile(), reporting.allowed_stores(uuid) TO viewer_ro;
+REVOKE EXECUTE ON FUNCTION reporting.current_profile(), reporting.allowed_stores() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION reporting.current_profile(), reporting.allowed_stores() TO viewer_ro;
 
 -- ─────────── 6. Dữ liệu tham chiếu (seed — §19.6, §21.8, NC-08, §2.2, §2.3, §10.3, §19.7) ───────────
 INSERT INTO core.permissions (code, description, added_outside_spec) VALUES
@@ -875,9 +1122,9 @@ INSERT INTO core.permissions (code, description, added_outside_spec) VALUES
   ('processing:create', 'Tạo phiếu sơ chế (NC-08)', true),
   ('complaint:resolve', 'Xử lý khiếu nại (NC-08)', true);
 
--- Ánh xạ vai trò → mã quyền từ ma trận §2.2 (phạm vi cửa hàng/kho áp ở tầng API qua user_role_assignments.scope).
+-- Ánh xạ vai trò → mã quyền từ ma trận §2.2 (đọc CHẶT: ô "R" không cho mã ghi; phạm vi cửa hàng/kho áp ở tầng API).
 -- MASTER_ADMIN: mọi mã trừ mã riêng của viewer, khách, shipper. WAREHOUSE_STAFF KHÔNG có purchase_price:write —
--- Master cấp riêng qua user_permission_grants (§2.1).
+-- Master cấp riêng qua user_permission_grants (§2.1). Mã §21.8/NC-08 SPEC chưa ánh xạ: phiên gán tạm, chờ Tiến (NC-18).
 INSERT INTO core.role_permissions (role, permission_code)
 SELECT 'MASTER_ADMIN', code FROM core.permissions WHERE code NOT IN ('viewer:read', 'customer:self', 'shipper:deliver');
 INSERT INTO core.role_permissions (role, permission_code)
@@ -886,11 +1133,11 @@ FROM (VALUES
   ('VIEW_ONLY_ADMIN', ARRAY['viewer:read']),
   ('STORE_MANAGER', ARRAY['catalog:read', 'price:read', 'receipt:read', 'batch:read', 'stock:read',
      'transfer:create', 'transfer:receive', 'stocktake:create', 'stocktake:approve', 'spoilage:create',
-     'spoilage:approve', 'ripeness:check', 'markdown:approve', 'pos:sell', 'pos:void_line', 'pos:void_sale',
-     'pos:refund', 'pos:discount', 'pos:manual_weight', 'pos:no_sale_open', 'shift:open', 'shift:close',
-     'day:close', 'cash:movement', 'cash:approve', 'app_order:manage', 'wholesale:read', 'deal:read',
-     'customer:read_masked', 'staff:write', 'role:assign', 'badge:issue', 'device:write', 'report:read',
-     'internal_use:create', 'internal_use:approve', 'return:create', 'phone_order:create', 'complaint:resolve']),
+     'spoilage:approve', 'ripeness:check', 'markdown:approve', 'pos:void_sale', 'pos:refund', 'pos:discount',
+     'pos:manual_weight', 'pos:no_sale_open', 'shift:open', 'shift:close', 'day:close', 'cash:movement',
+     'cash:approve', 'wholesale:read', 'deal:read', 'customer:read_masked', 'staff:write', 'role:assign',
+     'badge:issue', 'device:write', 'report:read', 'internal_use:create', 'internal_use:approve', 'return:create',
+     'phone_order:create', 'complaint:resolve']),
   ('CASHIER', ARRAY['catalog:read', 'price:read', 'batch:read', 'stock:read', 'spoilage:create', 'pos:sell',
      'pos:void_line', 'shift:open', 'shift:close', 'cash:movement', 'customer:read_masked', 'return:create',
      'phone_order:create', 'internal_use:create']),
@@ -903,26 +1150,27 @@ FROM (VALUES
   ('CUSTOMER', ARRAY['customer:self'])
 ) AS r(role, codes)
 CROSS JOIN LATERAL unnest(r.codes) AS c(code)
-JOIN core.permissions p ON p.code = c.code;   -- mã gõ sai → thiếu dòng → test seed bắt
+JOIN core.permissions p ON p.code = c.code;   -- mã gõ sai → thiếu dòng → test đếm số dòng bắt
 
 -- Hạn mức duyệt §2.3 + §5.8 (markdown ≤ 20% cho cửa hàng trưởng). Không có dòng = không được làm.
-INSERT INTO core.approval_limits (role, action, allowed, max_amount, max_pct_bp, same_day_only, requires_pin, requires_note) VALUES
-  ('CASHIER', 'LINE_DELETE', true, NULL, NULL, false, false, false),
-  ('STORE_MANAGER', 'LINE_DISCOUNT', true, 50000, 1000, false, false, false),
-  ('MASTER_ADMIN', 'LINE_DISCOUNT', true, NULL, NULL, false, false, false),
-  ('STORE_MANAGER', 'SALE_VOID', true, 500000, NULL, true, false, false),
-  ('MASTER_ADMIN', 'SALE_VOID', true, NULL, NULL, false, false, false),
-  ('STORE_MANAGER', 'REFUND', true, 200000, NULL, false, false, false),
-  ('MASTER_ADMIN', 'REFUND', true, NULL, NULL, false, false, false),
-  ('STORE_MANAGER', 'SPOILAGE_APPROVE', true, 1000000, NULL, false, false, false),
-  ('MASTER_ADMIN', 'SPOILAGE_APPROVE', true, NULL, NULL, false, false, false),
-  ('STORE_MANAGER', 'STOCKTAKE_ADJUST', true, 1000000, 200, false, false, false),
-  ('MASTER_ADMIN', 'STOCKTAKE_ADJUST', true, NULL, NULL, false, false, false),
-  ('STORE_MANAGER', 'MANUAL_WEIGHT', true, NULL, NULL, false, true, true),
-  ('MASTER_ADMIN', 'MANUAL_WEIGHT', true, NULL, NULL, false, false, true),
-  ('STORE_MANAGER', 'NO_SALE_OPEN', true, NULL, NULL, false, true, true),
-  ('STORE_MANAGER', 'MARKDOWN', true, NULL, 2000, false, false, false),
-  ('MASTER_ADMIN', 'MARKDOWN', true, NULL, NULL, false, false, false);
+-- limit_mode ANY: "≤ 10% hoặc ≤ 50.000đ" = đạt một trong hai ngưỡng là được (đọc theo chữ "hoặc"; chờ Tiến — NC-18).
+INSERT INTO core.approval_limits (role, action, allowed, max_amount, max_pct_bp, limit_mode, same_day_only, requires_pin, requires_note) VALUES
+  ('CASHIER', 'LINE_DELETE', true, NULL, NULL, 'ANY', false, false, false),
+  ('STORE_MANAGER', 'LINE_DISCOUNT', true, 50000, 1000, 'ANY', false, false, false),
+  ('MASTER_ADMIN', 'LINE_DISCOUNT', true, NULL, NULL, 'ANY', false, false, false),
+  ('STORE_MANAGER', 'SALE_VOID', true, 500000, NULL, 'ANY', true, false, false),
+  ('MASTER_ADMIN', 'SALE_VOID', true, NULL, NULL, 'ANY', false, false, false),
+  ('STORE_MANAGER', 'REFUND', true, 200000, NULL, 'ANY', false, false, false),
+  ('MASTER_ADMIN', 'REFUND', true, NULL, NULL, 'ANY', false, false, false),
+  ('STORE_MANAGER', 'SPOILAGE_APPROVE', true, 1000000, NULL, 'ANY', false, false, false),
+  ('MASTER_ADMIN', 'SPOILAGE_APPROVE', true, NULL, NULL, 'ANY', false, false, false),
+  ('STORE_MANAGER', 'STOCKTAKE_ADJUST', true, 1000000, 200, 'ANY', false, false, false),
+  ('MASTER_ADMIN', 'STOCKTAKE_ADJUST', true, NULL, NULL, 'ANY', false, false, false),
+  ('STORE_MANAGER', 'MANUAL_WEIGHT', true, NULL, NULL, 'ANY', false, true, true),
+  ('MASTER_ADMIN', 'MANUAL_WEIGHT', true, NULL, NULL, 'ANY', false, false, false),
+  ('STORE_MANAGER', 'NO_SALE_OPEN', true, NULL, NULL, 'ANY', false, true, true),
+  ('STORE_MANAGER', 'MARKDOWN', true, NULL, 2000, 'ANY', false, false, false),
+  ('MASTER_ADMIN', 'MARKDOWN', true, NULL, NULL, 'ANY', false, false, false);
 
 -- 2 hồ sơ viewer mặc định (§10.3, §19.7) — toàn chuỗi
 INSERT INTO core.viewer_profiles (id, code, name, all_stores, modules, customer_visibility, cost_visibility, supplier_visibility, pos_control_visibility) VALUES

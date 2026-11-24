@@ -73,3 +73,24 @@ export async function checkViewerRls(client: Client): Promise<ViewerRlsViolation
   }
   return out;
 }
+
+/**
+ * Không role ứng dụng nào được UPDATE cột khóa chính (đổi id → FK ON UPDATE CASCADE kéo theo, phá dấu vết). Default
+ * privileges ở core cấp UPDATE cả bảng cho app_rw — migration tạo bảng phải REVOKE UPDATE rồi GRANT theo cột (ADR-020).
+ */
+export async function checkNoKeyUpdate(client: Client): Promise<{ table: string; column: string; role: string }[]> {
+  const { rows } = await client.query<{ table: string; column: string; role: string }>(
+    `SELECT format('%I.%I', n.nspname, c.relname) AS "table", a.attname AS "column", r.role
+     FROM pg_index i
+     JOIN pg_class c ON c.oid = i.indrelid
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+     JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY (i.indkey)
+     CROSS JOIN unnest($1::text[]) AS r(role)
+     WHERE i.indisprimary
+       AND n.nspname IN ('core', 'audit', 'integration', 'reporting', 'reporting_private')
+       AND has_column_privilege(r.role, c.oid, a.attnum, 'UPDATE')
+     ORDER BY 1, 2, 3`,
+    [APP_ROLES],
+  );
+  return rows;
+}

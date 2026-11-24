@@ -1,13 +1,19 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { execFileSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { checkAppendOnlyPrivileges, checkViewerRls } from '../src/db/privilege-checks';
-import { applySqlMigrations, ROLE_PASSWORD_ENV } from '../src/db/sql-migrations';
+import { checkAppendOnlyPrivileges, checkNoKeyUpdate, checkViewerRls } from '../src/db/privilege-checks';
+import {
+  applySqlMigrations,
+  assertNoTransactionControl,
+  listMigrations,
+  ROLE_PASSWORD_ENV,
+} from '../src/db/sql-migrations';
 
 // CP03 lát 1 — schema nền (M02 + M03 tối thiểu) trên PostgreSQL + PostGIS THẬT (ADR-011, ADR-020).
 const SQL_DIR = pathToFileURL(resolve(process.cwd(), '../../infra/sql') + '/');
@@ -91,16 +97,19 @@ describe('0001_foundation', () => {
     expect(out).not.toMatch(/\[[+*-]\]/);
   });
 
-  it('app_rw: S/I/U trên core, không DELETE (trừ bảng tạm đã liệt kê); không sửa bảng mã quyền', async () => {
+  it('app_rw: S/I trên core, UPDATE chỉ theo cột, không DELETE (trừ bảng tạm đã liệt kê); không sửa bảng mã quyền', async () => {
     for (const t of ['core.users', 'core.staff', 'core.sessions', 'core.pos_devices', 'core.files', 'core.stores']) {
       expect({
         t,
         s: await priv('app_rw', t, 'SELECT'),
         i: await priv('app_rw', t, 'INSERT'),
-        u: await priv('app_rw', t, 'UPDATE'),
+        u: await priv('app_rw', t, 'UPDATE'), // cả bảng — false; chỉ có GRANT UPDATE (cột)
         d: await priv('app_rw', t, 'DELETE'),
-      }).toEqual({ t, s: true, i: true, u: true, d: false });
+      }).toEqual({ t, s: true, i: true, u: false, d: false });
     }
+    const [c] = await q(`SELECT has_column_privilege('app_rw', 'core.users', 'status', 'UPDATE') AS st,
+                                has_column_privilege('app_rw', 'core.users', 'type', 'UPDATE') AS ty`);
+    expect(c).toEqual({ st: true, ty: false });
     for (const t of [
       'core.otp_challenges',
       'core.auth_challenges',
@@ -117,7 +126,7 @@ describe('0001_foundation', () => {
       }).toEqual({ t, s: true, i: false, u: false });
   });
 
-  it('audit.* chỉ-thêm: không role nào UPDATE/DELETE/TRUNCATE; trigger chặn cả owner', async () => {
+  it('audit.* chỉ-thêm: không role ứng dụng nào UPDATE/DELETE/TRUNCATE; trigger chặn cả owner khi chạy thường', async () => {
     expect(await checkAppendOnlyPrivileges(await connected())).toEqual([]);
     expect(await priv('app_rw', 'audit.logs', 'INSERT')).toBe(true);
     expect(await priv('app_rw', 'audit.login_logs', 'INSERT')).toBe(false);
@@ -210,7 +219,7 @@ describe('0001_foundation', () => {
        WHERE n.nspname IN ('core','reporting','reporting_private','audit','integration')
          AND has_function_privilege('viewer_ro', p.oid, 'EXECUTE') ORDER BY 1`,
     );
-    expect(rows.map((r) => r.f)).toEqual(['reporting.allowed_stores(p_profile uuid)', 'reporting.current_profile()']);
+    expect(rows.map((r) => r.f)).toEqual(['reporting.allowed_stores()', 'reporting.current_profile()']);
   });
 
   it('RLS khung: bảng reporting theo mẫu ADR-011 lọc đúng cửa hàng của hồ sơ; thiếu hồ sơ → 0 dòng', async () => {
@@ -231,7 +240,7 @@ describe('0001_foundation', () => {
              ALTER TABLE reporting._rls_probe ENABLE ROW LEVEL SECURITY;
              ALTER TABLE reporting._rls_probe FORCE ROW LEVEL SECURITY;
              CREATE POLICY viewer ON reporting._rls_probe FOR SELECT TO viewer_ro
-               USING (store_id = ANY (reporting.allowed_stores(reporting.current_profile())));
+               USING (store_id = ANY (reporting.allowed_stores()));
              GRANT SELECT ON reporting._rls_probe TO viewer_ro;`);
     await q(`INSERT INTO reporting._rls_probe VALUES ($1, 1), ($2, 2)`, [a, b]);
     expect(await checkViewerRls(await connected())).toEqual([]);
@@ -294,7 +303,7 @@ describe('0001_foundation', () => {
         r.n,
       ]),
     );
-    expect(counts).toMatchObject({ STORE_MANAGER: 39, CASHIER: 14, PICKER: 9, WAREHOUSE_STAFF: 15 });
+    expect(counts).toMatchObject({ STORE_MANAGER: 36, CASHIER: 14, PICKER: 9, WAREHOUSE_STAFF: 15 });
   });
 
   it('hạn mức duyệt §2.3 đúng giá trị', async () => {
@@ -384,7 +393,7 @@ describe('0001_foundation', () => {
     );
     await expect(
       q(`UPDATE core.pos_devices SET public_key = $2 WHERE id = $1`, [dev, h32()], roleUrl('app_rw')),
-    ).rejects.toThrow(/không đổi được khóa/);
+    ).rejects.toThrow(/permission denied/); // app_rw không có UPDATE(public_key); owner bị trigger chặn
     await q(
       `UPDATE core.pos_devices SET status = 'REVOKED', revoked_at = now(), revoked_by = $2 WHERE id = $1`,
       [dev, approver],
@@ -396,7 +405,7 @@ describe('0001_foundation', () => {
         [dev],
         roleUrl('app_rw'),
       ),
-    ).rejects.toThrow(/không hợp lệ/);
+    ).rejects.toThrow(/đã thu hồi không sửa được/);
     const staff = id();
     await q(`INSERT INTO core.users (id, type) VALUES ($1, 'STAFF')`, [staff], roleUrl('app_rw'));
     await expect(
@@ -428,6 +437,340 @@ describe('0001_foundation', () => {
         roleUrl('app_rw'),
       ),
     ).rejects.toThrow(/otp_attempts/);
+  });
+
+  // ───── Sửa theo kiểm thử agent lần 1 (C1, T1–T6, L1–L8) ─────
+
+  const newStore = async (code: string) => {
+    const s = id();
+    await q(`INSERT INTO core.stores (id, code, name) VALUES ($1, $2, $2)`, [s, code]);
+    return s;
+  };
+  const newUser = async (type: string) => {
+    const u = id();
+    if (type === 'MASTER' || type === 'VIEWER')
+      await q(`INSERT INTO core.users (id, type, email, password_hash) VALUES ($1, $2, $3, 'x')`, [
+        u,
+        type,
+        `${u}@example.test`,
+      ]);
+    else if (type === 'CUSTOMER')
+      await q(`INSERT INTO core.users (id, type, phone_hash, phone_enc) VALUES ($1, 'CUSTOMER', $2, $3)`, [
+        u,
+        h32(),
+        randomBytes(40),
+      ]);
+    else await q(`INSERT INTO core.users (id, type) VALUES ($1, $2)`, [u, type]);
+    return u;
+  };
+  const newDevice = async (store: string, register: string | null = null) => {
+    const d = id();
+    await q(
+      `INSERT INTO core.pos_devices (id, store_id, register_id, name, platform, public_key, fingerprint) VALUES ($1, $2, $3, 'Q', 'windows', $4, $5)`,
+      [d, store, register, h32(), h32()],
+      roleUrl('app_rw'),
+    );
+    return d;
+  };
+
+  it('C1 — users.type bất biến; thu hồi vai trò được và là kết thúc; không đổi vai trò tại chỗ', async () => {
+    const store = await newStore('C1-S');
+    const staff = await newUser('STAFF');
+    const master = await newUser('MASTER');
+    const ura = id();
+    await q(
+      `INSERT INTO core.user_role_assignments (id, user_id, role, scope_type, scope_id) VALUES ($1, $2, 'STORE_MANAGER', 'STORE', $3)`,
+      [ura, staff, store],
+      roleUrl('app_rw'),
+    );
+    await expect(q(`UPDATE core.users SET type = 'MASTER' WHERE id = $1`, [staff], roleUrl('app_rw'))).rejects.toThrow(
+      /permission denied/,
+    );
+    await expect(q(`UPDATE core.users SET type = 'MASTER' WHERE id = $1`, [staff])).rejects.toThrow(
+      /không đổi được id\/type/,
+    );
+    await expect(
+      q(`UPDATE core.user_role_assignments SET role = 'CASHIER' WHERE id = $1`, [ura], roleUrl('app_rw')),
+    ).rejects.toThrow(/permission denied/);
+    await expect(q(`UPDATE core.user_role_assignments SET role = 'CASHIER' WHERE id = $1`, [ura])).rejects.toThrow(
+      /chỉ được thu hồi/,
+    );
+    await q(
+      `UPDATE core.user_role_assignments SET revoked_at = now(), revoked_by = $2 WHERE id = $1`,
+      [ura, master],
+      roleUrl('app_rw'),
+    );
+    await expect(
+      q(
+        `UPDATE core.user_role_assignments SET revoked_at = NULL, revoked_by = NULL WHERE id = $1`,
+        [ura],
+        roleUrl('app_rw'),
+      ),
+    ).rejects.toThrow(/đã thu hồi không sửa được/);
+    await expect(
+      q(
+        `INSERT INTO core.user_role_assignments (id, user_id, role, scope_type, revoked_at, revoked_by) VALUES ($1, $2, 'MASTER_ADMIN', 'ALL', now(), $2)`,
+        [id(), master],
+        roleUrl('app_rw'),
+      ),
+    ).rejects.toThrow(/không tạo dòng đã thu hồi/);
+    // cửa hàng đã lưu trữ không nhận làm phạm vi
+    await q(`UPDATE core.stores SET archived_at = now() WHERE id = $1`, [store]);
+    await expect(
+      q(
+        `INSERT INTO core.user_role_assignments (id, user_id, role, scope_type, scope_id) VALUES ($1, $2, 'CASHIER', 'STORE', $3)`,
+        [id(), staff, store],
+        roleUrl('app_rw'),
+      ),
+    ).rejects.toThrow(/không phải cửa hàng đang hoạt động/);
+  });
+
+  it('L1 — không role ứng dụng nào UPDATE được cột khóa chính (mọi bảng)', async () => {
+    expect(await checkNoKeyUpdate(await connected())).toEqual([]);
+  });
+
+  it('T1 — phiên: user_type phải đúng loại; phiên nhân viên chỉ trên thiết bị ACTIVE; thu hồi là kết thúc; trần 60 ngày', async () => {
+    const store = await newStore('T1-S');
+    const staff = await newUser('STAFF');
+    const master = await newUser('MASTER');
+    const ins = (sid: string, u: string, ut: string, dev: string | null, exp = `now() + interval '1 day'`) =>
+      q(
+        `INSERT INTO core.sessions (id, user_id, user_type, pos_device_id, expires_at) VALUES ($1, $2, $3, $4, ${exp})`,
+        [sid, u, ut, dev],
+        roleUrl('app_rw'),
+      );
+    await expect(ins(id(), staff, 'MASTER', null)).rejects.toThrow(/khác loại người dùng/);
+    const dev = await newDevice(store);
+    await expect(ins(id(), staff, 'STAFF', dev)).rejects.toThrow(/phải ACTIVE/); // PENDING
+    await q(
+      `UPDATE core.pos_devices SET status = 'ACTIVE', activated_at = now(), activated_by = $2 WHERE id = $1`,
+      [dev, master],
+      roleUrl('app_rw'),
+    );
+    await expect(ins(id(), master, 'MASTER', dev)).rejects.toThrow(/chỉ cho phiên nhân viên/);
+    await expect(ins(id(), master, 'MASTER', null, `now() + interval '61 days'`)).rejects.toThrow(/sessions_times/);
+    const sid = id();
+    await ins(sid, staff, 'STAFF', dev);
+    await q(
+      `UPDATE core.sessions SET revoked_at = now(), revoke_reason = 'test' WHERE id = $1`,
+      [sid],
+      roleUrl('app_rw'),
+    );
+    await expect(
+      q(`UPDATE core.sessions SET revoked_at = NULL WHERE id = $1`, [sid], roleUrl('app_rw')),
+    ).rejects.toThrow(/đã thu hồi/);
+    await q(
+      `UPDATE core.pos_devices SET status = 'REVOKED', revoked_at = now(), revoked_by = $2 WHERE id = $1`,
+      [dev, master],
+      roleUrl('app_rw'),
+    );
+    await expect(ins(id(), staff, 'STAFF', dev)).rejects.toThrow(/phải ACTIVE/);
+  });
+
+  it('L1 — refresh token đã xoay không "hồi sinh", không chuyển phiên, không trỏ chính nó', async () => {
+    const master = await newUser('MASTER');
+    const s1 = id();
+    const s2 = id();
+    for (const s of [s1, s2])
+      await q(
+        `INSERT INTO core.sessions (id, user_id, user_type, expires_at) VALUES ($1, $2, 'MASTER', now() + interval '12 hours')`,
+        [s, master],
+        roleUrl('app_rw'),
+      );
+    const [t1, t2] = [id(), id()];
+    await q(
+      `INSERT INTO core.refresh_tokens (id, session_id, token_hash) VALUES ($1, $2, $3), ($4, $2, $5)`,
+      [t1, s1, h32(), t2, h32()],
+      roleUrl('app_rw'),
+    );
+    await expect(
+      q(`UPDATE core.refresh_tokens SET session_id = $2 WHERE id = $1`, [t1, s2], roleUrl('app_rw')),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      q(`UPDATE core.refresh_tokens SET used_at = now(), replaced_by_id = id WHERE id = $1`, [t1], roleUrl('app_rw')),
+    ).rejects.toThrow(/refresh_tokens_not_self/);
+    await q(
+      `UPDATE core.refresh_tokens SET used_at = now(), replaced_by_id = $2 WHERE id = $1`,
+      [t1, t2],
+      roleUrl('app_rw'),
+    );
+    await expect(
+      q(`UPDATE core.refresh_tokens SET used_at = NULL WHERE id = $1`, [t1], roleUrl('app_rw')),
+    ).rejects.toThrow(/đã xoay/);
+    await expect(
+      q(
+        `INSERT INTO core.refresh_tokens (id, session_id, token_hash, used_at) VALUES ($1, $2, $3, now())`,
+        [id(), s1, h32()],
+        roleUrl('app_rw'),
+      ),
+    ).rejects.toThrow(/phải chưa dùng/);
+    await expect(
+      q(
+        `INSERT INTO core.refresh_tokens (id, session_id, token_hash, used_at, replaced_by_id) VALUES ($1, $2, $3, now(), $4)`,
+        [id(), s1, h32(), id()],
+      ),
+    ).rejects.toThrow(/phải chưa dùng|foreign key/);
+  });
+
+  it('T2 — quầy phải cùng cửa hàng với thiết bị; thiết bị thu hồi đóng băng; mốc kích hoạt bất biến', async () => {
+    const [a, b] = [await newStore('T2-A'), await newStore('T2-B')];
+    const regB = id();
+    await q(`INSERT INTO core.registers (id, store_id, code) VALUES ($1, $2, 'Q1')`, [regB, b]);
+    await expect(newDevice(a, regB)).rejects.toThrow(/pos_devices_register_id_store_id_fkey/);
+    const master = await newUser('MASTER');
+    const dev = await newDevice(b, regB);
+    await expect(
+      q(
+        `INSERT INTO core.pos_devices (id, store_id, name, platform, public_key, fingerprint, status, activated_at, activated_by) VALUES ($1, $2, 'x', 'w', $3, $4, 'ACTIVE', now(), $5)`,
+        [id(), b, h32(), h32(), master],
+        roleUrl('app_rw'),
+      ),
+    ).rejects.toThrow(/phải PENDING/);
+    await q(
+      `UPDATE core.pos_devices SET status = 'ACTIVE', activated_at = now(), activated_by = $2 WHERE id = $1`,
+      [dev, master],
+      roleUrl('app_rw'),
+    );
+    await expect(
+      q(`UPDATE core.pos_devices SET activated_at = now() - interval '1 day' WHERE id = $1`, [dev], roleUrl('app_rw')),
+    ).rejects.toThrow(/mốc đăng ký\/kích hoạt/);
+    await q(
+      `UPDATE core.pos_devices SET status = 'REVOKED', revoked_at = now(), revoked_by = $2 WHERE id = $1`,
+      [dev, master],
+      roleUrl('app_rw'),
+    );
+    await expect(
+      q(`UPDATE core.pos_devices SET register_id = NULL WHERE id = $1`, [dev], roleUrl('app_rw')),
+    ).rejects.toThrow(/đã thu hồi không sửa được/);
+  });
+
+  it('T3 — quyền riêng chỉ cho STAFF; hồ sơ viewer chỉ cho VIEWER; staff chỉ cho STAFF; mã khôi phục chỉ cho admin', async () => {
+    const viewer = await newUser('VIEWER');
+    const master = await newUser('MASTER');
+    const staff = await newUser('STAFF');
+    const grant = (u: string) =>
+      q(
+        `INSERT INTO core.user_permission_grants (id, user_id, permission_code, scope_type, granted_by) VALUES ($1, $2, 'price:write', 'ALL', $3)`,
+        [id(), u, master],
+        roleUrl('app_rw'),
+      );
+    await expect(grant(viewer)).rejects.toThrow(/chỉ cho người dùng STAFF/);
+    await expect(grant(master)).rejects.toThrow(/chỉ cho người dùng STAFF/);
+    await grant(staff);
+    const [sh] = await q(`SELECT id FROM core.viewer_profiles WHERE code = 'SHAREHOLDER'`);
+    await expect(
+      q(
+        `INSERT INTO core.viewer_profile_assignments (user_id, viewer_profile_id) VALUES ($1, $2)`,
+        [master, sh.id],
+        roleUrl('app_rw'),
+      ),
+    ).rejects.toThrow(/viewer_profile_assignments/);
+    await q(
+      `INSERT INTO core.viewer_profile_assignments (user_id, viewer_profile_id) VALUES ($1, $2)`,
+      [viewer, sh.id],
+      roleUrl('app_rw'),
+    );
+    await expect(
+      q(
+        `INSERT INTO core.staff (user_id, staff_code, full_name) VALUES ($1, 'NV9001', 'X')`,
+        [viewer],
+        roleUrl('app_rw'),
+      ),
+    ).rejects.toThrow(/staff: người dùng loại VIEWER/);
+    await q(
+      `INSERT INTO core.staff (user_id, staff_code, full_name) VALUES ($1, 'NV9002', 'Y')`,
+      [staff],
+      roleUrl('app_rw'),
+    );
+    await expect(
+      q(
+        `INSERT INTO core.recovery_codes (id, user_id, code_hash) VALUES ($1, $2, 'x')`,
+        [id(), staff],
+        roleUrl('app_rw'),
+      ),
+    ).rejects.toThrow(/recovery_codes/);
+  });
+
+  it('T4/L6 — bộ chạy: chặn migration chen trước bản đã áp, mục lạ, trùng số, lệnh điều khiển transaction', async () => {
+    const base = { url: ownerUrl, env: passwords, log: () => undefined };
+    // a) thư mục Prisma có 0000_early chen trước 0001 đã áp
+    const pDir = mkdtempSync(join(tmpdir(), 'pm-'));
+    cpSync(new URL('.', PRISMA_DIR), pDir, { recursive: true });
+    mkdirSync(join(pDir, '0000_early'));
+    writeFileSync(join(pDir, '0000_early', 'migration.sql'), 'SELECT 1;\n');
+    await expect(applySqlMigrations({ ...base, dir: SQL_DIR, prismaDir: pathToFileURL(pDir + '/') })).rejects.toThrow(
+      /đứng trước migration đã áp/,
+    );
+    // b) file infra/sql mới khi đã có migration Prisma
+    const sDir = mkdtempSync(join(tmpdir(), 'sq-'));
+    for (const f of readdirSync(SQL_DIR)) copyFileSync(new URL(f, SQL_DIR), join(sDir, f));
+    writeFileSync(join(sDir, '002_late.sql'), 'SELECT 1;\n');
+    await expect(
+      applySqlMigrations({ ...base, dir: pathToFileURL(sDir + '/'), prismaDir: PRISMA_DIR }),
+    ).rejects.toThrow(/đứng trước migration đã áp/);
+    // c) mục lạ và trùng số
+    writeFileSync(join(sDir, '003_x.SQL'), 'SELECT 1;\n');
+    expect(() => listMigrations(pathToFileURL(sDir + '/'))).toThrow(/Mục lạ/);
+    const dDir = mkdtempSync(join(tmpdir(), 'dup-'));
+    writeFileSync(join(dDir, '000_a.sql'), 'SELECT 1;\n');
+    writeFileSync(join(dDir, '000_b.sql'), 'SELECT 1;\n');
+    expect(() => listMigrations(pathToFileURL(dDir + '/'))).toThrow(/Trùng số/);
+    // d) COMMIT giữa file bị chặn; thân hàm plpgsql (BEGIN … END;) không bị bắt nhầm
+    expect(() => assertNoTransactionControl('x', 'CREATE TABLE t(); COMMIT;\nSELECT 1;')).toThrow(/COMMIT/);
+    expect(() => assertNoTransactionControl('x', 'SELECT 1;\nBEGIN;\n')).toThrow(/BEGIN/);
+    for (const m of listMigrations(SQL_DIR, PRISMA_DIR))
+      expect(() => assertNoTransactionControl(m.key, readFileSync(m.url, 'utf8'))).not.toThrow();
+  });
+
+  it('T5 — role ứng dụng không vào được database khác trong cluster', async () => {
+    const other = new URL(roleUrl('viewer_ro'));
+    other.pathname = '/postgres';
+    await expect(q(`SELECT 1`, [], other.toString())).rejects.toThrow(/permission denied/);
+    other.pathname = '/template_postgis';
+    await expect(q(`SELECT 1`, [], other.toString())).rejects.toThrow(/permission denied|does not exist/);
+  });
+
+  it('T6 — audit_writer/viewer_act: INSERT được, INSERT … RETURNING bị từ chối (dùng createMany/$executeRaw)', async () => {
+    await q(`INSERT INTO audit.login_logs (id, result) VALUES ($1, 'OK')`, [id()], roleUrl('audit_writer'));
+    await expect(
+      q(`INSERT INTO audit.login_logs (id, result) VALUES ($1, 'OK') RETURNING *`, [id()], roleUrl('audit_writer')),
+    ).rejects.toThrow(/permission denied/);
+  });
+
+  it('L5 — thời điểm audit/thử thách do server đặt (không ghi lùi được)', async () => {
+    const lid = id();
+    await q(
+      `INSERT INTO audit.logs (id, at, action, resource_type) VALUES ($1, '1999-01-01', 'test.backdate', 'probe')`,
+      [lid],
+      roleUrl('app_rw'),
+    );
+    const [r] = await q(`SELECT at > now() - interval '1 minute' AS fresh FROM audit.logs WHERE id = $1`, [lid]);
+    expect(r.fresh).toBe(true);
+    const u = await newUser('MASTER');
+    await expect(
+      q(
+        `INSERT INTO core.auth_challenges (id, kind, user_id, secret_hash, created_at, expires_at) VALUES ($1, 'MFA', $2, $3, now() + interval '1 hour', now() + interval '1 hour 5 minutes')`,
+        [id(), u, h32()],
+        roleUrl('app_rw'),
+      ),
+    ).rejects.toThrow(/auth_challenges_ttl/);
+    await expect(
+      q(
+        `INSERT INTO core.auth_challenges (id, kind, user_id, secret_hash, expires_at) VALUES ($1, 'MFA', $2, $3, now() + interval '5 minutes')`,
+        [id(), id(), h32()],
+        roleUrl('app_rw'),
+      ),
+    ).rejects.toThrow(/foreign key/);
+  });
+
+  it('L4 — viewer_ro không gọi được hàm large object; allowed_stores() không nhận tham số', async () => {
+    await expect(q(`SELECT lo_create(0)`, [], roleUrl('viewer_ro'))).rejects.toThrow(/permission denied/);
+    await expect(q(`SELECT lo_from_bytea(0, 'x'::bytea)`, [], roleUrl('viewer_ro'))).rejects.toThrow(
+      /permission denied/,
+    );
+    await expect(
+      q(`SELECT reporting.allowed_stores('019a9b00-0000-7000-8000-000000000001'::uuid)`, [], roleUrl('viewer_ro')),
+    ).rejects.toThrow(/does not exist/);
   });
 
   // Dùng chung một kết nối owner cho các bộ kiểm pg_catalog

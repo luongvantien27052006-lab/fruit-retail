@@ -36,6 +36,30 @@ ADR-017 chốt "SQL tay nhúng trong `migration.sql` của Prisma, một lịch 
 - **Quyền cấp riêng:** `core.user_permission_grants` cho trường hợp §2.1 (WAREHOUSE_STAFF + `purchase_price:write`),
   không thêm vào vai trò.
 
+- **Bộ chạy — một thứ tự duy nhất (sửa theo kiểm thử agent):** migration chưa áp đứng TRƯỚC migration đã áp ⇒ dừng
+  (thêm file `infra/sql` sau khi đã có migration Prisma cũng bị chặn — dùng migration Prisma mới); mục lạ (`.SQL`,
+  `.bak`, thư mục) ⇒ dừng; trùng số ⇒ dừng; lệnh điều khiển transaction (`COMMIT`, `BEGIN;`, `SAVEPOINT`…) trong file ⇒
+  dừng (bộ chạy tự bọc transaction). DDL Prisma sinh từ rỗng **bỏ** bảng `integration.sql_migrations` (đã có từ 000).
+- **Quyền UPDATE theo cột ở `core`:** default privileges của 000 cấp UPDATE cả bảng cho app_rw; mỗi migration tạo bảng
+  `core` phải `REVOKE UPDATE` rồi `GRANT UPDATE (cột…)` đúng cột nghiệp vụ. Không ai UPDATE được khóa chính, `users.type`,
+  khóa thiết bị, mốc tạo — bộ kiểm `checkNoKeyUpdate` chặn ở CI.
+- **Bất biến bằng trigger:** `users.type`/`id` bất biến; gán vai trò/quyền riêng chỉ được thu hồi một lần; phiên thu hồi
+  không sửa được, `user_type` = loại người dùng, phiên nhân viên chỉ trên thiết bị `ACTIVE`; refresh token đã xoay không
+  sửa được; thiết bị POS `REVOKED` đóng băng, mốc kích hoạt bất biến, quầy phải cùng cửa hàng (FK kép); thời điểm
+  `created_at`/`granted_at`/`audit.*.at` do server đặt.
+- **Viewer:** `reporting.allowed_stores()` **không tham số** (đọc hồ sơ từ `app.viewer_profile_id` trong transaction) —
+  viewer không liệt kê được cửa hàng của hồ sơ khác qua lời gọi trực tiếp. Viewer tự `SET app.viewer_profile_id` được
+  (giới hạn của thiết kế ADR-011): rủi ro chỉ khi API có SQL injection; API đặt hồ sơ bằng `set_config(…, true)` từ phiên
+  đã xác thực, không nhận từ client.
+- **audit_writer / viewer_act** chỉ có INSERT (không SELECT) ⇒ không dùng `INSERT … RETURNING` (Prisma `create`); dùng
+  `createMany` hoặc `$executeRaw`.
+- **Cluster:** 001 thu CONNECT/TEMP của PUBLIC trên mọi database khác (`postgres`, `template_postgis`, `template1`) và
+  EXECUTE các hàm large object (`lo_*`, `loread`, `lowrite`). `NOTIFY` không thu hồi được — chấp nhận (không lộ dữ liệu).
+- **Giới hạn đã biết:** superuser vượt được trigger chỉ-thêm (`session_replication_role`) — app không chạy bằng superuser;
+  bản sao nhật ký ra ngoài (§14 F14) làm ở CP19. Cột `*_by` (người thao tác) không có FK để nhật ký không phụ thuộc vòng
+  đời bảng người dùng (người dùng không bị xóa). Hàm SECURITY DEFINER thuộc owner (superuser), `search_path = pg_catalog,
+  pg_temp`, mọi tên ghi đủ schema — tách role chủ hàm NOLOGIN để CP19.
+
 ## Phương án đã cân nhắc
 | Phương án | Lý do loại |
 |---|---|

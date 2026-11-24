@@ -39,11 +39,12 @@ interface Migration {
 
 /** Liệt kê migration theo thứ tự áp: infra/sql (file NNN_x.sql) rồi Prisma (thư mục NNNN_x chứa migration.sql). */
 export function listMigrations(dir: URL, prismaDir?: URL): Migration[] {
-  const files = readdirSync(dir)
-    .filter((f) => f.endsWith('.sql'))
-    .sort();
-  const bad = files.filter((f) => !FILE_RE.test(f));
-  if (bad.length) throw new Error(`Tên file SQL sai quy ước NNN_ascii_snake.sql: ${bad.join(', ')}`);
+  // Mọi mục trong infra/sql phải là migration đúng tên (file .SQL/.bak/thư mục lạ → dừng, không lặng lẽ bỏ qua)
+  const entries0 = readdirSync(dir, { withFileTypes: true });
+  const bad = entries0.filter((e) => !e.isFile() || !FILE_RE.test(e.name)).map((e) => e.name);
+  if (bad.length) throw new Error(`Mục lạ/sai quy ước NNN_ascii_snake.sql trong infra/sql: ${bad.join(', ')}`);
+  const files = entries0.map((e) => e.name).sort();
+  assertUniqueNumbers(files, 'infra/sql');
   const out: Migration[] = files.map((f) => ({ key: f, url: new URL(f, dir) }));
   if (prismaDir) {
     const entries = readdirSync(prismaDir, { withFileTypes: true });
@@ -53,8 +54,9 @@ export function listMigrations(dir: URL, prismaDir?: URL): Migration[] {
       .sort();
     const badDirs = dirs.filter((d) => !PRISMA_DIR_RE.test(d));
     if (badDirs.length) throw new Error(`Thư mục migration Prisma sai quy ước NNNN_ascii_snake: ${badDirs.join(', ')}`);
-    const stray = entries.filter((e) => e.isFile() && e.name !== 'migration_lock.toml').map((e) => e.name);
+    const stray = entries.filter((e) => !e.isDirectory() && e.name !== 'migration_lock.toml').map((e) => e.name);
     if (stray.length) throw new Error(`File lạ trong thư mục migration Prisma: ${stray.join(', ')}`);
+    assertUniqueNumbers(dirs, 'prisma/migrations');
     for (const d of dirs) {
       const inner = readdirSync(new URL(`${d}/`, prismaDir));
       if (inner.length !== 1 || inner[0] !== 'migration.sql')
@@ -63,6 +65,29 @@ export function listMigrations(dir: URL, prismaDir?: URL): Migration[] {
     }
   }
   return out;
+}
+
+function assertUniqueNumbers(names: string[], where: string): void {
+  const seen = new Map<string, string>();
+  for (const n of names) {
+    const num = n.split('_')[0] ?? n;
+    const prev = seen.get(num);
+    if (prev) throw new Error(`Trùng số thứ tự migration trong ${where}: ${prev} và ${n}`);
+    seen.set(num, n);
+  }
+}
+
+/**
+ * Migration chạy trong một transaction do bộ chạy mở; câu lệnh điều khiển transaction trong file sẽ phá tính nguyên tử
+ * (đã tạo đối tượng nhưng không ghi sổ). `BEGIN`/`END;` trong thân hàm plpgsql không bị bắt (không có `;` ngay sau
+ * BEGIN; END luôn kèm `$$` hoặc nằm trong thân hàm thụt lề không đứng đầu câu lệnh).
+ */
+const TX_CONTROL_RE =
+  /(?:^|;)\s*(COMMIT|ROLLBACK|ABORT|SAVEPOINT|RELEASE|START\s+TRANSACTION|BEGIN\s*(?:TRANSACTION|WORK)?\s*;|END\s*(?:TRANSACTION|WORK)\s*;)/im;
+export function assertNoTransactionControl(key: string, sql: string): void {
+  const noComments = sql.replace(/--[^\n]*/g, '');
+  const m = TX_CONTROL_RE.exec(noComments);
+  if (m) throw new Error(`Migration ${key} chứa lệnh điều khiển transaction "${m[1]}" — bộ chạy tự bọc transaction`);
 }
 
 /** Kiểm mật khẩu role: có, đủ dài, không phải giá trị mẫu, không trùng nhau. */
@@ -120,6 +145,14 @@ export async function applySqlMigrations({
     }
     const vanished = [...done.keys()].filter((f) => !files.includes(f));
     if (vanished.length) throw new Error(`File đã áp nhưng không còn trong thư mục: ${vanished.join(', ')}`);
+    // Forward-only, một thứ tự duy nhất: migration chưa áp không được đứng TRƯỚC migration đã áp (nếu không, DB cũ và
+    // DB mới áp theo thứ tự khác nhau). Thêm file infra/sql khi đã có migration Prisma cũng bị chặn ở đây.
+    const lastApplied = migrations.reduce((acc, m, i) => (done.has(m.key) ? i : acc), -1);
+    const outOfOrder = lastApplied < 0 ? [] : migrations.slice(0, lastApplied).filter((m) => !done.has(m.key));
+    if (outOfOrder.length)
+      throw new Error(
+        `Migration mới đứng trước migration đã áp (${migrations[lastApplied]?.key}): ${outOfOrder.map((m) => m.key).join(', ')} — đặt số sau cùng hoặc dùng migration Prisma mới`,
+      );
 
     for (const { key: f, url: fileUrl } of migrations) {
       const sql = readFileSync(fileUrl, 'utf8');
@@ -132,6 +165,7 @@ export async function applySqlMigrations({
           );
         continue;
       }
+      assertNoTransactionControl(f, sql);
       await client.query('BEGIN');
       try {
         await client.query(sql);

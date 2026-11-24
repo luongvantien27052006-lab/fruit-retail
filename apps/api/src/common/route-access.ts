@@ -77,8 +77,8 @@ export function listRoutes(app: INestApplication): RouteInfo[] {
 
 /**
  * Deny-by-default lúc khởi động: route thiếu khai báo quyền ⇒ ném lỗi, app không chạy. Khai báo ở method thắng class
- * (quy ước Nest `getAllAndOverride`); riêng `@Public()` ở method trong class đã yêu cầu quyền/đăng nhập bị coi là nhầm
- * lẫn nguy hiểm ⇒ cũng chặn (route public đặt ở controller public riêng).
+ * (quy ước Nest `getAllAndOverride`) nhưng method KHÔNG được nới lỏng hơn class (vd `@Public`/`@Authenticated` trong
+ * controller có `@RequirePermission`) ⇒ chặn; route lỏng hơn đặt ở controller riêng.
  */
 export function assertRoutesDeclareAccess(app: INestApplication): void {
   const routes = listRoutes(app);
@@ -89,12 +89,12 @@ export function assertRoutesDeclareAccess(app: INestApplication): void {
         .map((r) => `${r.method} ${r.path} (${r.controller}.${r.handler})`)
         .join(', ')}`,
     );
-  const publicInProtected = routes.filter(
-    (r) => r.methodAccess?.kind === 'public' && r.classAccess && r.classAccess.kind !== 'public',
-  );
-  if (publicInProtected.length)
+  // Khai báo ở method không được NỚI LỎNG hơn class (public < authenticated < permission): nhầm lẫn nguy hiểm
+  const rank = (x: Access) => (x.kind === 'public' ? 0 : x.kind === 'authenticated' ? 1 : 2);
+  const loosened = routes.filter((r) => r.methodAccess && r.classAccess && rank(r.methodAccess) < rank(r.classAccess));
+  if (loosened.length)
     throw new Error(
-      `@Public() ở method trong controller yêu cầu quyền: ${publicInProtected
+      `Khai báo quyền ở method nới lỏng hơn class (@Public/@Authenticated trong controller cần quyền): ${loosened
         .map((r) => `${r.method} ${r.path} (${r.controller}.${r.handler})`)
         .join(', ')}`,
     );

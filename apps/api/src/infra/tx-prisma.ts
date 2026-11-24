@@ -16,13 +16,17 @@ const WRITE_OPS = new Set([
   'deleteMany',
   '$executeRaw',
   '$executeRawUnsafe',
+  // SQL thô có thể là INSERT/UPDATE … RETURNING — không phân biệt được đọc/ghi ⇒ cũng bắt buộc transaction
+  '$queryRaw',
+  '$queryRawUnsafe',
 ]);
 
 /**
  * Mọi thao tác GHI qua client nghiệp vụ phải nằm trong transaction đang mở (ADR-016, kiểm thử lát 2 M6): không có
  * transaction (GET ghi dữ liệu, ghi "fire-and-forget" sau khi response đã trả) ⇒ ném lỗi thay vì ghi lẻ không audit.
  * `host` trả TransactionHost CỦA CHÍNH APP (không dùng TransactionHost.getInstance() tĩnh — nhiều app trong một process
- * sẽ đọc nhầm nhau). Đọc ngoài transaction vẫn được. `$queryRaw` không chặn (dùng cho đọc) — câu ghi bằng SQL thô phải dùng $executeRaw.
+ * sẽ đọc nhầm nhau). Đọc bằng Prisma ngoài transaction vẫn được; SQL thô ($queryRaw/$executeRaw) luôn cần transaction
+ * (đọc thô thì đặt trong @Transactional).
  */
 export function guardedPrisma(base: PrismaService, host: () => TransactionHost) {
   return base.$extends({

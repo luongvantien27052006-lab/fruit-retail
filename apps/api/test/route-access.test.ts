@@ -1,7 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/bootstrap';
-import { Public, RequirePermission } from '../src/common/access';
+import { Authenticated, Public, RequirePermission } from '../src/common/access';
 import { listRoutes } from '../src/common/route-access';
 import { loadEnv } from '../src/config/env';
 
@@ -42,6 +42,16 @@ class ProtectedWithPublicMethod {
   }
 }
 
+@RequirePermission('store:write')
+@Controller('_test6')
+class ProtectedWithAuthenticatedMethod {
+  @Authenticated()
+  @Get('any')
+  any() {
+    return 1;
+  }
+}
+
 @Public()
 @Controller('_test5')
 class MultiPathController {
@@ -75,8 +85,11 @@ describe('kiểm quyền route lúc khởi động', () => {
       /GET \/_test3\/inherited/,
     );
     await expect(createApp(env, { logger: false }, { controllers: [ProtectedWithPublicMethod] })).rejects.toThrow(
-      /@Public\(\) ở method.*\/_test4\/open/,
+      /nới lỏng hơn class.*\/_test4\/open/,
     );
+    await expect(
+      createApp(env, { logger: false }, { controllers: [ProtectedWithAuthenticatedMethod] }),
+    ).rejects.toThrow(/nới lỏng hơn class.*\/_test6\/any/);
     const a2 = await createApp(env, { logger: false }, { controllers: [MultiPathController] });
     try {
       const paths = listRoutes(a2)

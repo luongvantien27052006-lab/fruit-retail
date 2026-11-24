@@ -1,7 +1,7 @@
 import { type ArgumentsHost, Catch, type ExceptionFilter, HttpException, Logger } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { resolveRequestId } from './request-context';
-import { findSqlState, isDbError, mapDbError } from './db-errors';
+import { dbErrorDetails, isDbError, mapDbError } from './db-errors';
 import { AppError, type ErrorCode, ERROR_HTTP_STATUS, isErrorCode } from './errors';
 
 interface Envelope {
@@ -46,6 +46,12 @@ export class ErrorFilter implements ExceptionFilter {
 
     if (mapped) {
       status = mapped.status;
+      // lỗi DB đã ánh xạ sang 4xx (vi phạm ràng buộc, trùng khóa…) thường là lỗi dữ liệu/lập trình ⇒ ghi warn
+      if (status < 500 && isDbError(exception))
+        this.log.warn(
+          { request_id: requestId, method: req.method, status, ...dbErrorDetails(exception) },
+          'lỗi DB → 4xx',
+        );
       body = {
         code: mapped.code,
         message: mapped.message,
@@ -82,11 +88,7 @@ export class ErrorFilter implements ExceptionFilter {
     if (status >= 500) {
       const where = { request_id: requestId, method: req.method, route: req.route?.path as string | undefined };
       if (isDbError(exception)) {
-        const e = exception as { name?: string; code?: string };
-        this.log.error(
-          { ...where, db_error: e.name, prisma_code: e.code, sqlstate: findSqlState(exception) },
-          'lỗi DB 5xx',
-        );
+        this.log.error({ ...where, ...dbErrorDetails(exception) }, 'lỗi DB 5xx');
       } else {
         const err = exception instanceof Error ? exception : new Error(String(exception));
         this.log.error({ ...where, err }, 'request lỗi 5xx');

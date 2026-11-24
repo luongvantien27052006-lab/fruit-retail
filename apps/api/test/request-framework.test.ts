@@ -25,6 +25,7 @@ import { createApp } from '../src/bootstrap';
 import { Authenticated, NoAudit, type Principal, Public, RequirePermission } from '../src/common/access';
 import { AuditOutboxService, type Tx } from '../src/common/audit-outbox.service';
 import { AppError, ERROR_HTTP_STATUS } from '../src/common/errors';
+import { isDbError, mapDbError } from '../src/common/db-errors';
 import { isSensitiveKey, toJsonSafe } from '../src/common/json-safe';
 import type { RequestStore } from '../src/common/request-context';
 import { listRoutes } from '../src/common/route-access';
@@ -178,6 +179,31 @@ class TestController {
   async renameTo(@Param('id') id: string, @Body() body: { name: string }) {
     await this.tx.store.update({ where: { id }, data: { name: body.name } });
     await this.ao.recordAudit({ action: 'store.rename', resourceType: 'store', resourceId: id });
+    return { ok: true };
+  }
+
+  @Public()
+  @Get('raw-in-get')
+  async rawInGet() {
+    return this.tx.$queryRawUnsafe('SELECT 1 AS one');
+  }
+
+  @Public()
+  @Get('node-error')
+  nodeError(): never {
+    throw Object.assign(new Error('pipe vỡ khi ghi'), { code: 'EPIPE' });
+  }
+
+  @RequirePermission('store:write')
+  @Post('stores/:id/audit-public')
+  async auditPublic(@Param('id') id: string) {
+    await this.ao.recordAudit({
+      action: 'store.update',
+      resourceType: 'store',
+      resourceId: id,
+      after: { address: '12 Lê Lợi', customer: { address: 'x', phone: 'y' } },
+      publicKeys: ['address'],
+    });
     return { ok: true };
   }
 
@@ -432,7 +458,7 @@ describe('khung request (CP03 lát 2)', () => {
     const [a] = await rows(`SELECT after FROM audit.logs WHERE request_id = $1`, [rid]);
     expect(a?.after).toEqual({
       shipping_fee: '15000',
-      address: '12 Lê Lợi',
+      address: '[REDACTED]', // mặc định coi là PII (địa chỉ khách); dữ liệu công khai truyền publicKeys
       opinion: 'tốt',
       mapping: 'x',
       customer_phone: '[REDACTED]',
@@ -468,9 +494,25 @@ describe('khung request (CP03 lát 2)', () => {
       a: ['1', '1970-01-01T00:00:00.000Z'],
       b: {},
     });
-    for (const k of ['shipping_fee', 'opinion', 'mapping', 'address', 'spinner', 'tokenizer_mode'])
+    for (const k of [
+      'shipping_fee',
+      'opinion',
+      'mapping',
+      'store_address',
+      'content_hash',
+      'spinner',
+      'tokenizer_mode',
+    ])
       expect({ k, s: isSensitiveKey(k) }).toEqual({ k, s: false });
     for (const k of [
+      'address',
+      'customer_addresses',
+      'refresh_tokens',
+      'phones',
+      'mobile',
+      'so_dien_thoai',
+      'sdt',
+      'passcode',
       'password',
       'pinHash',
       'phone_enc',
@@ -563,5 +605,24 @@ describe('khung request (CP03 lát 2)', () => {
     } finally {
       await db.q(`DROP TRIGGER _commit_fail ON core.stores; DROP FUNCTION core._commit_fail()`);
     }
+  });
+
+  it('lần 2 — T2: lỗi Node có code 5 ký tự (EPIPE) không bị coi là lỗi DB; SQL thô ngoài transaction bị chặn; publicKeys giữ khóa công khai', async () => {
+    expect(isDbError(Object.assign(new Error('x'), { code: 'EPIPE' }))).toBe(false);
+    expect(mapDbError(Object.assign(new Error('x'), { code: '23505' }))).toBeUndefined();
+    const a = await http().get('/v1/_test/node-error');
+    expect(a.status).toBe(500);
+    expect(a.body.code).toBe('INTERNAL_ERROR');
+    const b = await http().get('/v1/_test/raw-in-get');
+    expect(b.status).toBe(500);
+    const rid = 'req-public-keys1';
+    const c = await http()
+      .post(`/v1/_test/stores/${store}/audit-public`)
+      .set('x-test-principal', principal(['store:write']))
+      .set('X-Request-Id', rid);
+    expect(c.status).toBe(201);
+    const [row] = await rows(`SELECT after FROM audit.logs WHERE request_id = $1`, [rid]);
+    // publicKeys giữ theo TÊN khóa ở mọi cấp — người gọi chịu trách nhiệm không đưa địa chỉ khách vào cùng đối tượng
+    expect(row?.after).toEqual({ address: '12 Lê Lợi', customer: { address: 'x', phone: '[REDACTED]' } });
   });
 });

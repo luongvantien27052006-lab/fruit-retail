@@ -22,6 +22,8 @@ export interface AuditEntry {
   before?: unknown;
   after?: unknown;
   reason?: string;
+  /** khóa dữ liệu công khai được giữ dù trùng mẫu nhạy cảm (vd ['address'] khi audit cửa hàng/kho) */
+  publicKeys?: readonly string[];
 }
 
 export interface OutboxEvent {
@@ -67,8 +69,8 @@ export class AuditOutboxService {
         action: e.action,
         resourceType: e.resourceType,
         resourceId: e.resourceId ?? null,
-        before: jsonOrNull(e.before),
-        after: jsonOrNull(e.after),
+        before: jsonOrNull(e.before, e.publicKeys),
+        after: jsonOrNull(e.after, e.publicKeys),
         reason: e.reason ?? null,
       },
       select: { id: true },
@@ -99,7 +101,7 @@ export class AuditOutboxService {
   }
 }
 
-function jsonOrNull(v: unknown): Prisma.InputJsonValue | typeof Prisma.JsonNull {
+function jsonOrNull(v: unknown, keep?: readonly string[]): Prisma.InputJsonValue | typeof Prisma.JsonNull {
   if (v === undefined || v === null) return Prisma.JsonNull;
-  return toJsonSafe(v, 'redact') as Prisma.InputJsonValue;
+  return toJsonSafe(v, 'redact', new Set(keep ?? [])) as Prisma.InputJsonValue;
 }

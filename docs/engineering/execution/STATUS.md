@@ -7,7 +7,7 @@ Trạng thái: `CHƯA MỞ` → `ĐANG LÀM` → `CHỜ REVIEW` → `ĐẠT` (ho
 | CP00 | Chuẩn hóa quy trình `.claude` | ĐẠT | Tiến xác nhận 2026-11-17; review agent NOT RUN (chạy ở đầu CP01) — `checkpoints/CP00.md` |
 | CP01 | Quyết định kiến trúc & hợp đồng | ĐẠT | Tiến xác nhận 2026-11-17 sau review agent — `checkpoints/CP01.md` |
 | CP02 | Khung dự án & hạ tầng | CHẶN | Local xong, CI develop xanh, lát 9–10 merge (9cbb196). CHẶN: diễn tập khôi phục trên hạ tầng thật, staging HTTPS, giám sát (VPS, domain, S3 khác nhà cung cấp, Sentry, Telegram) — người gỡ: Tiến. Tiến quyết 2026-11-24 tạm bỏ qua để làm CP03 — `checkpoints/CP02.md` |
-| CP03 | Nền tảng: auth, quyền, audit, outbox, file | ĐANG LÀM | Kế hoạch con 10 lát chờ Tiến duyệt — `checkpoints/CP03.md` |
+| CP03 | Nền tảng: auth, quyền, audit, outbox, file | ĐANG LÀM | Kế hoạch con 10 lát Tiến duyệt; lát 1 (schema nền) SẠCH sau 4 vòng agent; NC-19 chờ Tiến — `checkpoints/CP03.md` |
 | CP04 | Danh mục, đơn vị tính, giá | CHƯA MỞ | Cần dữ liệu thật SKU + giá |
 | CP05 | Mua hàng & lô | CHƯA MỞ | |
 | CP06 | Sổ kho: điều chuyển, kiểm kê, hủy, dùng nội bộ | CHƯA MỞ | |

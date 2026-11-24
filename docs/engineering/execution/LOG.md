@@ -29,3 +29,4 @@
 | 2026-11-18 | CP02 | Merge feat/cp02-backup → develop (9cbb196); CI develop 4/4 job success. |
 | 2026-11-24 | CP02 | Tiến quyết tạm bỏ qua phần hạ tầng thật (VPS/domain/S3/Sentry/Telegram); CP02 giữ CHẶN ở các cổng đó. |
 | 2026-11-24 | CP03 | Mở CP03 (ngoại lệ tiên quyết CP02 theo quyết định trên); soạn kế hoạch con 10 lát, chờ Tiến duyệt. |
+| 2026-11-24 | CP03 | Lát 1 (schema nền: 28 bảng, quyền theo cột, RLS khung, seed quyền, bộ chạy migration Prisma — ADR-020) qua 4 vòng kiểm thử agent → SẠCH (4144712). NC-19 (seed vai trò → quyền) chờ Tiến. |

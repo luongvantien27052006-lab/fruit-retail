@@ -22,7 +22,7 @@ export interface AuditEntry {
   before?: unknown;
   after?: unknown;
   reason?: string;
-  /** khóa dữ liệu công khai được giữ dù trùng mẫu nhạy cảm (vd ['address'] khi audit cửa hàng/kho) */
+  /** khóa CẤP GỐC của before/after là dữ liệu công khai, giữ dù trùng mẫu nhạy cảm (vd ['address'] khi audit cửa hàng) */
   publicKeys?: readonly string[];
 }
 

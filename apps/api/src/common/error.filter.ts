@@ -1,7 +1,7 @@
 import { type ArgumentsHost, Catch, type ExceptionFilter, HttpException, Logger } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { resolveRequestId } from './request-context';
-import { dbErrorDetails, isDbError, mapDbError } from './db-errors';
+import { dbErrorDetails, isConnectionError, isDbError, mapDbError } from './db-errors';
 import { AppError, type ErrorCode, ERROR_HTTP_STATUS, isErrorCode } from './errors';
 
 interface Envelope {
@@ -40,14 +40,21 @@ export class ErrorFilter implements ExceptionFilter {
     const req = ctx.getRequest<Request>();
     const res = ctx.getResponse<Response>();
     const requestId = resolveRequestId(req);
-    const mapped = exception instanceof AppError ? exception : mapDbError(exception);
+    // Thứ tự: AppError → lỗi DB ánh xạ được → mất kết nối (pg/pg-pool/Prisma mang code mạng) → còn lại 500
+    const dbMapped = exception instanceof AppError ? undefined : mapDbError(exception);
+    const connLost = !(exception instanceof AppError) && !dbMapped && isConnectionError(exception);
+    const mapped =
+      exception instanceof AppError
+        ? exception
+        : (dbMapped ??
+          (connLost ? new AppError('DEPENDENCY_UNAVAILABLE', 'Dịch vụ tạm thời không sẵn sàng') : undefined));
     let status: number;
     let body: Envelope;
 
     if (mapped) {
       status = mapped.status;
       // lỗi DB đã ánh xạ sang 4xx (vi phạm ràng buộc, trùng khóa…) thường là lỗi dữ liệu/lập trình ⇒ ghi warn
-      if (status < 500 && isDbError(exception))
+      if (status < 500 && dbMapped)
         this.log.warn(
           { request_id: requestId, method: req.method, status, ...dbErrorDetails(exception) },
           'lỗi DB → 4xx',
@@ -85,7 +92,11 @@ export class ErrorFilter implements ExceptionFilter {
       body = { code: 'INTERNAL_ERROR', message: 'Lỗi hệ thống', request_id: requestId };
     }
 
-    if (status >= 500) {
+    // mất kết nối hạ tầng: 503 cho client nhưng log ĐỦ message/stack để chẩn đoán sự cố
+    if (connLost) {
+      const err = exception instanceof Error ? exception : new Error(String(exception));
+      this.log.error({ request_id: requestId, method: req.method, err }, 'mất kết nối hạ tầng → 503');
+    } else if (status >= 500) {
       const where = { request_id: requestId, method: req.method, route: req.route?.path as string | undefined };
       if (isDbError(exception)) {
         this.log.error({ ...where, ...dbErrorDetails(exception) }, 'lỗi DB 5xx');

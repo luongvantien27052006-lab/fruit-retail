@@ -33,7 +33,6 @@ const SECRET_TOKENS = new Set([
   'cookie',
   'authorization',
   'phone',
-  'mobile',
   'sdt',
   'iban',
   'cvv',
@@ -53,6 +52,9 @@ const SECRET_PAIRS = new Set([
   'private key',
   'access key',
   'dien thoai',
+  'mobile number',
+  'mobile no',
+  'mobile phone',
   'dia chi',
 ]);
 /** Địa chỉ CÔNG KHAI (cửa hàng, kho) — không che khi có tiền tố này: `store_address`, `warehouse_address`. */
@@ -68,6 +70,8 @@ export function isSensitiveKey(key: string): boolean {
   const t = keyTokens(key).map(singular);
   for (let i = 0; i < t.length; i++) {
     const x = t[i] as string;
+    // `mobile` đứng cuối khóa (mobile, customer_mobile) là SĐT; `mobile_app_version` thì không
+    if (x === 'mobile' && i === t.length - 1) return true;
     if (!SECRET_TOKENS.has(x)) continue;
     const prev = t.slice(0, i);
     if (x === 'address' && prev.some((p) => PUBLIC_ADDRESS_PREFIX.has(p))) continue;
@@ -89,7 +93,7 @@ function isPlainObject(v: object): boolean {
  * thầm làm mất dữ liệu). Hàm/symbol/vòng lặp/số không hữu hạn ⇒ ném lỗi.
  * `mode`: 'raw' giữ nguyên khóa (response); 'redact' thay giá trị khóa bí mật bằng "[REDACTED]" (audit before/after);
  * 'reject' ném lỗi nếu có khóa bí mật (payload outbox — sự kiện chỉ mang ID/dữ liệu không nhạy cảm, ADR-015).
- * `keep`: tên khóa (đúng chính xác) được giữ dù trùng mẫu nhạy cảm — vd `address` khi audit cửa hàng.
+ * `keep`: tên khóa ở CẤP GỐC được giữ dù trùng mẫu nhạy cảm — vd `address` khi audit cửa hàng (khóa lồng vẫn bị che).
  */
 const NO_KEEP: ReadonlySet<string> = new Set();
 export function toJsonSafe(
@@ -129,7 +133,7 @@ export function toJsonSafe(
     if (Array.isArray(obj)) return obj.map((v, i) => toJsonSafe(v, mode, keep, seen, `${path}[${i}]`) ?? null);
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(obj)) {
-      if (mode !== 'raw' && !keep.has(k) && isSensitiveKey(k)) {
+      if (mode !== 'raw' && !(path === '$' && keep.has(k)) && isSensitiveKey(k)) {
         if (mode === 'reject') throw new Error(`Khóa nhạy cảm "${k}" tại ${path} không được đưa vào sự kiện`);
         if (v !== null && v !== undefined) out[k] = '[REDACTED]';
         continue;

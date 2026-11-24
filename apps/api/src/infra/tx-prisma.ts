@@ -19,6 +19,7 @@ const WRITE_OPS = new Set([
   // SQL thô có thể là INSERT/UPDATE … RETURNING — không phân biệt được đọc/ghi ⇒ cũng bắt buộc transaction
   '$queryRaw',
   '$queryRawUnsafe',
+  '$queryRawTyped',
 ]);
 
 /**

@@ -502,9 +502,12 @@ describe('khung request (CP03 lát 2)', () => {
       'content_hash',
       'spinner',
       'tokenizer_mode',
+      'mobile_app_version',
     ])
       expect({ k, s: isSensitiveKey(k) }).toEqual({ k, s: false });
     for (const k of [
+      'customer_mobile',
+      'mobile_number',
       'address',
       'customer_addresses',
       'refresh_tokens',
@@ -622,7 +625,7 @@ describe('khung request (CP03 lát 2)', () => {
       .set('X-Request-Id', rid);
     expect(c.status).toBe(201);
     const [row] = await rows(`SELECT after FROM audit.logs WHERE request_id = $1`, [rid]);
-    // publicKeys giữ theo TÊN khóa ở mọi cấp — người gọi chịu trách nhiệm không đưa địa chỉ khách vào cùng đối tượng
-    expect(row?.after).toEqual({ address: '12 Lê Lợi', customer: { address: 'x', phone: '[REDACTED]' } });
+    // publicKeys chỉ áp ở cấp gốc — địa chỉ lồng (customer.address) vẫn bị che
+    expect(row?.after).toEqual({ address: '12 Lê Lợi', customer: { address: '[REDACTED]', phone: '[REDACTED]' } });
   });
 });

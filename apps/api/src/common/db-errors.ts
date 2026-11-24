@@ -83,3 +83,24 @@ export function mapDbError(err: unknown): AppError | undefined {
     return new AppError('DEPENDENCY_UNAVAILABLE', 'Cơ sở dữ liệu tạm thời không sẵn sàng');
   return undefined;
 }
+
+const CONN_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENOTFOUND', 'EAI_AGAIN']);
+const CONN_MESSAGES = [
+  /Connection terminated unexpectedly/i,
+  /timeout exceeded when trying to connect/i,
+  /Connection terminated due to connection timeout/i,
+  /Client has encountered a connection error/i,
+];
+
+/**
+ * Lỗi mất kết nối DB/Redis đi thẳng từ driver (pg, pg-pool, ioredis) — KHÔNG được Prisma bọc thành P1001/08xxx (kiểm thử
+ * lát 2 lần 3, T3). Nhận diện theo `code` mạng (kể cả trong AggregateError) hoặc message chuẩn của pg/pg-pool.
+ */
+export function isConnectionError(err: unknown, depth = 0): boolean {
+  if (!err || typeof err !== 'object' || depth > 5) return false;
+  const e = err as { code?: unknown; message?: unknown; errors?: unknown; cause?: unknown };
+  if (typeof e.code === 'string' && CONN_CODES.has(e.code)) return true;
+  if (typeof e.message === 'string' && CONN_MESSAGES.some((r) => r.test(e.message as string))) return true;
+  if (Array.isArray(e.errors) && e.errors.some((x) => isConnectionError(x, depth + 1))) return true;
+  return isConnectionError(e.cause, depth + 1);
+}

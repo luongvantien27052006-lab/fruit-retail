@@ -10,7 +10,7 @@ import { PiiCipher, totpAad } from '../src/auth/pii-cipher';
 import { createApp } from '../src/bootstrap';
 import { createMaster } from '../src/cli/create-master';
 import { type Env, loadEnv } from '../src/config/env';
-import { MAX_PENDING_PER_USER } from '../src/files/files.service';
+import { MAX_FILES_PER_HOUR } from '../src/files/files.service';
 import { generateSync } from 'otplib';
 import { testAuthEnv } from './helpers/auth-env';
 import { schemaErrors } from './helpers/contract';
@@ -69,7 +69,7 @@ describe('file presign / complete / download (CP03 lát 7)', () => {
       mime: 'image/jpeg',
       bytes: data.length,
       sha256: sha(data),
-      capture_source: 'GALLERY',
+      capture_source: 'CAMERA',
       ...over,
     });
     expect(p.status).toBe(200);
@@ -134,7 +134,7 @@ describe('file presign / complete / download (CP03 lát 7)', () => {
       mime: 'image/jpeg',
       bytes: 100,
       sha256: sha(Buffer.from('x')),
-      capture_source: 'GALLERY',
+      capture_source: 'CAMERA',
     };
     for (const bad of [
       { ...ok, kind: 'REPORT' },
@@ -153,6 +153,8 @@ describe('file presign / complete / download (CP03 lát 7)', () => {
     // ảnh hủy hàng chỉ chụp trực tiếp (Master/nhân viên)
     const m = await master();
     expect((await presign(m, { ...ok, kind: 'PHOTO_SPOILAGE', capture_source: 'GALLERY' })).status).toBe(400);
+    // SPEC §8.8: ảnh khiếu nại cũng phải chụp trực tiếp
+    expect((await presign(c, { ...ok, capture_source: 'GALLERY' })).status).toBe(400);
     expect((await presign(m, { ...ok, kind: 'PHOTO_SPOILAGE', capture_source: 'CAMERA' })).status).toBe(200);
   });
 
@@ -167,6 +169,30 @@ describe('file presign / complete / download (CP03 lát 7)', () => {
     const got = Buffer.from(await (await fetch(dl.body.url as string)).arrayBuffer());
     expect(got.equals(a)).toBe(true);
     expect(got.equals(b)).toBe(false);
+  });
+
+  it('hai complete song song + PUT ảnh khác xen giữa ⇒ nội dung tải về luôn khớp sha256 đã ghi; một bên 409; không rác', async () => {
+    const c = await customer();
+    for (let i = 0; i < 4; i++) {
+      const a = jpeg(1200);
+      const u = await upload(c, a);
+      const url = u.presign.body.upload_url as string;
+      const [r1, , r2] = await Promise.all([
+        complete(c, u.id),
+        put(url, 'image/jpeg', jpeg(1200)), // tráo ảnh khác cùng kích thước trong lúc complete
+        complete(c, u.id),
+      ]);
+      const statuses = [r1.status, r2.status].sort();
+      expect(statuses).toContain(409);
+      const [row] = await rows(
+        `SELECT status::text, encode(sha256, 'hex') AS sha, final_key FROM core.files WHERE id = $1`,
+        [u.id],
+      );
+      if (row?.status !== 'READY') continue; // cả hai thấy ảnh đã tráo ⇒ REJECTED — cũng đúng
+      const dl = await http().get(`/v1/files/${u.id}/download-url`).set('Authorization', c);
+      const got = Buffer.from(await (await fetch(dl.body.url as string)).arrayBuffer());
+      expect(sha(got)).toBe(row.sha);
+    }
   });
 
   it('cấu hình S3 thiếu một phần ⇒ không khởi động (không âm thầm tắt tính năng file)', () => {
@@ -228,7 +254,7 @@ describe('file presign / complete / download (CP03 lát 7)', () => {
       mime: 'image/jpeg',
       bytes: 10,
       sha256: sha(jpeg(10)),
-      capture_source: 'GALLERY',
+      capture_source: 'CAMERA',
     });
     expect((await complete(c, p.body.id as string)).status).toBe(409); // chưa PUT
 
@@ -245,7 +271,7 @@ describe('file presign / complete / download (CP03 lát 7)', () => {
       mime: 'image/jpeg',
       bytes: 1000,
       sha256: sha(data),
-      capture_source: 'GALLERY',
+      capture_source: 'CAMERA',
     });
     const url = p.body.upload_url as string;
     expect((await put(url, 'image/jpeg', jpeg(2000))).ok).toBe(false);
@@ -286,10 +312,10 @@ describe('file presign / complete / download (CP03 lát 7)', () => {
       mime: 'image/jpeg',
       bytes: 10,
       sha256: sha(jpeg(10)),
-      capture_source: 'GALLERY',
+      capture_source: 'CAMERA',
     };
-    const st = await Promise.all(Array.from({ length: MAX_PENDING_PER_USER + 3 }, () => presign(c, body)));
-    expect(st.filter((x) => x.status === 200)).toHaveLength(MAX_PENDING_PER_USER);
+    const st = await Promise.all(Array.from({ length: MAX_FILES_PER_HOUR + 3 }, () => presign(c, body)));
+    expect(st.filter((x) => x.status === 200)).toHaveLength(MAX_FILES_PER_HOUR);
     expect(st.filter((x) => x.status === 429)).toHaveLength(3);
   });
 
@@ -313,7 +339,7 @@ describe('file presign / complete / download (CP03 lát 7)', () => {
           mime: 'image/jpeg',
           bytes: 10,
           sha256: sha(jpeg(10)),
-          capture_source: 'GALLERY',
+          capture_source: 'CAMERA',
         });
       expect([r.status, r.body.code]).toEqual([503, 'CONFIGURATION_NOT_READY']);
     } finally {

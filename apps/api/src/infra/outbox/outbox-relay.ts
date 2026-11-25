@@ -81,6 +81,8 @@ export class OutboxRelay {
 
   /** lượt relay gần nhất gặp Redis không dùng được (vòng lặp lùi dần, không cộng attempts) */
   redisDown = false;
+  /** lỗi RIÊNG của dòng ở lượt gần nhất (chưa tới dead) — worker ghi log có hãm; null nếu không có */
+  lastRowError: { id: string; eventType: string; error: string } | null = null;
 
   /**
    * Một lượt; trả số sự kiện đã đánh dấu gửi, hoặc `REDIS_DOWN` khi Redis không dùng được (người gọi lùi cả vòng lặp).
@@ -89,7 +91,10 @@ export class OutboxRelay {
    * lùi dần / dead_at; dòng chưa thử trong lượt không bị đụng tới.
    */
   async relayOnce(batch = RELAY_BATCH): Promise<number> {
-    return this.prisma.$transaction(
+    this.redisDown = false;
+    this.lastRowError = null;
+    let dead: { id: string; eventType: string; error: string } | null = null;
+    const n = await this.prisma.$transaction(
       async (tx) => {
         const rows = await tx.$queryRaw<OutboxRow[]>`
           SELECT id::text, event_type, schema_version, aggregate_type, aggregate_id, payload, occurred_at, attempts
@@ -98,7 +103,6 @@ export class OutboxRelay {
           ORDER BY next_attempt_at, id
           LIMIT ${batch}
           FOR UPDATE SKIP LOCKED`;
-        this.redisDown = false;
         if (rows.length === 0) return 0;
         const ok: string[] = [];
         let failedRow: { id: string; error: string } | null = null;
@@ -115,8 +119,13 @@ export class OutboxRelay {
             ok.push(r.id);
           } catch (e) {
             const error = (e instanceof Error ? e.message : String(e)).slice(0, 500) || 'lỗi không rõ';
-            down = !(await this.redisAlive());
-            if (!down) failedRow = { id: r.id, error };
+            // lỗi hạ tầng theo NỘI DUNG lỗi (kiểm thử lần 2): Redis PING được mà vẫn từ chối ghi (OOM, MISCONF, READONLY…)
+            // hoặc quá hạn ⇒ không phải lỗi của dòng; PING lỗi cũng là hạ tầng
+            down = isInfraError(e) || !(await this.redisAlive());
+            if (!down) {
+              failedRow = { id: r.id, error };
+              this.lastRowError = { id: r.id, eventType: r.event_type, error };
+            }
             break; // không thử tiếp trong lượt này
           }
         }
@@ -130,7 +139,7 @@ export class OutboxRelay {
             WHERE id = ${failedRow.id}::uuid
             RETURNING dead_at IS NOT NULL AS dead, event_type`;
           // dòng chết: luôn báo (không qua bộ hãm tần suất) — cần người xử lý
-          if (d?.dead) this.opts.onDead?.({ id: failedRow.id, eventType: d.event_type, error: failedRow.error });
+          if (d?.dead) dead = { id: failedRow.id, eventType: d.event_type, error: failedRow.error };
         }
         if (this.opts.afterEnqueue) await this.opts.afterEnqueue();
         if (ok.length)
@@ -142,6 +151,9 @@ export class OutboxRelay {
       },
       { timeout: 60_000, maxWait: 10_000 },
     );
+    // báo SAU commit (commit lỗi ⇒ không báo động giả)
+    if (dead) this.opts.onDead?.(dead);
+    return n;
   }
 
   private async redisAlive(): Promise<boolean> {
@@ -202,4 +214,18 @@ export class OutboxRelay {
     }
     return { requeued, failed, scanned: rows.length };
   }
+}
+
+/**
+ * Lỗi HẠ TẦNG của Redis (không phải của dòng): quá hạn / kết nối, hoặc ReplyError mà Redis vẫn PING được nhưng từ chối
+ * ghi — OOM (maxmemory), MISCONF (đĩa/AOF), READONLY (replica sau failover), LOADING, NOAUTH, CLUSTERDOWN, BUSY,
+ * MASTERDOWN, NOREPLICAS. Dữ liệu một dòng (jsonb, uuid) gần như không thể làm Redis lỗi ⇒ mặc định nghiêng về hạ tầng.
+ */
+export function isInfraError(e: unknown): boolean {
+  const name = (e as { name?: string } | null)?.name ?? '';
+  const msg = e instanceof Error ? e.message : String(e);
+  if (name !== 'ReplyError') return true; // timeout, ECONNREFUSED, Connection is closed, MaxRetriesPerRequest…
+  return /^(TRYAGAIN|OOM|MISCONF|READONLY|LOADING|NOAUTH|WRONGPASS|CLUSTERDOWN|BUSY|MASTERDOWN|NOREPLICAS|NOPERM)\b/.test(
+    msg,
+  );
 }

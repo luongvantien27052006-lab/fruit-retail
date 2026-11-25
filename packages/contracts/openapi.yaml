@@ -9016,7 +9016,7 @@ components:
       required: [kind, mime, bytes, sha256, capture_source]
       additionalProperties: false
       description: >-
-        Ảnh ≤ 5 MB, image/jpeg hoặc image/webp. PHOTO_SPOILAGE, PHOTO_WEIGHT chỉ nhận capture_source = CAMERA (app chụp
+        Ảnh ≤ 5 MB, image/jpeg hoặc image/webp. PHOTO_SPOILAGE, PHOTO_WEIGHT, PHOTO_COMPLAINT (SPEC §8.8) chỉ nhận capture_source = CAMERA (app chụp
         trực tiếp). Khách chỉ được PHOTO_COMPLAINT; loại khác chỉ nhân viên/Master (403). Tối đa 20 file tạo mỗi giờ và 100
         file mỗi ngày mỗi người, mọi trạng thái (429). Thiếu cấu hình S3 ⇒ 503.
       properties:

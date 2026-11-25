@@ -167,17 +167,39 @@ describe('outbox relay + consumer (CP03 lát 7)', () => {
     expect(r).toEqual({ attempts: 0, published_at: null, dead_at: null });
 
     // lỗi RIÊNG của dòng (Redis vẫn PING được): attempts + 1, lùi dần 2^n, last_error; quá 10 lần ⇒ dead_at + báo
+    // Redis PING được nhưng từ chối ghi (OOM / READONLY / MISCONF) hoặc quá hạn ⇒ vẫn là hạ tầng (kiểm thử lần 2)
+    for (const msg of [
+      'OOM command not allowed when used memory > maxmemory',
+      'READONLY You cannot write against a read only replica',
+      'MISCONF Redis is configured to save RDB snapshots',
+    ]) {
+      const r0 = new OutboxRelay(
+        prisma,
+        { add: () => Promise.reject(Object.assign(new Error(msg), { name: 'ReplyError' })) } as unknown as Queue,
+        { ping: () => Promise.resolve(true) },
+      );
+      await r0.relayOnce();
+      expect(r0.redisDown).toBe(true);
+    }
+    const [r00] = await rows(`SELECT attempts, dead_at FROM integration.outbox WHERE id = $1`, [id]);
+    expect(r00).toEqual({ attempts: 0, dead_at: null });
     const deadSeen: string[] = [];
-    const rowErr = new OutboxRelay(prisma, { add: () => Promise.reject(new Error('dòng hỏng')) } as unknown as Queue, {
-      ping: () => Promise.resolve(true),
-      onDead: (d) => deadSeen.push(d.id),
-    });
+    const rowErr = new OutboxRelay(
+      prisma,
+      {
+        add: () => Promise.reject(Object.assign(new Error('ERR dòng hỏng'), { name: 'ReplyError' })),
+      } as unknown as Queue,
+      {
+        ping: () => Promise.resolve(true),
+        onDead: (d) => deadSeen.push(d.id),
+      },
+    );
     await rowErr.relayOnce();
     const [r1] = await rows(
       `SELECT attempts, last_error, extract(epoch FROM next_attempt_at - now()) AS wait FROM integration.outbox WHERE id = $1`,
       [id],
     );
-    expect(r1).toMatchObject({ attempts: 1, last_error: 'dòng hỏng' });
+    expect(r1).toMatchObject({ attempts: 1, last_error: 'ERR dòng hỏng' });
     expect(Number(r1?.wait)).toBeGreaterThan(1);
     expect(Number(r1?.wait)).toBeLessThanOrEqual(2);
     await rows(`UPDATE integration.outbox SET attempts = $2, next_attempt_at = now() WHERE id = $1`, [

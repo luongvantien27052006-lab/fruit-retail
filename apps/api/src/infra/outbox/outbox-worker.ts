@@ -126,6 +126,12 @@ export class OutboxWorker {
         failed = true;
         this.error('relay', `relay lỗi: ${e instanceof Error ? e.message : String(e)}`);
       }
+      const re = this.relay.lastRowError;
+      if (re)
+        this.error(
+          `relay-row:${re.eventType}`,
+          `relay: sự kiện ${re.id} (${re.eventType}) đẩy lỗi, sẽ thử lại: ${re.error}`,
+        );
       if (this.relay.redisDown) {
         failed = true;
         this.error('relay-redis', 'relay: Redis không dùng được — sự kiện giữ nguyên trong outbox, thử lại sau');

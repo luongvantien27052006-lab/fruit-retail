@@ -73,6 +73,22 @@
 - Ghi nhận để sau: thứ tự sự kiện không được bảo đảm (consumer CP12 phải tự chịu); chỉ số tồn đọng / dead / failed trên
   heartbeat + màn xem (CP19); audit lượt tải file của Master (CP06+ khi có owner); Idempotency-Key chưa có middleware (chung).
 
+## Sửa theo kiểm thử agent lần 2 (cd76b58)
+- **Cao (outbox, cả hai agent):** Redis PING được nhưng từ chối ghi (OOM, MISCONF, READONLY, LOADING, TRYAGAIN…) hoặc quá hạn
+  vẫn bị tính là lỗi của dòng ⇒ dead_at sau ~17–34 phút. Nay phân loại theo NỘI DUNG lỗi (`isInfraError`: không phải
+  ReplyError, hoặc ReplyError có tiền tố hạ tầng) — chỉ ReplyError khác (Redis ghi được nhưng từ chối riêng dòng đó) mới
+  cộng attempts. Lỗi dòng chưa tới dead ⇒ log có hãm theo loại sự kiện. `redisDown` đặt lại trước transaction; báo dead
+  SAU commit.
+- **Cao (file, cả hai agent):** hai complete song song chép đè cùng khóa cuối ⇒ nội dung phục vụ khác sha256 đã ghi. Nay mỗi
+  lần complete chép sang khóa RIÊNG `final/…/<id>/<ngẫu nhiên>`, kiểm trên bản chép; chỉ lần thắng (giữ khóa dòng, còn
+  PENDING) ghi cột mới `final_key` (migration 0006: CHECK READY ⇔ final_key, unique, quyền cột); lần thua / bị từ chối xóa bản
+  chép của mình; tải về đọc `final_key`. Copy lỗi vì file vừa được complete khác xử lý ⇒ 409 (không 503). `finalKeyOf`
+  kiểm tiền tố `files/`.
+- **TB (code-reviewer):** SPEC §8.8 mục 1, U12 — ảnh khiếu nại chụp trực tiếp ⇒ `PHOTO_COMPLAINT` cameraOnly. Video khiếu nại:
+  CP khiếu nại.
+- Thấp: S3 đặt riêng `S3_PUBLIC_ENDPOINT` mà thiếu 4 biến chính ⇒ cũng không khởi động; đổi tên hằng `MAX_FILES_PER_HOUR`.
+- Ghi nhận: test `auth.test.ts` R1 (hàng đợi Argon2 đầy ⇒ 429) nhạy tải khi hai bộ test chạy song song — chạy riêng đạt.
+
 ## Hệ quả
 - Thư viện: `bullmq` 6.7.4, `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner` 3.1166.0 (ghim chính xác);
   `msgpackr-extract` (native tùy chọn) không chạy script cài đặt.

@@ -48,3 +48,4 @@
 | 2026-11-26 | CP03 | Lát 6 SẠCH (security 2 vòng, database 3 vòng — a3df1ca). 145/145 test. T16/T17 covered. Ghi nhận G1–G4 sang lát 8. Lát 6 đóng. |
 | 2026-11-26 | CP03 | Lát 7 (outbox relay + consumer idempotent + bộ quét; file presign/complete/download trên S3 — ADR-025) xong code, 159/159 test; chờ kiểm thử agent. |
 | 2026-11-27 | CP03 | Lát 7 kiểm thử lần 1 (4af7852): silent-failure CÒN LỖI (Cao: Redis sập làm sự kiện dead_at; TB: PUT ghi đè sau READY, job lỗi hẳn không log, bộ quét kẹt), code-reviewer CÒN LỖI (Cao: ghi đè sau READY; TB: khách tải mọi loại ảnh / trần chỉ đếm PENDING, bộ quét). Đã sửa hết (ADR-025). 162/162. |
+| 2026-11-27 | CP03 | Lát 7 kiểm thử lần 2 (cd76b58): cả hai agent CÒN LỖI — Redis PING được nhưng từ chối ghi vẫn giết sự kiện; hai complete song song chép đè khóa cuối; ảnh khiếu nại phải chụp trực tiếp (§8.8). Sửa: phân loại lỗi Redis theo nội dung, khóa cuối riêng + cột final_key (migration 0006). 163/163. |

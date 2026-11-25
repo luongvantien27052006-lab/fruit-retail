@@ -503,6 +503,8 @@ model File {
   ownerType      String?    @map("owner_type")
   ownerId        String?    @map("owner_id") @db.Uuid
   storageKey     String     @unique @map("storage_key")
+  /// khóa object cuối của file READY (mỗi lần complete chép sang khóa riêng — ADR-025)
+  finalKey       String?    @map("final_key")
   declaredBytes  Int        @map("declared_bytes")
   declaredSha256 Bytes      @map("declared_sha256")
   /// do server tính lại sau khi tải object (ADR-014)

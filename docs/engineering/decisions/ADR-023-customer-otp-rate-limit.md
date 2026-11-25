@@ -71,6 +71,11 @@
   SĐT / IP / toàn hệ thống. Cấu hình nhầm production thành `NODE_ENV=staging` sẽ nhận TEST_DOUBLE — kiểm khi deploy (CP02).
   Khi gán `phone_hash` cho nhân viên/admin phải dùng cùng miền `phone:` (kiểm "SĐT nội bộ ⇒ 403").
 
+## Kiểm thử agent lần 2 (769cb49): SẠCH
+Ghi nhận không bắt buộc: `ensureConnected()` nằm ngoài timeout 500 ms (Redis đang kết nối lại ⇒ chờ tối đa 5 giây,
+có giới hạn); dạng hex `::ffff:0102:0304` không do Node sinh cho `req.ip`; kênh thời gian `none`/`bad` chỉ lộ "SĐT đang có
+mã chờ". Chặn CP14 đã ghi ở STATUS.
+
 ## Để lát sau
 - Nhà cung cấp OTP thật, mẫu tin, đồng ý điều khoản (U02), hồ sơ `customers`: CP14.
 - Job dọn `otp_challenges` hết hạn toàn bảng: lát 7 (worker) — hiện mỗi SĐT tự dọn dòng cũ khi xin mã mới.

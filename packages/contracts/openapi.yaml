@@ -7485,6 +7485,7 @@ paths:
         Mỗi dòng chỉ hiện khi người gọi có mã quyền của loại đó (x-permission-map). Giảm giá cận hạn theo lô (MARKDOWN)
         chỉ Master duyệt (NC-21) nên chỉ có ở đây, không có ở /pos/approvals.
       x-permission: 'approval:by-type'
+      x-master-only: true # cửa hàng trưởng duyệt trong hạn mức qua /pos/approvals*; markdown chỉ Master (NC-21)
       x-permission-map:
         'SPOILAGE': 'spoilage:approve'
         'STOCKTAKE_ADJUST': 'stocktake:approve'
@@ -7535,6 +7536,7 @@ paths:
       tags: [admin]
       summary: 'Master duyệt yêu cầu vượt hạn mức (quyền theo loại; người duyệt ≠ người tạo)'
       x-permission: 'approval:by-type'
+      x-master-only: true # cửa hàng trưởng duyệt trong hạn mức qua /pos/approvals*; markdown chỉ Master (NC-21)
       x-permission-map:
         'SPOILAGE': 'spoilage:approve'
         'STOCKTAKE_ADJUST': 'stocktake:approve'
@@ -7591,6 +7593,7 @@ paths:
       tags: [admin]
       summary: 'Master từ chối yêu cầu'
       x-permission: 'approval:by-type'
+      x-master-only: true # cửa hàng trưởng duyệt trong hạn mức qua /pos/approvals*; markdown chỉ Master (NC-21)
       x-permission-map:
         'SPOILAGE': 'spoilage:approve'
         'STOCKTAKE_ADJUST': 'stocktake:approve'

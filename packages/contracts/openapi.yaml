@@ -6299,6 +6299,49 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /admin/pos-devices/enrollment-codes:
+    post:
+      operationId: postAdminPosDevicesEnrollmentCodes
+      tags: [admin]
+      summary: 'Tạo mã ghi danh thiết bị POS (dùng một lần, hạn 30 phút)'
+      description: >-
+        Máy POS nhập mã này khi gọi /auth/devices/register — máy không có mã không vào được hàng chờ kích hoạt. Tối đa
+        10 mã còn dùng được mỗi cửa hàng (vượt ⇒ 429). Cửa hàng ngoài phạm vi ⇒ 404. Không dùng Idempotency-Key: response
+        chứa bí mật, không được lưu lại để phát lại.
+      x-permission: 'device:write'
+      x-scope: store
+      x-spec-ref: '§2.4'
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true # Tiến duyệt 2026-11-25 (NC-20, sửa M1 lát 4)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PosEnrollmentCodeRequest'
+      responses:
+        '201':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosEnrollmentCodeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /admin/pos-devices/{id}/activate:
     parameters:
       - name: id
@@ -8794,13 +8837,17 @@ components:
               type: string
     PosDeviceRegisterRequest:
       type: object
-      description: X-Device-Id = UUID do thiết bị tự sinh một lần (thành `device_id`).
-      required: [store_code, name, platform, public_key, device_proof]
+      description: >-
+        X-Device-Id = UUID do thiết bị tự sinh một lần (thành `device_id`). Cửa hàng lấy từ mã ghi danh (không gửi mã
+        cửa hàng). Ràng buộc chữ ký `register` = mã ghi danh dạng chuẩn (chữ HOA, bỏ gạch) + `\n` + public_key. Mã sai,
+        đã dùng, hết hạn hoặc cửa hàng ngừng hoạt động ⇒ cùng một lỗi 401.
+      required: [enrollment_code, name, platform, public_key, device_proof]
       additionalProperties: false
       properties:
-        store_code:
+        enrollment_code:
           type: string
-          pattern: '^[A-Za-z0-9_-]{1,32}$'
+          pattern: '^[A-Za-z2-7]{4}-?[A-Za-z2-7]{4}-?[A-Za-z2-7]{4}$'
+          description: mã ghi danh dùng một lần do Master/cửa hàng trưởng tạo (POST /admin/pos-devices/enrollment-codes)
         name:
           type: string
           minLength: 1
@@ -8814,6 +8861,32 @@ components:
           description: khóa công khai Ed25519 thô 32 byte, base64url không đệm
         device_proof:
           $ref: '#/components/schemas/DeviceProof'
+    PosEnrollmentCodeRequest:
+      type: object
+      required: [store_id]
+      additionalProperties: false
+      properties:
+        store_id:
+          type: string
+          format: uuid
+    PosEnrollmentCodeResponse:
+      type: object
+      description: Mã rõ chỉ trả một lần (server chỉ lưu SHA-256); dùng một lần, hạn 30 phút.
+      required: [id, store_id, code, expires_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        store_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          pattern: '^[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}$'
+        expires_at:
+          type: string
+          format: date-time
     PosDeviceRegisterResponse:
       type: object
       required: [device_id, status, pairing_code, registered_at]

@@ -11,9 +11,13 @@ import { storeScope } from '../common/store-scope';
 import { AuthAttempts } from './auth-attempts';
 import {
   type DeviceProof,
+  ENROLLMENT_TTL_S,
+  enrollmentCodeHash,
   fingerprintOf,
   isValidEd25519PublicKey,
+  newEnrollmentCode,
   NONCE_TTL_S,
+  normalizeEnrollmentCode,
   normalizePairingCode,
   pairingCode,
   PROOF_SKEW_S,
@@ -27,6 +31,8 @@ import { sha256 } from './tokens';
 export const PENDING_TTL_DAYS = 7;
 /** Trần thiết bị PENDING (còn hạn) mỗi cửa hàng — /auth/devices/register là route công khai */
 export const MAX_PENDING_PER_STORE = 20;
+/** Trần mã ghi danh còn dùng được (chưa dùng, chưa hết hạn) mỗi cửa hàng */
+export const MAX_LIVE_ENROLLMENT_CODES = 10;
 const DEVICE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const REVOKE_RETRIES = 3;
 
@@ -42,6 +48,8 @@ const proofInvalid = () =>
   );
 const notActivated = () => new AppError('DEVICE_NOT_ACTIVATED', 'Thiết bị chưa được kích hoạt');
 const notFound = () => new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy thiết bị');
+const enrollmentInvalid = () =>
+  new AppError('AUTHENTICATION_REQUIRED', 'Mã ghi danh không đúng, đã dùng hoặc đã hết hạn — xin mã mới từ quản lý');
 
 const isUnique = (e: unknown) => (e as { code?: unknown } | null)?.code === 'P2002' || findSqlState(e) === '23505';
 const isDeadlock = (e: unknown) => {
@@ -76,7 +84,7 @@ export class PosDeviceService {
   // ───────────────────────────── đăng ký (công khai) ─────────────────────────────
 
   async register(b: {
-    store_code: string;
+    enrollment_code: string;
     name: string;
     platform: string;
     public_key: string;
@@ -87,13 +95,19 @@ export class PosDeviceService {
     if (!isValidEd25519PublicKey(publicKey))
       throw new AppError('INVALID_REQUEST', 'public_key phải là khóa Ed25519 thô 32 byte (base64url)');
     // chứng minh giữ khóa riêng (không cần nonce một lần: phát lại chỉ đụng ràng buộc duy nhất id/fingerprint ⇒ 409)
-    this.checkProof(publicKey, 'register', id, `${b.store_code}\n${b.public_key}`, b.device_proof);
+    const enrollment = normalizeEnrollmentCode(b.enrollment_code);
+    this.checkProof(publicKey, 'register', id, `${enrollment}\n${b.public_key}`, b.device_proof);
+    // M1: chỉ máy có mã ghi danh (người quản trị vừa tạo cho đúng cửa hàng) mới vào được hàng chờ. Khóa dòng mã ⇒ hai
+    // máy dùng cùng mã song song: máy sau thấy mã đã dùng. Sai / đã dùng / hết hạn / cửa hàng ngừng: cùng một lỗi.
+    const [ec] = await this.tx.$queryRaw<{ id: string; store_id: string; usable: boolean }[]>`
+      SELECT id, store_id, (used_at IS NULL AND expires_at > now()) AS usable
+      FROM core.pos_enrollment_codes WHERE code_hash = ${Buffer.from(enrollmentCodeHash(enrollment))} FOR UPDATE`;
+    if (!ec?.usable) throw enrollmentInvalid();
     const store = await this.tx.store.findUnique({
-      where: { code: b.store_code },
+      where: { id: ec.store_id },
       select: { id: true, status: true, archivedAt: true },
     });
-    if (!store || store.status !== 'ACTIVE' || store.archivedAt)
-      throw new AppError('INVALID_REQUEST', 'Mã cửa hàng không hợp lệ', { field: 'store_code' });
+    if (!store || store.status !== 'ACTIVE' || store.archivedAt) throw enrollmentInvalid();
     // tuần tự hóa đăng ký theo cửa hàng để trần hàng chờ không bị vượt khi gửi song song
     await this.tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('pos-register:' || ${store.id}, 0))`;
     const pending = await this.tx.posDevice.count({
@@ -123,12 +137,24 @@ export class PosDeviceService {
       if (isUnique(e)) throw new AppError('INVALID_STATE_TRANSITION', 'Thiết bị hoặc khóa này đã đăng ký');
       throw e;
     }
+    // trigger: mã chưa dùng, còn hạn, thiết bị PENDING cùng cửa hàng; used_at do server đặt
+    const used = await this.tx.posEnrollmentCode.updateMany({
+      where: { id: ec.id, usedAt: null },
+      data: { usedAt: new Date(), usedByDeviceId: id },
+    });
+    if (used.count !== 1) throw enrollmentInvalid();
     const row = await this.tx.posDevice.findUniqueOrThrow({ where: { id }, select: { registeredAt: true } });
     await this.ao.recordAudit({
       action: 'pos_device.register',
       resourceType: 'pos_device',
       resourceId: id,
-      after: { store_id: store.id, name: b.name, platform: b.platform, pairing_code: pairingCode(fingerprint) },
+      after: {
+        store_id: store.id,
+        name: b.name,
+        platform: b.platform,
+        pairing_code: pairingCode(fingerprint),
+        enrollment_code_id: ec.id,
+      },
     });
     return {
       device_id: id,
@@ -139,6 +165,43 @@ export class PosDeviceService {
   }
 
   // ───────────────────────────── quản trị (device:write, phạm vi cửa hàng) ─────────────────────────────
+
+  /**
+   * Tạo mã ghi danh cho một cửa hàng trong phạm vi của người gọi (ngoài phạm vi ⇒ 404). Mã rõ chỉ trả MỘT lần trong
+   * response; DB và audit chỉ giữ SHA-256 / id. Tối đa MAX_LIVE_ENROLLMENT_CODES mã còn dùng được mỗi cửa hàng.
+   */
+  async createEnrollmentCode(p: Principal, storeId: string) {
+    const scope = await storeScope(this.tx, p.userId, 'device:write');
+    if (scope !== 'ALL' && !scope.has(storeId)) throw new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy cửa hàng');
+    const store = await this.tx.store.findUnique({
+      where: { id: storeId },
+      select: { id: true, status: true, archivedAt: true },
+    });
+    if (!store) throw new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy cửa hàng');
+    if (store.status !== 'ACTIVE' || store.archivedAt)
+      throw new AppError('INVALID_STATE_TRANSITION', 'Cửa hàng không hoạt động');
+    await this.tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('pos-enroll:' || ${store.id}, 0))`;
+    const live = await this.tx.posEnrollmentCode.count({
+      where: { storeId: store.id, usedAt: null, expiresAt: { gt: new Date() } },
+    });
+    if (live >= MAX_LIVE_ENROLLMENT_CODES)
+      throw new AppError('RATE_LIMITED', 'Cửa hàng đã có nhiều mã ghi danh chưa dùng — dùng hết hoặc chờ hết hạn');
+    const id = uuidv7();
+    const plain = newEnrollmentCode();
+    // hạn theo đồng hồ DB (created_at do trigger đặt bằng now()) ⇒ CHECK hạn ≤ 1 giờ không phụ thuộc đồng hồ app
+    await this.tx.$executeRaw`
+      INSERT INTO core.pos_enrollment_codes (id, store_id, code_hash, created_by, expires_at)
+      VALUES (${id}::uuid, ${store.id}::uuid, ${Buffer.from(enrollmentCodeHash(plain))}, ${p.userId}::uuid,
+              now() + make_interval(secs => ${ENROLLMENT_TTL_S}))`;
+    const row = await this.tx.posEnrollmentCode.findUniqueOrThrow({ where: { id }, select: { expiresAt: true } });
+    await this.ao.recordAudit({
+      action: 'pos_device.enrollment_code.create',
+      resourceType: 'pos_enrollment_code',
+      resourceId: id,
+      after: { store_id: store.id, expires_at: row.expiresAt.toISOString() },
+    });
+    return { id, store_id: store.id, code: plain, expires_at: row.expiresAt.toISOString() };
+  }
 
   async list(p: Principal, status?: 'PENDING' | 'ACTIVE' | 'REVOKED') {
     const scope = await storeScope(this.tx, p.userId, 'device:write');

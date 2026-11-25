@@ -37,6 +37,7 @@ Cột "Mig" = nhóm migration (mục 4). Module chủ = module NestJS duy nhất
 | registers | pos | stores | M03 |
 | devices | pos | stores, registers | M03 |
 | pos_devices | auth | stores, registers, users(activated_by); + public_key, status (ADR-012) | M03 |
+| pos_enrollment_codes | auth | stores, users(created_by), pos_devices(used_by_device_id); code_hash, hạn ≤ 1 giờ, dùng một lần (ADR-022, NC-20) | M03 |
 | categories | catalog | categories(parent) | M04 |
 | products | catalog | categories | M04 |
 | skus | catalog | products | M04 |

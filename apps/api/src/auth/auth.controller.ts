@@ -15,7 +15,7 @@ import { AppError } from '../common/errors';
 import type { RequestStore } from '../common/request-context';
 import { ZodPipe } from '../common/zod.pipe';
 import { AuthService } from './auth.service';
-import { DeviceProofSchema } from './device-proof';
+import { DeviceProofSchema, ENROLLMENT_CODE_RE } from './device-proof';
 import { PosDeviceService } from './pos-device.service';
 import { StaffAuthService } from './staff-auth.service';
 import { MAX_SECRET_LEN } from './password';
@@ -39,7 +39,7 @@ const PinBody = z
   .strict();
 const RegisterBody = z
   .object({
-    store_code: z.string().regex(/^[A-Za-z0-9_-]{1,32}$/, 'mã cửa hàng'),
+    enrollment_code: z.string().regex(ENROLLMENT_CODE_RE, 'mã ghi danh XXXX-XXXX-XXXX do quản lý cấp'),
     name: z.string().trim().min(1).max(100),
     platform: z.enum(['windows', 'android']),
     public_key: z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'khóa Ed25519 thô 32 byte, base64url'),

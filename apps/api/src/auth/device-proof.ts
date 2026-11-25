@@ -1,4 +1,4 @@
-import { createHash, createPublicKey, verify as cryptoVerify } from 'node:crypto';
+import { createHash, createPublicKey, verify as cryptoVerify, randomInt } from 'node:crypto';
 import { z } from 'zod';
 
 /**
@@ -88,3 +88,24 @@ export function pairingCode(fingerprint: Uint8Array): string {
   return `${out.slice(0, 5)}-${out.slice(5)}`;
 }
 export const normalizePairingCode = (c: string) => c.toUpperCase().replace(/[\s-]/g, '');
+
+/**
+ * Mã ghi danh (ADR-022, sửa M1): Master/cửa hàng trưởng tạo cho một cửa hàng, nhập trên máy POS lúc đăng ký. 60 bit ngẫu
+ * nhiên (12 ký tự base32, dạng `XXXX-XXXX-XXXX`), dùng một lần, hạn 30 phút. Máy không có mã không vào được hàng chờ
+ * và route đăng ký không còn nhận mã cửa hàng (không dò được cửa hàng nào tồn tại).
+ */
+export const ENROLLMENT_TTL_S = 30 * 60;
+export const ENROLLMENT_CODE_RE = /^[A-Za-z2-7]{4}-?[A-Za-z2-7]{4}-?[A-Za-z2-7]{4}$/;
+export function newEnrollmentCode(): string {
+  let out = '';
+  for (let i = 0; i < 12; i++) out += B32[randomInt(32)];
+  return `${out.slice(0, 4)}-${out.slice(4, 8)}-${out.slice(8)}`;
+}
+/** dạng chuẩn để băm và ký: chữ HOA, bỏ gạch/khoảng trắng */
+export const normalizeEnrollmentCode = (c: string) => c.toUpperCase().replace(/[\s-]/g, '');
+export const enrollmentCodeHash = (c: string) =>
+  new Uint8Array(
+    createHash('sha256')
+      .update(`pos-enroll:${normalizeEnrollmentCode(c)}`, 'utf8')
+      .digest(),
+  );

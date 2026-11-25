@@ -66,6 +66,7 @@ describe('0001_foundation', () => {
       '001_extension_privileges.sql',
       'prisma/0001_foundation',
       'prisma/0002_auth_totp_replay',
+      'prisma/0003_pos_enrollment_codes',
     ]);
     await expect(
       applySqlMigrations({ url: ownerUrl, dir: SQL_DIR, prismaDir: PRISMA_DIR, env: passwords, log: () => undefined }),

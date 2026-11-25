@@ -24,7 +24,8 @@ chống spam route đăng ký công khai, phạm vi cửa hàng của nhân viê
    thường, `ts`, `nonce`, ràng buộc. Ràng buộc: register = `store_code\npublic_key`; pin = mã NV đã chuẩn hóa (trim,
    chữ HOA) — chữ ký không dùng lại được cho nhân viên khác; refresh = base64url(SHA-256(refresh_token)). PIN không
    nằm trong thông điệp ký (không cần, và không đưa bí mật vào dữ liệu ký).
-3. **Đăng ký** `POST /auth/devices/register` (công khai): X-Device-Id = UUID thiết bị tự sinh một lần ⇒ `pos_devices.id`;
+3. **Đăng ký** `POST /auth/devices/register` (công khai; từ sửa M1 bắt buộc mã ghi danh thay mã cửa hàng — xem mục
+   "Sửa theo kiểm thử agent lần 1"): X-Device-Id = UUID thiết bị tự sinh một lần ⇒ `pos_devices.id`;
    chữ ký `register` chứng minh giữ khóa riêng (không cần nonce một lần: phát lại chỉ đụng ràng buộc duy nhất id/
    fingerprint ⇒ 409). Trả `pairing_code` = 40 bit đầu SHA-256(khóa công khai), base32 `XXXX-XXXX`, hiển thị trên máy.
    **Chống spam:** tối đa 20 thiết bị PENDING còn hạn mỗi cửa hàng (khóa advisory theo cửa hàng ⇒ gửi song song không
@@ -58,9 +59,24 @@ chống spam route đăng ký công khai, phạm vi cửa hàng của nhân viê
     cơ chế khóa đã qua 4 vòng kiểm thử lát 3 (không đổi hành vi; `publicLogin` → `publicError`).
 
 ## Sửa theo kiểm thử agent lần 1 (0fa1428)
-- **M1 (Trung bình) — CHỜ TIẾN QUYẾT:** route đăng ký công khai + trần 20 PENDING/cửa hàng ⇒ ai biết mã cửa hàng cũng
-  lấp đầy hàng chờ, chặn đăng ký máy thật (máy ACTIVE không ảnh hưởng); cửa hàng không có trả 400 ⇒ dò được mã cửa
-  hàng. Đề xuất: mã ghi danh ngắn hạn do Master/cửa hàng trưởng tạo (thêm route admin — ngoài §13.2, cần Tiến duyệt).
+- **M1 (Trung bình) — Tiến chọn "Thêm mã ghi danh" (2026-11-25, NC-20):** route đăng ký công khai + trần 20
+  PENDING/cửa hàng ⇒ ai biết mã cửa hàng cũng lấp đầy hàng chờ; cửa hàng không có trả 400 ⇒ dò được mã cửa hàng. Sửa:
+  - `POST /admin/pos-devices/enrollment-codes` (`device:write`, `x-scope: store`, ngoài §13.2 — NC-20): tạo mã cho một
+    cửa hàng trong phạm vi (ngoài phạm vi / không có ⇒ 404; cửa hàng ngừng ⇒ 409). Mã 60 bit ngẫu nhiên (12 ký tự
+    base32 `XXXX-XXXX-XXXX`), **dùng một lần, hạn 30 phút**, trả rõ đúng một lần; DB lưu SHA-256 (`pos-enroll:` + dạng
+    chuẩn), audit chỉ có id + hạn. Tối đa 10 mã còn dùng được mỗi cửa hàng (khóa advisory theo cửa hàng ⇒ 429). Không
+    nhận Idempotency-Key (response chứa bí mật — khi làm bộ idempotency phải loại route này khỏi lưu response).
+  - `/auth/devices/register` nhận `enrollment_code` thay `store_code` (cửa hàng lấy từ mã). Ràng buộc chữ ký `register`
+    = mã dạng chuẩn + `\n` + public_key. Thứ tự: kiểm chữ ký (không đụng DB) → `SELECT … FOR UPDATE` dòng mã (song song
+    cùng mã ⇒ máy sau thấy đã dùng) → trần PENDING → tạo thiết bị → đánh dấu mã đã dùng, cùng transaction (lỗi 409 ⇒
+    rollback, mã không bị tiêu). Mã sai / đã dùng / hết hạn / cửa hàng ngừng ⇒ **cùng một 401** — không còn dò được
+    mã cửa hàng. Phát lại nguyên request sau khi thành công ⇒ 401 (mã đã dùng).
+  - Migration `0003_pos_enrollment_codes`: bảng `core.pos_enrollment_codes`; CHECK hash 32 byte, hạn ≤ 1 giờ, cặp
+    `used_at`/`used_by_device_id`; trigger đặt `created_at`/`used_at` bằng `now()`, cấm sửa mã đã dùng, cấm dùng mã hết
+    hạn, thiết bị dùng mã phải PENDING cùng cửa hàng. `app_rw`: SELECT/INSERT + UPDATE (`used_at`, `used_by_device_id`),
+    không DELETE.
+  - Vẫn giữ trần 20 PENDING/cửa hàng và bước kích hoạt bằng mã ghép đôi (ADR-012: kích hoạt là thao tác riêng của người
+    quản trị — mã ghi danh lộ trong 30 phút chỉ cho máy lạ vào hàng chờ, không cho đăng nhập).
 - L1: tạo phiên thua cuộc đua với thu hồi ⇒ 403 `DEVICE_REVOKED` + login_logs (trước: 400 không log); 23514 ở bước
   nonce chỉ báo `DEVICE_REVOKED` khi thiết bị thật sự không còn ACTIVE.
 - L2: nhân viên nghỉ việc (`left_at` tới) ⇒ phiên hết hiệu lực ngay (PrincipalResolver); refresh staff kiểm lại nghỉ
@@ -83,7 +99,9 @@ chống spam route đăng ký công khai, phạm vi cửa hàng của nhân viê
 - PIN offline (cache trên máy): CP09 (ADR-012).
 
 ## Hệ quả
-- Không migration mới. OpenAPI: schema chi tiết cho `/auth/pin`, `/auth/devices/register`, `/admin/pos-devices` (GET có
-  `status`), `.../activate`, `.../revoke`; `AuthRefreshRequest.device_proof`; `AuthAmr` thêm `pin`.
-- App nhân viên (lát 9) phải: sinh UUID + khóa Ed25519 một lần, lưu Credential Manager/Keystore, hiện `pairing_code`,
-  ký mỗi lần `/auth/pin` và `/auth/refresh` với nonce mới, gửi X-Device-Id ở mọi request.
+- Migration `0003_pos_enrollment_codes` (sửa M1). OpenAPI: schema chi tiết cho `/auth/pin`, `/auth/devices/register`
+  (`enrollment_code`), `/admin/pos-devices` (GET có `status`), `.../enrollment-codes`, `.../activate`, `.../revoke`;
+  `AuthRefreshRequest.device_proof`; `AuthAmr` thêm `pin`.
+- App nhân viên (lát 9) phải: sinh UUID + khóa Ed25519 một lần, lưu Credential Manager/Keystore, hỏi mã ghi danh lúc
+  đăng ký, hiện `pairing_code`, ký mỗi lần `/auth/pin` và `/auth/refresh` với nonce mới, gửi X-Device-Id ở mọi request.
+  Màn quản trị (lát 6–8) có nút "Tạo mã ghi danh" hiển thị mã một lần.

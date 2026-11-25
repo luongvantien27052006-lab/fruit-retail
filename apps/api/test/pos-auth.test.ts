@@ -5,10 +5,17 @@ import { generateSync } from 'otplib';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadAuthKeys } from '../src/auth/auth-config';
-import { proofMessage, type ProofPurpose, refreshBinding } from '../src/auth/device-proof';
+import {
+  enrollmentCodeHash,
+  newEnrollmentCode,
+  normalizeEnrollmentCode,
+  proofMessage,
+  type ProofPurpose,
+  refreshBinding,
+} from '../src/auth/device-proof';
 import { ARGON_PROFILES, hashSecret } from '../src/auth/password';
 import { PiiCipher, totpAad } from '../src/auth/pii-cipher';
-import { MAX_PENDING_PER_STORE } from '../src/auth/pos-device.service';
+import { MAX_LIVE_ENROLLMENT_CODES, MAX_PENDING_PER_STORE } from '../src/auth/pos-device.service';
 import { STAFF_SESSION_S } from '../src/auth/tokens';
 import { createApp } from '../src/bootstrap';
 import { createMaster } from '../src/cli/create-master';
@@ -26,6 +33,8 @@ interface Device {
   pub: string;
   storeCode: string;
   pairing?: string;
+  /** mã ghi danh (lấy qua API admin trước khi đăng ký) */
+  enroll?: string;
 }
 
 describe('auth nhân viên POS + thiết bị (CP03 lát 4)', () => {
@@ -88,15 +97,39 @@ describe('auth nhân viên POS + thiết bị (CP03 lát 4)', () => {
     return { ts, nonce, signature };
   }
 
-  const registerBody = (d: Device, p = proof(d, 'register', `${d.storeCode}\n${d.pub}`)) => ({
-    store_code: d.storeCode,
+  const enrollBinding = (d: Device, code = d.enroll ?? '') => `${normalizeEnrollmentCode(code)}\n${d.pub}`;
+  const registerBody = (d: Device, p = proof(d, 'register', enrollBinding(d))) => ({
+    enrollment_code: d.enroll ?? 'AAAA-AAAA-AAAA',
     name: 'Quầy 1',
     platform: 'windows',
     public_key: d.pub,
     device_proof: p,
   });
 
+  /** Mã ghi danh qua API admin (Master) — kiểm schema response */
+  async function enroll(storeCode: string, bearer = master, deviceId?: string): Promise<string> {
+    const [s] = await rows(`SELECT id FROM core.stores WHERE code = $1`, [storeCode]);
+    const req = http().post('/v1/admin/pos-devices/enrollment-codes').set('Authorization', bearer);
+    if (deviceId) req.set('X-Device-Id', deviceId);
+    const r = await req.send({ store_id: s?.id });
+    expect(r.status).toBe(201);
+    expect(schemaErrors('PosEnrollmentCodeResponse', r.body)).toEqual([]);
+    return r.body.code as string;
+  }
+  /** Mã ghi danh chèn thẳng bằng SQL (owner) — cho test cần nhiều mã hơn trần mã còn dùng được */
+  async function enrollSql(storeCode: string, ttl = '30 minutes'): Promise<string> {
+    const code = newEnrollmentCode();
+    await rows(
+      `INSERT INTO core.pos_enrollment_codes (id, store_id, code_hash, created_by, expires_at)
+       SELECT $1, s.id, $2, (SELECT id FROM core.users ORDER BY created_at LIMIT 1), now() + $4::interval
+       FROM core.stores s WHERE s.code = $3`,
+      [randomUUID(), Buffer.from(enrollmentCodeHash(code)), storeCode, ttl],
+    );
+    return code;
+  }
+
   async function register(d: Device) {
+    d.enroll ??= await enroll(d.storeCode);
     const r = await http().post('/v1/auth/devices/register').set('X-Device-Id', d.id).send(registerBody(d));
     expect(r.status).toBe(201);
     d.pairing = r.body.pairing_code as string;
@@ -181,32 +214,52 @@ describe('auth nhân viên POS + thiết bị (CP03 lát 4)', () => {
     );
     expect(row).toEqual({ status: 'PENDING', store_id: s.id, n: 32 });
 
-    // đăng ký lại cùng khóa / cùng id ⇒ 409
-    const again = await http().post('/v1/auth/devices/register').set('X-Device-Id', d.id).send(registerBody(d));
+    // phát lại nguyên request ⇒ mã ghi danh đã dùng ⇒ 401
+    const replay = await http().post('/v1/auth/devices/register').set('X-Device-Id', d.id).send(registerBody(d));
+    expect([replay.status, replay.body.code]).toEqual([401, 'AUTHENTICATION_REQUIRED']);
+    // đăng ký lại cùng khóa / cùng id với mã mới ⇒ 409, mã mới không bị tiêu
+    const fresh = await enroll(s.code);
+    const again = await http()
+      .post('/v1/auth/devices/register')
+      .set('X-Device-Id', d.id)
+      .send(registerBody({ ...d, enroll: fresh }));
     expect([again.status, again.body.code]).toEqual([409, 'INVALID_STATE_TRANSITION']);
+    const [unused] = await rows(`SELECT used_at FROM core.pos_enrollment_codes WHERE code_hash = $1`, [
+      Buffer.from(enrollmentCodeHash(fresh)),
+    ]);
+    expect(unused?.used_at).toBeNull();
     // chữ ký bằng khóa khác ⇒ 401
     const d2 = newDevice(s.code);
+    d2.enroll = await enroll(s.code);
     const other = generateKeyPairSync('ed25519').privateKey;
     const bad = await http()
       .post('/v1/auth/devices/register')
       .set('X-Device-Id', d2.id)
-      .send(registerBody(d2, proof(d2, 'register', `${d2.storeCode}\n${d2.pub}`, { key: other })));
+      .send(registerBody(d2, proof(d2, 'register', enrollBinding(d2), { key: other })));
     expect([bad.status, bad.body.code]).toEqual([401, 'AUTHENTICATION_REQUIRED']);
-    // chữ ký đúng nhưng ràng buộc cửa hàng khác (đổi store_code sau khi ký) ⇒ 401
+    // chữ ký đúng nhưng mã ghi danh bị tráo sau khi ký (mã của cửa hàng khác) ⇒ 401
     const s2 = await store();
-    const swapped = { ...registerBody(d2), store_code: s2.code };
+    const swapped = { ...registerBody(d2), enrollment_code: await enroll(s2.code) };
     expect((await http().post('/v1/auth/devices/register').set('X-Device-Id', d2.id).send(swapped)).status).toBe(401);
-    // khóa công khai bị tráo (chữ ký không khớp khóa gửi lên) ⇒ 401; thiếu X-Device-Id / cửa hàng không có ⇒ 400
+    // khóa công khai bị tráo (chữ ký không khớp khóa gửi lên) ⇒ 401; thiếu X-Device-Id ⇒ 400
     const junk = {
       ...registerBody(d2),
       public_key: generateKeyPairSync('ed25519').publicKey.export({ format: 'jwk' }).x,
     };
     expect((await http().post('/v1/auth/devices/register').set('X-Device-Id', d2.id).send(junk)).status).toBe(401);
     expect((await http().post('/v1/auth/devices/register').send(registerBody(d2))).status).toBe(400);
-    const d3 = newDevice('KHONGCO');
+    // mã ghi danh không tồn tại (chữ ký đúng) ⇒ 401, không lộ cửa hàng nào tồn tại
+    const d3 = newDevice(s.code);
+    d3.enroll = newEnrollmentCode();
+    const none = await http().post('/v1/auth/devices/register').set('X-Device-Id', d3.id).send(registerBody(d3));
+    expect([none.status, none.body.code]).toEqual([401, 'AUTHENTICATION_REQUIRED']);
+    // body cũ có store_code ⇒ 400 (strict)
+    const legacy = { ...registerBody(d2), store_code: s.code };
+    expect((await http().post('/v1/auth/devices/register').set('X-Device-Id', d2.id).send(legacy)).status).toBe(400);
+    // mã của d2 chưa bị tiêu bởi các lần lỗi ⇒ vẫn đăng ký được
     expect(
-      (await http().post('/v1/auth/devices/register').set('X-Device-Id', d3.id).send(registerBody(d3))).status,
-    ).toBe(400);
+      (await http().post('/v1/auth/devices/register').set('X-Device-Id', d2.id).send(registerBody(d2))).status,
+    ).toBe(201);
 
     // PENDING ⇒ 403 DEVICE_NOT_ACTIVATED, không tạo phiên
     const p = await pin(d, n.code, n.pin);
@@ -277,6 +330,7 @@ describe('auth nhân viên POS + thiết bị (CP03 lát 4)', () => {
 
     // thiết bị hết hạn không tính vào trần; gửi song song vẫn không vượt trần
     const devs = Array.from({ length: MAX_PENDING_PER_STORE + 5 }, () => newDevice(s.code));
+    for (const d of devs) d.enroll = await enrollSql(s.code);
     const res = await Promise.all(
       devs.map((d) => http().post('/v1/auth/devices/register').set('X-Device-Id', d.id).send(registerBody(d))),
     );
@@ -572,6 +626,14 @@ describe('auth nhân viên POS + thiết bị (CP03 lát 4)', () => {
       .set('X-Device-Id', da.id)
       .send({ reason: 'thử' });
     expect(foreignRevoke.status).toBe(404);
+    // mã ghi danh: chỉ cửa hàng trong phạm vi; cửa hàng khác ⇒ 404
+    expect((await enroll(a.code, bearer, da.id)).length).toBe(14);
+    const foreignCode = await http()
+      .post('/v1/admin/pos-devices/enrollment-codes')
+      .set('Authorization', bearer)
+      .set('X-Device-Id', da.id)
+      .send({ store_id: b.id });
+    expect([foreignCode.status, foreignCode.body.code]).toEqual([404, 'RESOURCE_NOT_FOUND']);
     const own = await http()
       .post(`/v1/admin/pos-devices/${pa.id}/activate`)
       .set('Authorization', bearer)
@@ -677,5 +739,101 @@ describe('auth nhân viên POS + thiết bị (CP03 lát 4)', () => {
     expect(Buffer.from(alt, 'base64url').equals(Buffer.from(canon, 'base64url'))).toBe(true);
     expect((await pin(d, n.code, n.pin, proof(d, 'pin', n.code, { nonce: alt }))).status).toBe(401);
     expect((await pin(d, n.code, n.pin, proof(d, 'pin', n.code, { nonce: canon }))).status).toBe(200);
+  });
+
+  // ───────── sửa theo kiểm thử agent lần 1 — M1: mã ghi danh ─────────
+
+  it('M1 — mã ghi danh dùng một lần (kể cả song song), hết hạn ⇒ 401; trần mã còn dùng được ⇒ 429; chỉ lưu hash', async () => {
+    const s = await store();
+    const code = await enroll(s.code);
+    expect(code).toMatch(/^[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}$/);
+    // hai máy cùng một mã, gửi song song ⇒ đúng một máy vào hàng chờ
+    const pair = [newDevice(s.code), newDevice(s.code)];
+    for (const d of pair) d.enroll = code.toLowerCase().replaceAll('-', ''); // nhập thường, không gạch vẫn được
+    const res = await Promise.all(
+      pair.map((d) => http().post('/v1/auth/devices/register').set('X-Device-Id', d.id).send(registerBody(d))),
+    );
+    expect(res.map((x) => x.status).sort()).toEqual([201, 401]);
+    const [row] = await rows(
+      `SELECT octet_length(code_hash) AS n, used_at IS NOT NULL AS used, used_by_device_id::text AS dev
+       FROM core.pos_enrollment_codes WHERE code_hash = $1`,
+      [Buffer.from(enrollmentCodeHash(code))],
+    );
+    const winner = pair[res.findIndex((x) => x.status === 201)];
+    expect(row).toEqual({ n: 32, used: true, dev: winner?.id });
+    // mã rõ không nằm trong audit
+    const audits = await rows(`SELECT after::text AS a FROM audit.logs WHERE action LIKE 'pos_device.%'`);
+    expect(audits.some((x) => String(x.a).includes(normalizeEnrollmentCode(code)) || String(x.a).includes(code))).toBe(
+      false,
+    );
+
+    // mã hết hạn ⇒ 401, không tạo thiết bị
+    const late = newDevice(s.code);
+    late.enroll = await enrollSql(s.code);
+    await rows(
+      `UPDATE core.pos_enrollment_codes SET created_at = now() - interval '1 hour', expires_at = now() - interval '1 second'
+       WHERE code_hash = $1`,
+      [Buffer.from(enrollmentCodeHash(late.enroll))],
+    );
+    const lr = await http().post('/v1/auth/devices/register').set('X-Device-Id', late.id).send(registerBody(late));
+    expect([lr.status, lr.body.code]).toEqual([401, 'AUTHENTICATION_REQUIRED']);
+    expect(await rows(`SELECT 1 FROM core.pos_devices WHERE id = $1`, [late.id])).toEqual([]);
+
+    // trần mã còn dùng được mỗi cửa hàng (mã hết hạn / đã dùng không tính)
+    const s2 = await store();
+    const [st] = await rows(`SELECT id FROM core.stores WHERE code = $1`, [s2.code]);
+    const made = await Promise.all(
+      Array.from({ length: MAX_LIVE_ENROLLMENT_CODES + 3 }, () =>
+        http().post('/v1/admin/pos-devices/enrollment-codes').set('Authorization', master).send({ store_id: st?.id }),
+      ),
+    );
+    expect(made.filter((x) => x.status === 201).length).toBe(MAX_LIVE_ENROLLMENT_CODES);
+    expect(made.filter((x) => x.status === 429).every((x) => x.body.code === 'RATE_LIMITED')).toBe(true);
+    // cửa hàng không có ⇒ 404; body sai ⇒ 400
+    const ghost = await http()
+      .post('/v1/admin/pos-devices/enrollment-codes')
+      .set('Authorization', master)
+      .send({ store_id: randomUUID() });
+    expect(ghost.status).toBe(404);
+    expect(
+      (await http().post('/v1/admin/pos-devices/enrollment-codes').set('Authorization', master).send({})).status,
+    ).toBe(400);
+    // chưa đăng nhập ⇒ 401
+    expect((await http().post('/v1/admin/pos-devices/enrollment-codes').send({ store_id: st?.id })).status).toBe(401);
+  });
+
+  it('M1 — trigger: mã đã dùng không sửa được; thiết bị dùng mã phải PENDING cùng cửa hàng; mốc tạo do server đặt', async () => {
+    const a = await store();
+    const b = await store();
+    const da = newDevice(a.code);
+    await register(da);
+    const db2 = newDevice(b.code);
+    await register(db2);
+    const used = Buffer.from(enrollmentCodeHash(da.enroll ?? ''));
+    await expect(
+      rows(`UPDATE core.pos_enrollment_codes SET used_at = NULL, used_by_device_id = NULL WHERE code_hash = $1`, [
+        used,
+      ]),
+    ).rejects.toThrow(/mã đã dùng/);
+    const fresh = await enrollSql(a.code);
+    await expect(
+      rows(`UPDATE core.pos_enrollment_codes SET used_at = now(), used_by_device_id = $1 WHERE code_hash = $2`, [
+        db2.id,
+        Buffer.from(enrollmentCodeHash(fresh)),
+      ]),
+    ).rejects.toThrow(/cùng cửa hàng/);
+    await expect(
+      rows(
+        `INSERT INTO core.pos_enrollment_codes (id, store_id, code_hash, created_by, created_at, expires_at)
+         SELECT $1, $2, $3, (SELECT id FROM core.users LIMIT 1), now() + interval '2 hours', now() + interval '2 hours 5 minutes'`,
+        [randomUUID(), a.id, randomBytes(32)],
+      ),
+    ).rejects.toThrow(/pos_enrollment_codes_ttl/);
+    // app_rw: không DELETE, không sửa hash/cửa hàng/hạn — chỉ hai cột đánh dấu đã dùng
+    const [pr] = await rows(`SELECT has_table_privilege('app_rw', 'core.pos_enrollment_codes', 'DELETE') AS d,
+      has_column_privilege('app_rw', 'core.pos_enrollment_codes', 'code_hash', 'UPDATE') AS h,
+      has_column_privilege('app_rw', 'core.pos_enrollment_codes', 'expires_at', 'UPDATE') AS e,
+      has_column_privilege('app_rw', 'core.pos_enrollment_codes', 'used_at', 'UPDATE') AS u`);
+    expect(pr).toEqual({ d: false, h: false, e: false, u: true });
   });
 });

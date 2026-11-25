@@ -101,17 +101,18 @@ enum FileStatus {
 // ───────────────────────────── Tổ chức (M03 tối thiểu; CP04 mở rộng) ─────────────────────────────
 
 model Store {
-  id          String               @id @db.Uuid
-  code        String               @unique
-  name        String
-  address     String?
-  status      StoreStatus          @default(ACTIVE)
-  createdAt   DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  archivedAt  DateTime?            @map("archived_at") @db.Timestamptz(6)
-  registers   Register[]
-  posDevices  PosDevice[]
-  viewerScope ViewerProfileScope[]
+  id              String               @id @db.Uuid
+  code            String               @unique
+  name            String
+  address         String?
+  status          StoreStatus          @default(ACTIVE)
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt      DateTime?            @map("archived_at") @db.Timestamptz(6)
+  registers       Register[]
+  posDevices      PosDevice[]
+  enrollmentCodes PosEnrollmentCode[]
+  viewerScope     ViewerProfileScope[]
 
   @@map("stores")
   @@schema("core")
@@ -174,6 +175,7 @@ model User {
   sessions          Session[]
   viewerAssignments ViewerProfileAssignment[]
   authChallenges    AuthChallenge[]
+  enrollmentCodes   PosEnrollmentCode[]
   filesCreated      File[]
 
   @@map("users")
@@ -311,31 +313,52 @@ model ApprovalLimit {
 
 /// Thiết bị POS (SEC3): máy tự sinh khóa Ed25519, đăng ký PENDING → kích hoạt → ACTIVE; thu hồi → REVOKED
 model PosDevice {
-  id           String          @id @db.Uuid
-  storeId      String          @map("store_id") @db.Uuid
-  registerId   String?         @map("register_id") @db.Uuid
+  id           String             @id @db.Uuid
+  storeId      String             @map("store_id") @db.Uuid
+  registerId   String?            @map("register_id") @db.Uuid
   name         String
   platform     String
-  publicKey    Bytes           @map("public_key")
+  publicKey    Bytes              @map("public_key")
   /// SHA-256 của public_key
-  fingerprint  Bytes           @unique
-  status       PosDeviceStatus @default(PENDING)
-  registeredAt DateTime        @default(now()) @map("registered_at") @db.Timestamptz(6)
-  activatedBy  String?         @map("activated_by") @db.Uuid
-  activatedAt  DateTime?       @map("activated_at") @db.Timestamptz(6)
-  revokedBy    String?         @map("revoked_by") @db.Uuid
-  revokedAt    DateTime?       @map("revoked_at") @db.Timestamptz(6)
-  revokeReason String?         @map("revoke_reason")
-  lastSeenAt   DateTime?       @map("last_seen_at") @db.Timestamptz(6)
-  store        Store           @relation(fields: [storeId], references: [id])
+  fingerprint  Bytes              @unique
+  status       PosDeviceStatus    @default(PENDING)
+  registeredAt DateTime           @default(now()) @map("registered_at") @db.Timestamptz(6)
+  activatedBy  String?            @map("activated_by") @db.Uuid
+  activatedAt  DateTime?          @map("activated_at") @db.Timestamptz(6)
+  revokedBy    String?            @map("revoked_by") @db.Uuid
+  revokedAt    DateTime?          @map("revoked_at") @db.Timestamptz(6)
+  revokeReason String?            @map("revoke_reason")
+  lastSeenAt   DateTime?          @map("last_seen_at") @db.Timestamptz(6)
+  store        Store              @relation(fields: [storeId], references: [id])
   /// quầy phải thuộc cùng cửa hàng (FK kép register_id + store_id)
-  register     Register?       @relation(fields: [registerId, storeId], references: [id, storeId], onDelete: Restrict, onUpdate: Restrict)
+  register     Register?          @relation(fields: [registerId, storeId], references: [id, storeId], onDelete: Restrict, onUpdate: Restrict)
   sessions     Session[]
   challenges   AuthChallenge[]
+  enrollment   PosEnrollmentCode?
 
   @@index([storeId])
   @@index([registerId])
   @@map("pos_devices")
+  @@schema("core")
+}
+
+/// Mã ghi danh thiết bị POS (ADR-022, sửa M1): Master/cửa hàng trưởng tạo cho một cửa hàng, dùng một lần, hạn ngắn.
+/// Chỉ lưu SHA-256 của mã. Trigger: mốc do server đặt, đã dùng thì khóa, thiết bị dùng mã phải PENDING cùng cửa hàng.
+model PosEnrollmentCode {
+  id             String     @id @db.Uuid
+  storeId        String     @map("store_id") @db.Uuid
+  codeHash       Bytes      @unique @map("code_hash")
+  createdBy      String     @map("created_by") @db.Uuid
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt      DateTime   @map("expires_at") @db.Timestamptz(6)
+  usedAt         DateTime?  @map("used_at") @db.Timestamptz(6)
+  usedByDeviceId String?    @unique @map("used_by_device_id") @db.Uuid
+  store          Store      @relation(fields: [storeId], references: [id])
+  creator        User       @relation(fields: [createdBy], references: [id])
+  usedByDevice   PosDevice? @relation(fields: [usedByDeviceId], references: [id], onDelete: Restrict)
+
+  @@index([storeId, expiresAt])
+  @@map("pos_enrollment_codes")
   @@schema("core")
 }
 

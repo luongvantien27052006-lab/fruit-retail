@@ -18,6 +18,7 @@ const ActivateBody = z
   })
   .strict();
 const RevokeBody = z.object({ reason: z.string().trim().min(3).max(500) }).strict();
+const EnrollmentBody = z.object({ store_id: z.string().uuid() }).strict();
 
 /** /v1/admin/pos-devices — kích hoạt/thu hồi thiết bị POS (SEC3), quyền `device:write` theo phạm vi cửa hàng. */
 @Controller('admin/pos-devices')
@@ -37,6 +38,14 @@ export class PosDeviceController {
   @Get()
   list(@Query(new ZodPipe(ListQuery)) q: z.infer<typeof ListQuery>) {
     return this.devices.list(this.principal(), q.status);
+  }
+
+  /** Mã ghi danh dùng một lần, hạn 30 phút — máy POS nhập mã này khi đăng ký (ADR-022, sửa M1) */
+  @RequirePermission('device:write')
+  @Post('enrollment-codes')
+  @HttpCode(201)
+  createEnrollmentCode(@Body(new ZodPipe(EnrollmentBody)) b: z.infer<typeof EnrollmentBody>) {
+    return this.devices.createEnrollmentCode(this.principal(), b.store_id);
   }
 
   @RequirePermission('device:write')

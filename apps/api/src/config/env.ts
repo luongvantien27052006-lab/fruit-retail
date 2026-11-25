@@ -40,6 +40,8 @@ const schema = z.object({
 
 export type Env = z.infer<typeof schema>;
 
+const S3_REQUIRED = ['S3_ENDPOINT', 'S3_BUCKET', 'S3_ACCESS_KEY', 'S3_SECRET_KEY'] as const;
+
 export function loadEnv(source: Record<string, string | undefined> = process.env): Env {
   // biến đặt rỗng (compose `${X:-}`) = không đặt — tránh "" lọt vào enum/url của biến tùy chọn
   const cleaned = Object.fromEntries(Object.entries(source).filter(([, v]) => v !== undefined && v !== ''));
@@ -49,6 +51,10 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     // Không in giá trị (URL có thể chứa mật khẩu) — FR-INV-18.
     throw new Error(`Cấu hình môi trường không hợp lệ hoặc thiếu: ${fields}`);
   }
+  // S3 đặt một phần (quên khóa bí mật…) ⇒ dừng khởi động, không âm thầm tắt tính năng file (kiểm thử lát 7)
+  const s3Set = S3_REQUIRED.filter((k) => parsed.data[k] !== undefined);
+  if (s3Set.length > 0 && s3Set.length < S3_REQUIRED.length)
+    throw new Error(`Cấu hình S3 thiếu: ${S3_REQUIRED.filter((k) => parsed.data[k] === undefined).join(', ')}`);
   // Múi giờ process luôn là giờ VN kể cả ngoài Docker (FR-INV-13); lưu DB vẫn là UTC TIMESTAMPTZ.
   process.env['TZ'] = parsed.data.TZ;
   return parsed.data;

@@ -102,7 +102,7 @@ describe('outbox relay + consumer (CP03 lát 7)', () => {
   it('worker chết sau khi đẩy, trước khi commit ⇒ sự kiện vẫn chưa gửi; lần sau đẩy lại KHÔNG tạo job trùng; tác dụng một lần', async () => {
     await queue.obliterate({ force: true });
     const id = await event();
-    const crash = new OutboxRelay(prisma, queue, () => Promise.reject(new Error('kill -9 giả lập')));
+    const crash = new OutboxRelay(prisma, queue, { afterEnqueue: () => Promise.reject(new Error('kill -9 giả lập')) });
     await expect(crash.relayOnce()).rejects.toThrow(/kill/);
     const [r] = await rows(`SELECT published_at FROM integration.outbox WHERE id = $1`, [id]);
     expect(r?.published_at).toBeNull(); // không mất: chưa đánh dấu
@@ -143,7 +143,7 @@ describe('outbox relay + consumer (CP03 lát 7)', () => {
     expect(await runner.process({ ...ev, event_id: randomUUID(), event_type: 'other.event' })).toEqual([]);
   });
 
-  it('Redis lỗi ⇒ attempts + 1, lùi dần, last_error; quá 10 lần ⇒ dead_at; lượt lỗi không treo', async () => {
+  it('Redis sập ⇒ không cộng attempts, không bao giờ dead_at; lỗi riêng của dòng ⇒ lùi dần, quá 10 lần ⇒ dead_at + báo', async () => {
     const id = await event();
     // các sự kiện khác chưa gửi (từ test trước) đẩy hết trước
     while ((await new OutboxRelay(prisma, queue).relayOnce()) > 0);
@@ -155,24 +155,39 @@ describe('outbox relay + consumer (CP03 lát 7)', () => {
     });
     const deadQ = new Queue(OUTBOX_QUEUE, { connection: dead });
     deadQ.on('error', () => undefined);
-    const relay = new OutboxRelay(prisma, deadQ);
+    // C1: Redis SẬP (PING cũng lỗi) — 15 lượt liên tiếp: không cộng attempts, không dead_at, relay báo redisDown
+    const relay = new OutboxRelay(prisma, deadQ, { ping: () => dead.ping().then((x) => x === 'PONG') });
     const t0 = Date.now();
-    expect(await relay.relayOnce()).toBe(0);
-    expect(Date.now() - t0).toBeLessThan(5_000);
-    const [r] = await rows(
-      `SELECT attempts, last_error, published_at, extract(epoch FROM next_attempt_at - now()) AS wait FROM integration.outbox WHERE id = $1`,
+    for (let i = 0; i < 15; i++) {
+      expect(await relay.relayOnce()).toBe(0);
+      expect(relay.redisDown).toBe(true);
+    }
+    expect(Date.now() - t0).toBeLessThan(60_000);
+    const [r] = await rows(`SELECT attempts, published_at, dead_at FROM integration.outbox WHERE id = $1`, [id]);
+    expect(r).toEqual({ attempts: 0, published_at: null, dead_at: null });
+
+    // lỗi RIÊNG của dòng (Redis vẫn PING được): attempts + 1, lùi dần 2^n, last_error; quá 10 lần ⇒ dead_at + báo
+    const deadSeen: string[] = [];
+    const rowErr = new OutboxRelay(prisma, { add: () => Promise.reject(new Error('dòng hỏng')) } as unknown as Queue, {
+      ping: () => Promise.resolve(true),
+      onDead: (d) => deadSeen.push(d.id),
+    });
+    await rowErr.relayOnce();
+    const [r1] = await rows(
+      `SELECT attempts, last_error, extract(epoch FROM next_attempt_at - now()) AS wait FROM integration.outbox WHERE id = $1`,
       [id],
     );
-    expect(r).toMatchObject({ attempts: 1, published_at: null });
-    expect(String(r?.last_error).length).toBeGreaterThan(0);
-    expect(Number(r?.wait)).toBeGreaterThan(0);
+    expect(r1).toMatchObject({ attempts: 1, last_error: 'dòng hỏng' });
+    expect(Number(r1?.wait)).toBeGreaterThan(1);
+    expect(Number(r1?.wait)).toBeLessThanOrEqual(2);
     await rows(`UPDATE integration.outbox SET attempts = $2, next_attempt_at = now() WHERE id = $1`, [
       id,
       RELAY_MAX_ATTEMPTS - 1,
     ]);
-    await relay.relayOnce();
+    await rowErr.relayOnce();
     const [d] = await rows(`SELECT dead_at FROM integration.outbox WHERE id = $1`, [id]);
     expect(d?.dead_at).not.toBeNull();
+    expect(deadSeen).toEqual([id]);
     // dead ⇒ relay không lấy nữa
     await rows(`UPDATE integration.outbox SET next_attempt_at = now() WHERE id = $1`, [id]);
     await new OutboxRelay(prisma, queue).relayOnce();
@@ -201,6 +216,41 @@ describe('outbox relay + consumer (CP03 lát 7)', () => {
     expect(await queue.getJob(lost)).toBeTruthy();
     expect(await queue.getJob(kept)).toBeTruthy();
     expect(await queue.getJob(done)).toBeFalsy();
+  });
+
+  it('bộ quét: consumer mới thêm sau (job đã xong) ⇒ backfill; job lỗi hẳn được đếm, không chặn hàng; gửi < 10 phút ⇒ để yên', async () => {
+    await queue.obliterate({ force: true });
+    const old = await event();
+    const broken = await event();
+    const fresh = await event();
+    const relay = new OutboxRelay(prisma, queue);
+    while ((await relay.relayOnce()) > 0);
+    await rows(`UPDATE integration.outbox SET published_at = now() - interval '1 hour' WHERE id = ANY($1::uuid[])`, [
+      [old, broken],
+    ]);
+    // xử lý hết job bằng worker KHÔNG có consumer (như production hiện nay): old ⇒ completed, broken ⇒ failed hẳn
+    const { Worker, UnrecoverableError } = await import('bullmq');
+    const wc = new Redis(redis.getConnectionUrl(), { maxRetriesPerRequest: null });
+    const tmp = new Worker(
+      OUTBOX_QUEUE,
+      (job) => (job.id === broken ? Promise.reject(new UnrecoverableError('hỏng')) : Promise.resolve()),
+      { connection: wc },
+    );
+    const until = Date.now() + 10_000;
+    while (Date.now() < until) {
+      const [a, b] = await Promise.all([queue.getJob(old), queue.getJob(broken)]);
+      if ((await a?.getState()) === 'completed' && (await b?.getState()) === 'failed') break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await tmp.close();
+    wc.disconnect();
+    expect(await (await queue.getJob(broken))?.getState()).toBe('failed');
+    await (await queue.getJob(fresh))?.remove(); // mất nhưng mới gửi < 10 phút
+    const c = effects(`late-${randomUUID()}`); // consumer mới (CP12 thêm sau)
+    const r = await relay.sweepOnce([c]);
+    expect(r.failed).toBeGreaterThanOrEqual(1);
+    expect(await (await queue.getJob(old))?.getState()).toBe('waiting'); // đẩy lại cho consumer mới
+    expect(await queue.getJob(fresh)).toBeFalsy();
   });
 
   it('OutboxWorker đầu-cuối: ghi outbox ⇒ relay ⇒ BullMQ ⇒ consumer chạy đúng một lần; dừng gọn', async () => {

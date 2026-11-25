@@ -15,21 +15,33 @@ interface KindRule {
   mimes: readonly Mime[];
   /** chỉ nhận ảnh chụp trực tiếp từ camera của app (ADR-014: ảnh hủy hàng, ảnh cân) */
   cameraOnly: boolean;
+  /** loại tài khoản được tải loại này (TB1 kiểm thử lát 7): khách chỉ ảnh khiếu nại; ảnh nghiệp vụ nội bộ chỉ nội bộ */
+  userTypes: readonly Principal['userType'][];
 }
+const STAFF_ADMIN = ['STAFF', 'MASTER'] as const;
 /** Loại file client được tải lên (ADR-014, ADR-025). File báo cáo do server tạo — không đi qua presign. */
 export const FILE_KINDS: Readonly<Record<string, KindRule>> = {
-  PHOTO_SPOILAGE: { maxBytes: 5 * MB, mimes: ['image/jpeg', 'image/webp'], cameraOnly: true },
-  PHOTO_WEIGHT: { maxBytes: 5 * MB, mimes: ['image/jpeg', 'image/webp'], cameraOnly: true },
-  PHOTO_COMPLAINT: { maxBytes: 5 * MB, mimes: ['image/jpeg', 'image/webp'], cameraOnly: false },
-  PHOTO_RECEIPT: { maxBytes: 5 * MB, mimes: ['image/jpeg', 'image/webp'], cameraOnly: false },
-  PHOTO_PRODUCT: { maxBytes: 5 * MB, mimes: ['image/jpeg', 'image/webp'], cameraOnly: false },
+  PHOTO_SPOILAGE: { maxBytes: 5 * MB, mimes: ['image/jpeg', 'image/webp'], cameraOnly: true, userTypes: STAFF_ADMIN },
+  PHOTO_WEIGHT: { maxBytes: 5 * MB, mimes: ['image/jpeg', 'image/webp'], cameraOnly: true, userTypes: STAFF_ADMIN },
+  PHOTO_COMPLAINT: {
+    maxBytes: 5 * MB,
+    mimes: ['image/jpeg', 'image/webp'],
+    cameraOnly: false,
+    userTypes: ['CUSTOMER', 'STAFF', 'MASTER'],
+  },
+  PHOTO_RECEIPT: { maxBytes: 5 * MB, mimes: ['image/jpeg', 'image/webp'], cameraOnly: false, userTypes: STAFF_ADMIN },
+  PHOTO_PRODUCT: { maxBytes: 5 * MB, mimes: ['image/jpeg', 'image/webp'], cameraOnly: false, userTypes: STAFF_ADMIN },
 };
 export const PRESIGN_TTL_S = 300;
 export const DOWNLOAD_TTL_S = 60;
 /** PENDING quá 1 giờ ⇒ complete từ chối (EXPIRED) */
 export const PENDING_MAX_AGE_S = 3600;
-/** trần PENDING (chưa complete) mỗi người trong 1 giờ — presign không tạo vô hạn bản ghi/URL */
+/**
+ * Trần số file TẠO (mọi trạng thái) mỗi người: 20 / giờ, 100 / ngày (TB1 kiểm thử lát 7 — trước chỉ đếm PENDING nên
+ * presign → complete liên tục tải không giới hạn). Một file ≤ 5 MB ⇒ ≤ 500 MB / người / ngày.
+ */
 export const MAX_PENDING_PER_USER = 20;
+export const MAX_FILES_PER_DAY = 100;
 
 /** Định dạng thật theo byte đầu (không tin Content-Type client khai) */
 export function sniffImage(head: Buffer): Mime | null {
@@ -40,6 +52,8 @@ export function sniffImage(head: Buffer): Mime | null {
 }
 
 const notFound = () => new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy file');
+/** khóa lưu cuối của file READY — `files/…` (khóa tải lên, có URL PUT ký) ⇒ `final/…` (chỉ server ghi) */
+export const finalKeyOf = (uploadKey: string) => uploadKey.replace(/^files\//, 'final/');
 
 /**
  * File (§3.5, FR-INV-16, ADR-014, ADR-025): presign PUT 5 phút (Content-Type + Content-Length ký) → client PUT →
@@ -78,6 +92,8 @@ export class FilesService {
     if (!this.storage.configured) throw new AppError('CONFIGURATION_NOT_READY', 'Chưa cấu hình lưu trữ file');
     const rule = FILE_KINDS[b.kind];
     if (!rule) throw new AppError('INVALID_REQUEST', 'Loại file không hợp lệ', { field: 'kind' });
+    if (!rule.userTypes.includes(p.userType))
+      throw new AppError('ACTION_FORBIDDEN', 'Tài khoản này không tải được loại file này', { field: 'kind' });
     if (!rule.mimes.includes(b.mime as Mime))
       throw new AppError('INVALID_REQUEST', `Loại ${b.kind} chỉ nhận ${rule.mimes.join(', ')}`, { field: 'mime' });
     if (b.bytes > rule.maxBytes)
@@ -88,15 +104,13 @@ export class FilesService {
       });
     // tuần tự hóa theo người gọi để trần PENDING không bị vượt khi gửi song song
     await this.tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('file-presign:' || ${p.userId}, 0))`;
-    const pending = await this.tx.file.count({
-      where: {
-        createdBy: p.userId,
-        status: 'PENDING',
-        createdAt: { gt: new Date(Date.now() - PENDING_MAX_AGE_S * 1000) },
-      },
-    });
-    if (pending >= MAX_PENDING_PER_USER)
-      throw new AppError('RATE_LIMITED', 'Quá nhiều file đang chờ hoàn tất — hoàn tất hoặc chờ hết hạn');
+    const [hour, day] = await Promise.all(
+      [3600, 86400].map((s) =>
+        this.tx.file.count({ where: { createdBy: p.userId, createdAt: { gt: new Date(Date.now() - s * 1000) } } }),
+      ),
+    );
+    if ((hour ?? 0) >= MAX_PENDING_PER_USER || (day ?? 0) >= MAX_FILES_PER_DAY)
+      throw new AppError('RATE_LIMITED', 'Đã tải lên quá nhiều file — thử lại sau');
     const id = uuidv7();
     const now = new Date();
     const key = `files/${b.kind.toLowerCase()}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${id}`;
@@ -134,6 +148,7 @@ export class FilesService {
   /** Tải lại + tính sha256 NGOÀI transaction (không giữ kết nối DB khi đọc S3); ghi kết quả trong transaction ngắn. */
   async complete(id: string) {
     const p = this.principal();
+    if (!this.storage.configured) throw new AppError('CONFIGURATION_NOT_READY', 'Chưa cấu hình lưu trữ file');
     const f = await this.tx.file.findUnique({
       where: { id },
       select: {
@@ -160,7 +175,10 @@ export class FilesService {
       if (size === null) throw new AppError('INVALID_STATE_TRANSITION', 'Chưa tải file lên — PUT vào upload_url trước');
       if (size !== f.declaredBytes || size > rule.maxBytes) reject = 'SIZE_MISMATCH';
       else {
-        const d = await this.storage.digest(f.storageKey, Math.min(rule.maxBytes, f.declaredBytes));
+        // C1 (kiểm thử lát 7): URL PUT còn hạn tới 5 phút và không thu hồi được ⇒ chép sang khóa CUỐI (không URL ký nào
+        // trỏ tới) rồi kiểm sha256 trên CHÍNH bản chép — nội dung đã kiểm là nội dung được lưu và tải về mãi về sau
+        await this.storage.copy(f.storageKey, finalKeyOf(f.storageKey));
+        const d = await this.storage.digest(finalKeyOf(f.storageKey), Math.min(rule.maxBytes, f.declaredBytes));
         digest = d;
         if (d.bytes !== f.declaredBytes) reject = 'SIZE_MISMATCH';
         else if (!d.sha256.equals(Buffer.from(f.declaredSha256))) reject = 'SHA256_MISMATCH';
@@ -192,6 +210,9 @@ export class FilesService {
       }
       const sha = new Uint8Array(digest.sha256);
       // FR-INV-16: cùng nội dung với file đã nhận trước đó (ảnh dùng lại) ⇒ cảnh báo, không chặn
+      // T3: tuần tự hóa theo nội dung ⇒ hai complete song song cùng ảnh: cái sau thấy cái trước (không né FR-INV-16)
+      await this.tx
+        .$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('file-sha:' || ${digest.sha256.toString('hex')}, 0))`;
       const dup = await this.tx.file.findFirst({
         where: { sha256: sha, status: 'READY', id: { not: id } },
         orderBy: { completedAt: 'asc' },
@@ -224,7 +245,9 @@ export class FilesService {
         warnings: dup ? ['DUPLICATE_CONTENT'] : [],
       };
     });
-    if (out.status === 'REJECTED') await this.storage.remove(f.storageKey);
+    // khóa tải lên không bao giờ được phục vụ ⇒ luôn xóa; bị từ chối ⇒ xóa cả bản chép
+    await this.storage.remove(f.storageKey);
+    if (out.status === 'REJECTED') await this.storage.remove(finalKeyOf(f.storageKey));
     return out;
   }
 
@@ -242,7 +265,11 @@ export class FilesService {
     if (!f || (f.createdBy !== p.userId && p.userType !== 'MASTER')) throw notFound();
     if (f.status !== 'READY') throw new AppError('INVALID_STATE_TRANSITION', `File đang ${f.status}`);
     const ext = f.mime === 'image/webp' ? 'webp' : 'jpg';
-    const url = await this.storage.presignGet(f.storageKey, `${f.kind.toLowerCase()}-${f.id}.${ext}`, DOWNLOAD_TTL_S);
+    const url = await this.storage.presignGet(
+      finalKeyOf(f.storageKey),
+      `${f.kind.toLowerCase()}-${f.id}.${ext}`,
+      DOWNLOAD_TTL_S,
+    );
     return { url, expires_at: new Date(Date.now() + DOWNLOAD_TTL_S * 1000).toISOString() };
   }
 }

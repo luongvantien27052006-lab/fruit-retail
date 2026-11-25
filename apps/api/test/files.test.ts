@@ -141,13 +141,45 @@ describe('file presign / complete / download (CP03 lát 7)', () => {
       { ...ok, mime: 'image/png' },
       { ...ok, bytes: 5 * 1024 * 1024 + 1 },
       { ...ok, sha256: 'ABC' },
-      { ...ok, kind: 'PHOTO_SPOILAGE', capture_source: 'GALLERY' }, // ảnh hủy hàng chỉ chụp trực tiếp
     ])
       expect((await presign(c, bad)).status).toBe(400);
     const r = await presign(c, ok);
     expect(r.status).toBe(200);
     expect(schemaErrors('FilePresignResponse', r.body)).toEqual([]);
     expect((await http().post('/v1/files/presign').send(ok)).status).toBe(401);
+    // TB1: khách chỉ tải ảnh khiếu nại; ảnh nghiệp vụ nội bộ ⇒ 403
+    for (const kind of ['PHOTO_SPOILAGE', 'PHOTO_WEIGHT', 'PHOTO_RECEIPT', 'PHOTO_PRODUCT'])
+      expect((await presign(c, { ...ok, kind, capture_source: 'CAMERA' })).status).toBe(403);
+    // ảnh hủy hàng chỉ chụp trực tiếp (Master/nhân viên)
+    const m = await master();
+    expect((await presign(m, { ...ok, kind: 'PHOTO_SPOILAGE', capture_source: 'GALLERY' })).status).toBe(400);
+    expect((await presign(m, { ...ok, kind: 'PHOTO_SPOILAGE', capture_source: 'CAMERA' })).status).toBe(200);
+  });
+
+  it('C1 — PUT lại sau khi READY (URL còn hạn) ⇒ nội dung tải về vẫn là bản ĐÃ KIỂM; khóa tải lên đã bị xóa', async () => {
+    const c = await customer();
+    const a = jpeg(1500);
+    const u = await upload(c, a);
+    expect((await complete(c, u.id)).body.status).toBe('READY');
+    const b = jpeg(1500); // ảnh khác, cùng kích thước, cùng Content-Type ⇒ chữ ký PUT vẫn đúng
+    expect((await put(u.presign.body.upload_url as string, 'image/jpeg', b)).ok).toBe(true);
+    const dl = await http().get(`/v1/files/${u.id}/download-url`).set('Authorization', c);
+    const got = Buffer.from(await (await fetch(dl.body.url as string)).arrayBuffer());
+    expect(got.equals(a)).toBe(true);
+    expect(got.equals(b)).toBe(false);
+  });
+
+  it('cấu hình S3 thiếu một phần ⇒ không khởi động (không âm thầm tắt tính năng file)', () => {
+    expect(() =>
+      loadEnv({
+        NODE_ENV: 'test',
+        DATABASE_URL_APP: 'postgresql://u:p@127.0.0.1:1/x',
+        REDIS_URL: 'redis://127.0.0.1:1',
+        S3_ENDPOINT: 'http://127.0.0.1:1',
+        S3_BUCKET: 'b-test',
+        S3_ACCESS_KEY: 'k',
+      }),
+    ).toThrow(/S3_SECRET_KEY/);
   });
 
   it('tải lên đúng ⇒ READY (server tự tính sha256); tải về qua presigned GET ra đúng byte; audit', async () => {

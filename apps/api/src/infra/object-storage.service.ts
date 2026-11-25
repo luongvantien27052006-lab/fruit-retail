@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
@@ -92,6 +93,7 @@ export class ObjectStorage implements OnModuleDestroy {
     } catch (e) {
       const status = (e as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
       if (status === 404) return null;
+      this.log.warn(`HEAD ${key} lỗi: ${s3Err(e)}`);
       throw new AppError('DEPENDENCY_UNAVAILABLE', 'Không đọc được kho lưu trữ file');
     }
   }
@@ -103,39 +105,70 @@ export class ObjectStorage implements OnModuleDestroy {
     try {
       const r = await internal.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
       body = r.Body as Readable;
-    } catch {
+    } catch (e) {
+      this.log.warn(`GET ${key} lỗi: ${s3Err(e)}`);
       throw new AppError('DEPENDENCY_UNAVAILABLE', 'Không đọc được kho lưu trữ file');
     }
     const h = createHash('sha256');
     let bytes = 0;
     const head: Buffer[] = [];
     let headLen = 0;
-    for await (const chunk of body) {
-      const b = Buffer.from(chunk as Uint8Array);
-      bytes += b.length;
-      if (bytes > maxBytes) {
-        body.destroy();
-        return { bytes: maxBytes + 1, sha256: Buffer.alloc(32), head: Buffer.concat(head) };
+    try {
+      for await (const chunk of body) {
+        const b = Buffer.from(chunk as Uint8Array);
+        bytes += b.length;
+        if (bytes > maxBytes) {
+          body.destroy();
+          return { bytes: maxBytes + 1, sha256: Buffer.alloc(32), head: Buffer.concat(head) };
+        }
+        if (headLen < 16) {
+          head.push(b.subarray(0, 16 - headLen));
+          headLen += Math.min(b.length, 16 - headLen);
+        }
+        h.update(b);
       }
-      if (headLen < 16) {
-        head.push(b.subarray(0, 16 - headLen));
-        headLen += Math.min(b.length, 16 - headLen);
-      }
-      h.update(b);
+    } catch (e) {
+      this.log.warn(`đọc ${key} bị gián đoạn: ${s3Err(e)}`);
+      throw new AppError('DEPENDENCY_UNAVAILABLE', 'Đọc file từ kho lưu trữ bị gián đoạn');
     }
     return { bytes, sha256: h.digest(), head: Buffer.concat(head) };
   }
 
+  /** Chép object trong bucket (server-side) — khóa đích không có URL ký nào trỏ tới */
+  async copy(from: string, to: string): Promise<void> {
+    const { internal } = this.clients();
+    try {
+      await internal.send(
+        new CopyObjectCommand({
+          Bucket: this.bucket,
+          Key: to,
+          CopySource: `${this.bucket}/${encodeURIComponent(from).replace(/%2F/g, '/')}`,
+        }),
+      );
+    } catch (e) {
+      this.log.warn(`COPY ${from} lỗi: ${s3Err(e)}`);
+      throw new AppError('DEPENDENCY_UNAVAILABLE', 'Không ghi được kho lưu trữ file');
+    }
+  }
+
   /** Xóa object bị từ chối — lỗi chỉ ghi log (bản ghi REJECTED vẫn đúng; dọn rác ở job định kỳ sau). */
   async remove(key: string): Promise<void> {
-    const { internal } = this.clients();
-    await internal.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key })).catch((e: unknown) => {
-      this.log.warn(`không xóa được object bị từ chối: ${e instanceof Error ? e.message : String(e)}`);
-    });
+    try {
+      const { internal } = this.clients();
+      await internal.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+    } catch (e) {
+      this.log.warn(`không xóa được object ${key}: ${s3Err(e)}`);
+    }
   }
 
   onModuleDestroy(): void {
     this.internal?.destroy();
     this.signer?.destroy();
   }
+}
+
+/** tên + mã HTTP của lỗi S3 (không có khóa/chữ ký) để chẩn đoán: AccessDenied, NoSuchBucket, SignatureDoesNotMatch… */
+function s3Err(e: unknown): string {
+  const x = e as { name?: string; message?: string; $metadata?: { httpStatusCode?: number } };
+  return `${x.name ?? 'Error'} (${x.$metadata?.httpStatusCode ?? '?'}): ${(x.message ?? '').slice(0, 200)}`;
 }

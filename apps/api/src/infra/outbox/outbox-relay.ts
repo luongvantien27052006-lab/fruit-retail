@@ -10,6 +10,10 @@ const RELAY_MAX_BACKOFF_S = 3600;
 const ENQUEUE_TIMEOUT_MS = 2_000;
 /** sự kiện đã đẩy nhưng consumer chưa xử lý sau chừng này ⇒ bộ quét kiểm job còn trong Redis không */
 export const SWEEP_AFTER_S = 600;
+/** cửa sổ quét: job xong giữ 7 ngày ⇒ quét tới 8 ngày (cũ hơn: không tự backfill — xem ADR-025) */
+export const SWEEP_WINDOW_S = 8 * 86400;
+/** trần thời gian đẩy trong một lượt relay (transaction 60 s) */
+const RELAY_BUDGET_MS = 40_000;
 
 /** Tùy chọn job: thử lại lùi dần ở consumer; giữ job xong 7 ngày (khóa trùng jobId), giữ job lỗi để xem lại. */
 export const JOB_OPTS = {
@@ -65,11 +69,25 @@ export class OutboxRelay {
   constructor(
     private readonly prisma: PrismaService,
     private readonly queue: Queue,
-    /** chỉ cho test: chạy sau khi đẩy, trước khi commit (mô phỏng worker chết giữa chừng) */
-    private readonly afterEnqueue?: () => Promise<void>,
+    private readonly opts: {
+      /** Redis còn trả lời không (PING) — phân biệt lỗi hạ tầng với lỗi riêng của dòng; thiếu ⇒ coi như sập (an toàn) */
+      ping?: () => Promise<boolean>;
+      /** báo sự kiện vừa chuyển dead_at (worker ghi log error, không qua bộ hãm) */
+      onDead?: (d: { id: string; eventType: string; error: string }) => void;
+      /** chỉ cho test: chạy sau khi đẩy, trước khi commit (mô phỏng worker chết giữa chừng) */
+      afterEnqueue?: () => Promise<void>;
+    } = {},
   ) {}
 
-  /** Một lượt; trả số sự kiện đã đánh dấu gửi. */
+  /** lượt relay gần nhất gặp Redis không dùng được (vòng lặp lùi dần, không cộng attempts) */
+  redisDown = false;
+
+  /**
+   * Một lượt; trả số sự kiện đã đánh dấu gửi, hoặc `REDIS_DOWN` khi Redis không dùng được (người gọi lùi cả vòng lặp).
+   * C1 (kiểm thử lát 7): lỗi HẠ TẦNG (Redis không kết nối / quá hạn, PING cũng lỗi) KHÔNG cộng attempts, KHÔNG bao giờ
+   * đặt dead_at — Redis sập lâu không được giết sự kiện. Chỉ lỗi RIÊNG của dòng (Redis vẫn PING được) mới cộng attempts /
+   * lùi dần / dead_at; dòng chưa thử trong lượt không bị đụng tới.
+   */
   async relayOnce(batch = RELAY_BATCH): Promise<number> {
     return this.prisma.$transaction(
       async (tx) => {
@@ -80,16 +98,15 @@ export class OutboxRelay {
           ORDER BY next_attempt_at, id
           LIMIT ${batch}
           FOR UPDATE SKIP LOCKED`;
+        this.redisDown = false;
         if (rows.length === 0) return 0;
         const ok: string[] = [];
-        const failed: string[] = [];
-        let lastError = '';
+        let failedRow: { id: string; error: string } | null = null;
+        let down = false;
+        const started = Date.now();
         for (const r of rows) {
-          // Redis lỗi một lần ⇒ không thử các dòng còn lại trong lượt này (không giữ khóa dòng chờ timeout từng dòng)
-          if (lastError) {
-            failed.push(r.id);
-            continue;
-          }
+          // T6: trần thời gian cả lượt — Redis chậm đều không làm transaction quá hạn rồi rollback lặp mãi
+          if (Date.now() - started > RELAY_BUDGET_MS) break;
           try {
             await withTimeout(
               this.queue.add(r.event_type, envelope(r), { ...JOB_OPTS, jobId: r.id }),
@@ -97,54 +114,92 @@ export class OutboxRelay {
             );
             ok.push(r.id);
           } catch (e) {
-            lastError = (e instanceof Error ? e.message : String(e)).slice(0, 500) || 'lỗi không rõ';
-            failed.push(r.id);
+            const error = (e instanceof Error ? e.message : String(e)).slice(0, 500) || 'lỗi không rõ';
+            down = !(await this.redisAlive());
+            if (!down) failedRow = { id: r.id, error };
+            break; // không thử tiếp trong lượt này
           }
         }
-        if (failed.length)
-          await tx.$executeRaw`
+        if (failedRow) {
+          const [d] = await tx.$queryRaw<{ dead: boolean; event_type: string }[]>`
             UPDATE integration.outbox SET
               attempts = attempts + 1,
-              last_error = ${lastError},
+              last_error = ${failedRow.error},
               next_attempt_at = now() + make_interval(secs => LEAST(power(2, attempts + 1)::int, ${RELAY_MAX_BACKOFF_S})),
               dead_at = CASE WHEN attempts + 1 >= ${RELAY_MAX_ATTEMPTS} THEN now() ELSE NULL END
-            WHERE id = ANY(${failed}::uuid[])`;
-        if (this.afterEnqueue) await this.afterEnqueue();
+            WHERE id = ${failedRow.id}::uuid
+            RETURNING dead_at IS NOT NULL AS dead, event_type`;
+          // dòng chết: luôn báo (không qua bộ hãm tần suất) — cần người xử lý
+          if (d?.dead) this.opts.onDead?.({ id: failedRow.id, eventType: d.event_type, error: failedRow.error });
+        }
+        if (this.opts.afterEnqueue) await this.opts.afterEnqueue();
         if (ok.length)
           await tx.$executeRaw`
             UPDATE integration.outbox SET published_at = now(), last_error = NULL
             WHERE id = ANY(${ok}::uuid[])`;
+        this.redisDown = down;
         return ok.length;
       },
       { timeout: 60_000, maxWait: 10_000 },
     );
   }
 
+  private async redisAlive(): Promise<boolean> {
+    if (!this.opts.ping) return false;
+    try {
+      return await withTimeout(this.opts.ping(), 1_000);
+    } catch {
+      return false;
+    }
+  }
+
+  private sweepCursor: string | null = null;
+
   /**
-   * Bộ quét (Redis AOF `everysec` có thể mất ≤ 1 giây job khi sập — ADR-025): sự kiện đã đánh dấu gửi > 10 phút mà
-   * còn consumer quan tâm chưa xử lý, và job KHÔNG còn trong Redis (không chờ, không chạy, không lỗi) ⇒ đẩy lại cùng
-   * jobId. Job còn trong Redis (kể cả đang lỗi chờ xem lại) thì để yên. Trả số sự kiện đẩy lại.
+   * Bộ quét (ADR-025; C3/C4 kiểm thử lát 7). Ứng viên: sự kiện đã gửi 10 phút – 8 ngày trước (job xong giữ 7 ngày), còn
+   * consumer quan tâm chưa có processed_events. Duyệt theo CON TRỎ id (mỗi lượt tiếp từ chỗ cũ, hết thì vòng lại) ⇒ job
+   * lỗi tồn đọng không chặn đầu hàng mãi.
+   * - job không còn trong Redis (mất do AOF) ⇒ đẩy lại cùng jobId;
+   * - job đã XONG mà consumer quan tâm vẫn chưa xử lý (consumer mới thêm sau — backfill) ⇒ xóa job cũ, đẩy lại (an toàn
+   *   nhờ processed_events);
+   * - job đang chờ/chạy ⇒ để yên; job LỖI HẲN ⇒ để yên (đã báo khi lỗi), đếm vào `failed`.
    */
-  async sweepOnce(consumers: readonly EventConsumer[], limit = 500): Promise<number> {
+  async sweepOnce(
+    consumers: readonly EventConsumer[],
+    limit = 500,
+  ): Promise<{ requeued: number; failed: number; scanned: number }> {
     const pairs = consumers.flatMap((c) => [...c.eventTypes].map((t) => ({ consumer: c.name, type: t })));
-    if (pairs.length === 0) return 0;
+    if (pairs.length === 0) return { requeued: 0, failed: 0, scanned: 0 };
+    const after = this.sweepCursor;
     const rows = await this.prisma.$queryRaw<OutboxRow[]>`
       SELECT o.id::text, o.event_type, o.schema_version, o.aggregate_type, o.aggregate_id, o.payload, o.occurred_at, o.attempts
       FROM integration.outbox o
       JOIN jsonb_to_recordset(${JSON.stringify(pairs)}::jsonb) AS w(consumer text, type text) ON w.type = o.event_type
       WHERE o.published_at IS NOT NULL AND o.dead_at IS NULL
         AND o.published_at < now() - make_interval(secs => ${SWEEP_AFTER_S})
+        AND o.published_at > now() - make_interval(secs => ${SWEEP_WINDOW_S})
+        AND (${after}::uuid IS NULL OR o.id > ${after}::uuid)
         AND NOT EXISTS (SELECT 1 FROM integration.processed_events p WHERE p.consumer = w.consumer AND p.event_id = o.id)
       GROUP BY o.id
       ORDER BY o.id
       LIMIT ${limit}`;
-    let n = 0;
+    this.sweepCursor = rows.length < limit ? null : (rows.at(-1)?.id ?? null);
+    let requeued = 0;
+    let failed = 0;
     for (const r of rows) {
       const job = await withTimeout(this.queue.getJob(r.id), ENQUEUE_TIMEOUT_MS);
-      if (job) continue;
+      if (job) {
+        const state = await withTimeout(job.getState(), ENQUEUE_TIMEOUT_MS);
+        if (state === 'failed') {
+          failed++;
+          continue;
+        }
+        if (state !== 'completed') continue;
+        await withTimeout(job.remove(), ENQUEUE_TIMEOUT_MS);
+      }
       await withTimeout(this.queue.add(r.event_type, envelope(r), { ...JOB_OPTS, jobId: r.id }), ENQUEUE_TIMEOUT_MS);
-      n++;
+      requeued++;
     }
-    return n;
+    return { requeued, failed, scanned: rows.length };
   }
 }

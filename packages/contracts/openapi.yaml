@@ -9017,7 +9017,8 @@ components:
       additionalProperties: false
       description: >-
         Ảnh ≤ 5 MB, image/jpeg hoặc image/webp. PHOTO_SPOILAGE, PHOTO_WEIGHT chỉ nhận capture_source = CAMERA (app chụp
-        trực tiếp). Tối đa 20 file PENDING mỗi người trong 1 giờ (429). Thiếu cấu hình S3 ⇒ 503.
+        trực tiếp). Khách chỉ được PHOTO_COMPLAINT; loại khác chỉ nhân viên/Master (403). Tối đa 20 file tạo mỗi giờ và 100
+        file mỗi ngày mỗi người, mọi trạng thái (429). Thiếu cấu hình S3 ⇒ 503.
       properties:
         kind:
           type: string

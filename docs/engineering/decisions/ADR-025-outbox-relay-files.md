@@ -1,7 +1,6 @@
 # ADR-025: Outbox relay + consumer idempotent, upload file qua S3 (CP03 lát 7)
 
-- Trạng thái: accepted (kỹ thuật) · Ngày: 2026-11-26 · Người quyết: phiên điều phối (CP03 lát 7) — chờ agent
-  silent-failure-hunter + code-reviewer kiểm
+- Trạng thái: accepted (kỹ thuật) · Ngày: 2026-11-26 · Người quyết: phiên điều phối (CP03 lát 7) — đã qua kiểm thử agent (SẠCH, xem cuối)
 - Làm rõ: ADR-002 (worker, Redis không là nguồn quyết định), ADR-007 (outbox, processed_events), ADR-014 (file),
   ADR-017 (Redis AOF everysec, noeviction)
 
@@ -34,11 +33,11 @@
    client khi API gọi S3 qua mạng nội bộ). Thiếu ⇒ `/files/*` 503. Không bật checksum CRC tự động của SDK (kho tương
    thích có thể không hỗ trợ) — sha256 do server tự tính. Local/CI: SeaweedFS (cùng image diễn tập backup); thật: Tiến
    chọn nhà cung cấp (khác bucket backup — ADR-014).
-2. **Loại file** client tải lên: `PHOTO_SPOILAGE`, `PHOTO_WEIGHT` (chỉ `capture_source = CAMERA` — app chụp trực tiếp),
+2. **Loại file** client tải lên: `PHOTO_SPOILAGE`, `PHOTO_WEIGHT`, `PHOTO_COMPLAINT` (chỉ `capture_source = CAMERA` — app chụp trực tiếp; khách chỉ được ảnh khiếu nại),
    `PHOTO_COMPLAINT`, `PHOTO_RECEIPT`, `PHOTO_PRODUCT`; ảnh `image/jpeg|webp` ≤ 5 MB. File báo cáo do server tạo, không qua
    presign.
 3. **presign** (`auth:*`): bản ghi `PENDING` + presigned PUT 5 phút ký cả `Content-Type` và `Content-Length` (gửi khác
-   ⇒ S3 từ chối); tối đa 20 PENDING/người/giờ (khóa advisory theo người ⇒ không vượt khi gửi song song); audit
+   ⇒ S3 từ chối); tối đa 20 file/giờ và 100 file/ngày mỗi người, mọi trạng thái (khóa advisory theo người ⇒ không vượt khi gửi song song); audit
    `file.presign`.
 4. **complete** (chỉ người tạo; người khác ⇒ 404): tải lại + tính sha256, đếm byte, nhận định dạng theo byte đầu NGOÀI
    transaction (`@OwnTransaction`), rồi transaction ngắn khóa dòng (`FOR UPDATE`, còn PENDING) ghi kết quả. Lệch kích
@@ -89,10 +88,19 @@
 - Thấp: S3 đặt riêng `S3_PUBLIC_ENDPOINT` mà thiếu 4 biến chính ⇒ cũng không khởi động; đổi tên hằng `MAX_FILES_PER_HOUR`.
 - Ghi nhận: test `auth.test.ts` R1 (hàng đợi Argon2 đầy ⇒ 429) nhạy tải khi hai bộ test chạy song song — chạy riêng đạt.
 
+## Kiểm thử lần 3 (20322d8): SẠCH (silent-failure-hunter + code-reviewer)
+Ghi nhận Thấp để sau: (1) lỗi hạ tầng bị xếp `down` chưa lưu nguyên nhân (OOM/READONLY…) vào log `relay-redis` — thêm
+`lastInfraError`; lỗi không phải ReplyError lặp mãi ở cùng một dòng ⇒ log id dòng đầu hàng sau N lượt (CP19 giám sát);
+(2) job dọn CP19 phải xử lý cả bản chép `final/…` không trùng `final_key`, khóa tải lên mồ côi, PENDING quá hạn — và
+không xóa ngay khi commit không rõ kết quả; (3) 0006 không backfill `final_key`: DB đã có file READY trước 0006 phải
+backfill `final/` + phần sau `files/` của storage_key trước khi áp (hiện chưa có môi trường dùng chung); (4) test song song
+mang tính xác suất, chưa liệt kê object thừa; tên test C1 nói nhiều hơn điều nó kiểm; (5) câu báo của bên thua đua
+("Chưa tải file lên") dễ hiểu nhầm; `WRONGTYPE` tính là lỗi dòng.
+
 ## Hệ quả
 - Thư viện: `bullmq` 6.7.4, `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner` 3.1166.0 (ghim chính xác);
   `msgpackr-extract` (native tùy chọn) không chạy script cài đặt.
 - `loadEnv` coi biến rỗng là không đặt (compose `${X:-}`). Compose API truyền `OTP_PROVIDER`, `S3_*`.
-- OpenAPI: `FilePresignRequest/Response`, `FileCompleteResponse`, `FileDownloadUrlResponse`. Không migration.
+- OpenAPI: `FilePresignRequest/Response`, `FileCompleteResponse`, `FileDownloadUrlResponse`. Migration `0006_files_final_key` (cột `final_key`).
 - Để sau: job dọn object/bản ghi PENDING quá hạn và `processed_events` cũ (CP19); màn xem job "failed" + chạy lại (lát 8 /
   CP19); quyền tải theo owner (CP06+).

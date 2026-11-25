@@ -68,6 +68,7 @@ describe('0001_foundation', () => {
       'prisma/0002_auth_totp_replay',
       'prisma/0003_pos_enrollment_codes',
       'prisma/0004_nc19_permissions',
+      'prisma/0005_nc21_grant_guard',
     ]);
     await expect(
       applySqlMigrations({ url: ownerUrl, dir: SQL_DIR, prismaDir: PRISMA_DIR, env: passwords, log: () => undefined }),
@@ -325,6 +326,21 @@ describe('0001_foundation', () => {
     // NC-21: không còn giảm giá tay; giảm giá cận hạn chỉ Master duyệt
     expect(Object.keys(byAction)).not.toContain('LINE_DISCOUNT');
     expect(Object.keys(byAction)).not.toContain('MARKDOWN');
+    // NC-19(a): cửa hàng trưởng không bán / xóa dòng / xử lý đơn app (đọc chặt §2.2)
+    const sm = (await q(`SELECT permission_code FROM core.role_permissions WHERE role = 'STORE_MANAGER'`)).map(
+      (x) => x.permission_code,
+    );
+    for (const c of ['pos:sell', 'pos:void_line', 'app_order:manage', 'markdown:approve', 'pos:discount'])
+      expect(sm).not.toContain(c);
+    // NC-19(d): Master không có hạn mức xóa dòng / mở két không bán, và không thêm vào được
+    for (const action of ['LINE_DELETE', 'NO_SALE_OPEN'])
+      await expect(
+        q(
+          `INSERT INTO core.approval_limits (role, action, allowed) VALUES ('MASTER_ADMIN', $1, true)`,
+          [action],
+          roleUrl('app_rw'),
+        ),
+      ).rejects.toThrow(/approval_limits_master_forbidden/);
     expect(await q(`SELECT 1 FROM core.approval_limits WHERE action = 'LINE_DISCOUNT'`)).toEqual([]);
     expect(await q(`SELECT role::text FROM core.approval_limits WHERE action = 'MARKDOWN'`)).toEqual([
       { role: 'MASTER_ADMIN' },
@@ -687,6 +703,14 @@ describe('0001_foundation', () => {
         roleUrl('app_rw'),
       );
     await expect(grant(viewer)).rejects.toThrow(/chỉ cho người dùng STAFF/);
+    // NC-21: duyệt giảm giá cận hạn chỉ Master — không cấp riêng được cho nhân viên
+    await expect(
+      q(
+        `INSERT INTO core.user_permission_grants (id, user_id, permission_code, scope_type, granted_by) VALUES ($1, $2, 'markdown:approve', 'ALL', $3)`,
+        [id(), staff, master],
+        roleUrl('app_rw'),
+      ),
+    ).rejects.toThrow(/upg_no_markdown_approve/);
     await expect(grant(master)).rejects.toThrow(/chỉ cho người dùng STAFF/);
     await grant(staff);
     const [sh] = await q(`SELECT id FROM core.viewer_profiles WHERE code = 'SHAREHOLDER'`);

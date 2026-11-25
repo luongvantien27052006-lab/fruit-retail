@@ -22,6 +22,7 @@ const ALLOWED_DIFF = new Map([
   ['/pos/wholesale-orders/{id}/accept', 'NC-16: dùng start-picking'],
   ['/pos/wholesale-orders/{id}/reject', 'NC-16: đơn sỉ không có bước từ chối'],
   ['/pos/wholesale-orders/{id}/report-shortage', 'NC-16: thiếu hàng đơn sỉ xử lý ở Master'],
+  ['/pos/markdowns/{id}/approve', 'NC-21: giảm giá cận hạn chỉ Master duyệt — qua /admin/approvals'],
 ]);
 const paths = new Set([...oas.matchAll(/^ {2}(\/[^:\s]+):$/gm)].map((m) => m[1]));
 const rows = section(/^### 13\.2\./, /^### 13\.3\./).filter(

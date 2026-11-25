@@ -1604,7 +1604,6 @@ paths:
         'SPOILAGE': 'spoilage:approve'
         'STOCKTAKE_ADJUST': 'stocktake:approve'
         'INTERNAL_USE': 'internal_use:approve'
-        'MARKDOWN': 'markdown:approve'
         'CASH_DIFFERENCE': 'cash:approve'
         'SALE_VOID': 'pos:void_sale'
         'REFUND': 'pos:refund'
@@ -1649,7 +1648,6 @@ paths:
         'SPOILAGE': 'spoilage:approve'
         'STOCKTAKE_ADJUST': 'stocktake:approve'
         'INTERNAL_USE': 'internal_use:approve'
-        'MARKDOWN': 'markdown:approve'
         'CASH_DIFFERENCE': 'cash:approve'
         'SALE_VOID': 'pos:void_sale'
         'REFUND': 'pos:refund'
@@ -1707,7 +1705,6 @@ paths:
         'SPOILAGE': 'spoilage:approve'
         'STOCKTAKE_ADJUST': 'stocktake:approve'
         'INTERNAL_USE': 'internal_use:approve'
-        'MARKDOWN': 'markdown:approve'
         'CASH_DIFFERENCE': 'cash:approve'
         'SALE_VOID': 'pos:void_sale'
         'REFUND': 'pos:refund'
@@ -3246,54 +3243,6 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /pos/markdowns/{id}/approve:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    post:
-      operationId: postPosMarkdownsIdApprove
-      tags: [inventory]
-      summary: 'Duyệt giảm giá lô'
-      x-permission: 'markdown:approve'
-      x-spec-ref: '§5.8'
-      x-detail-cp: CP17
-      parameters:
-        - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/RequestId'
-        - $ref: '#/components/parameters/DeviceId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PendingBody'
-      responses:
-        '200':
-          description: Thành công
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PendingBody'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/Unprocessable'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
   /shipper/jobs:
     get:
       operationId: getShipperJobs
@@ -4522,7 +4471,7 @@ paths:
       operationId: getAdminZones
       tags: [admin]
       summary: 'Danh sách vùng giao'
-      x-permission: 'report:read'
+      x-permission: 'zone:read'
       x-spec-ref: '§8.2'
       x-detail-cp: CP13
       parameters:
@@ -4593,7 +4542,7 @@ paths:
       operationId: getAdminZonesId
       tags: [admin]
       summary: 'Chi tiết vùng giao'
-      x-permission: 'report:read'
+      x-permission: 'zone:read'
       x-spec-ref: '§8.2'
       x-detail-cp: CP13
       parameters:

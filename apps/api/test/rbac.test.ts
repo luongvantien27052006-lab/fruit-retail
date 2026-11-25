@@ -195,7 +195,7 @@ describe('RBAC + cô lập Viewer (CP03 lát 6)', () => {
     await app.init();
     const m = await createMaster(db.roleUrl('app_rw'), `m-${hex().toLowerCase()}@fruit.test`);
     masterId = m.userId;
-    master = await adminBearer(m.email, m.password, m.userId);
+    master = await stepUp(await adminBearer(m.email, m.password, m.userId), m.userId);
   });
   afterAll(async () => {
     await app?.close();
@@ -345,9 +345,22 @@ describe('RBAC + cô lập Viewer (CP03 lát 6)', () => {
     expect((await c2.get('/v1/auth/sessions')).status).toBe(401);
 
     const body = { user_id: s.userId, role: 'PICKER', store_id: a.id };
-    const no = await http().post('/v1/admin/role-assignments').set('Authorization', master).send(body);
+    // Master khác chưa step-up: gán vai trò và tạo nhân viên kèm vai trò đều bị chặn (L3)
+    const m2 = await createMaster(db.roleUrl('app_rw'), `m2-${hex().toLowerCase()}@fruit.test`);
+    const plain = await adminBearer(m2.email, m2.password, m2.userId);
+    const no = await http().post('/v1/admin/role-assignments').set('Authorization', plain).send(body);
     expect([no.status, no.body.code]).toEqual([403, 'STEP_UP_REQUIRED']);
-    const up = await stepUp(master, masterId);
+    const noCreate = await http()
+      .post('/v1/admin/staff')
+      .set('Authorization', plain)
+      .send({
+        staff_code: `N${hex()}`,
+        full_name: 'x',
+        pin: '480263',
+        role: { role: 'STORE_MANAGER', store_id: a.id },
+      });
+    expect([noCreate.status, noCreate.body.code]).toEqual([403, 'STEP_UP_REQUIRED']);
+    const up = master;
     expect((await http().post('/v1/admin/role-assignments').set('Authorization', up).send(body)).status).toBe(201);
     // vai trò admin không gán ở đây
     expect(
@@ -358,7 +371,56 @@ describe('RBAC + cô lập Viewer (CP03 lát 6)', () => {
           .send({ ...body, role: 'MASTER_ADMIN' })
       ).status,
     ).toBe(400);
-    master = up;
+  });
+
+  it('sửa theo kiểm thử lát 6: SM không mở lại tài khoản bị khóa / xóa ngày nghỉ; nhân viên có quyền cấp riêng chỉ Master quản lý; step-up không miễn ⇒ 403', async () => {
+    const a = await store();
+    const sm = await staffSql([{ role: 'STORE_MANAGER', storeId: a.id }]);
+    const x = await staffSql([{ role: 'CASHIER', storeId: a.id }]);
+    const c = await staffClient(await activeDevice(a.id), sm);
+    // Master khóa + ghi ngày nghỉ ⇒ SM không đảo được
+    await http().patch(`/v1/admin/staff/${x.userId}`).set('Authorization', master).send({ status: 'DISABLED' });
+    expect((await c.patch(`/v1/admin/staff/${x.userId}`, { status: 'ACTIVE' })).status).toBe(403);
+    expect((await c.patch(`/v1/admin/staff/${x.userId}`, { pin: '573918' })).status).toBe(403);
+    const y = await staffSql([{ role: 'CASHIER', storeId: a.id }]);
+    expect((await c.patch(`/v1/admin/staff/${y.userId}`, { left_at: '2026-12-31' })).status).toBe(200);
+    expect((await c.patch(`/v1/admin/staff/${y.userId}`, { left_at: null })).status).toBe(403);
+    expect((await c.patch(`/v1/admin/staff/${y.userId}`, { left_at: '2027-01-31' })).status).toBe(403);
+    const z = await staffSql([{ role: 'CASHIER', storeId: a.id }]);
+    expect((await c.patch(`/v1/admin/staff/${z.userId}`, { status: 'DISABLED' })).status).toBe(200); // SM được khóa
+    // L2: có quyền cấp riêng ⇒ SM không thấy / không sửa được
+    const g = await staffSql([{ role: 'CASHIER', storeId: a.id }]);
+    await rows(
+      `INSERT INTO core.user_permission_grants (id, user_id, permission_code, scope_type, granted_by) VALUES ($1, $2, 'price:write', 'ALL', $3)`,
+      [randomUUID(), g.userId, masterId],
+    );
+    expect((await c.get(`/v1/admin/staff/${g.userId}`)).status).toBe(404);
+    expect((await c.patch(`/v1/admin/staff/${g.userId}`, { pin: '573918' })).status).toBe(404);
+    expect(((await c.get('/v1/admin/staff')).body.items as { user_id: string }[]).map((i) => i.user_id)).not.toContain(
+      g.userId,
+    );
+    // L4: route step-up không khai báo miễn ⇒ nhân viên bị chặn
+    const rc = await c.post('/v1/auth/2fa/recovery-codes', {});
+    expect([rc.status, rc.body.code]).toEqual([403, 'STEP_UP_REQUIRED']);
+  });
+
+  it('L1 (DB) — đổi PIN chạy đua với đăng nhập bằng PIN cũ: không còn phiên nào sống sau khi đổi', async () => {
+    const a = await store();
+    const d = await activeDevice(a.id);
+    for (let i = 0; i < 3; i++) {
+      const s = await staffSql([{ role: 'CASHIER', storeId: a.id }]);
+      const [login, change] = await Promise.all([
+        http()
+          .post('/v1/auth/pin')
+          .set('X-Device-Id', d.id)
+          .send({ staff_code: s.code, pin: s.pin, device_proof: proof(d, 'pin', s.code) }),
+        http().patch(`/v1/admin/staff/${s.userId}`).set('Authorization', master).send({ pin: '573918' }),
+      ]);
+      expect(change.status).toBe(200);
+      expect([200, 401]).toContain(login.status);
+      const live = await rows(`SELECT 1 FROM core.sessions WHERE user_id = $1 AND revoked_at IS NULL`, [s.userId]);
+      expect(live).toEqual([]);
+    }
   });
 
   // ───────── hạn mức duyệt từ dữ liệu ─────────

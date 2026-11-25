@@ -18,6 +18,8 @@ export interface RouteInfo {
   allowWithoutMfa?: boolean;
   ownTx?: boolean;
   masterOnly?: boolean;
+  /** lý do miễn step-up cho tài khoản không có 2FA (nhân viên) */
+  stepUpStaffExempt?: string;
 }
 
 const joinPath = (...parts: string[]) =>
@@ -84,6 +86,9 @@ export function listRoutes(app: INestApplication): RouteInfo[] {
             ...(Reflect.getMetadata(ALLOW_WITHOUT_MFA_KEY, fn) ? { allowWithoutMfa: true } : {}),
             ...(Reflect.getMetadata(OWN_TX_KEY, fn) ? { ownTx: true } : {}),
             ...(Reflect.getMetadata(MASTER_ONLY_KEY, fn) ? { masterOnly: true } : {}),
+            ...((Reflect.getMetadata(STEP_UP_KEY, fn) as { staffExempt?: string } | undefined)?.staffExempt
+              ? { stepUpStaffExempt: (Reflect.getMetadata(STEP_UP_KEY, fn) as { staffExempt: string }).staffExempt }
+              : {}),
           });
     }
   }

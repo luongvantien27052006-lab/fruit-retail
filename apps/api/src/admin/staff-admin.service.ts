@@ -79,6 +79,7 @@ export class StaffAdminService {
           ? {}
           : {
               user: {
+                permissionGrants: { none: { revokedAt: null } },
                 roleAssignments: {
                   some: {
                     revokedAt: null,
@@ -114,11 +115,15 @@ export class StaffAdminService {
   /** PIN băm TRƯỚC khi mở transaction (không giữ kết nối khi chờ Argon2) — @OwnTransaction ở controller. */
   async create(b: { staff_code: string; full_name: string; pin: string; hired_at?: string | null; role: RoleSpec }) {
     const p = this.principal();
+    if (!p.permissions.has('role:assign'))
+      throw new AppError('ACTION_FORBIDDEN', 'Tạo nhân viên kèm vai trò cần quyền gán vai trò', {
+        permission: 'role:assign',
+      });
     if (isWeakPin(b.pin)) throw weakPin();
     const code = normalizeStaffCode(b.staff_code);
     const pinHash = await withArgonSlot(`admin:${p.userId}`, () => hashSecret(b.pin, ARGON_PROFILES.PASSWORD));
     return this.txHost.withTransaction(async () => {
-      const scope = await this.assertAssignable(b.role, 'staff:write');
+      const scope = await this.assertAssignable(b.role, 'role:assign');
       const id = uuidv7();
       try {
         await this.tx.user.create({ data: { id, type: 'STAFF', pinHash }, select: { id: true } });
@@ -174,7 +179,21 @@ export class StaffAdminService {
         ? await withArgonSlot(`admin:${p.userId}`, () => hashSecret(b.pin ?? '', ARGON_PROFILES.PASSWORD))
         : undefined;
     return this.txHost.withTransaction(async () => {
+      // L1 (kiểm thử DB lát 6): CÙNG khóa với lần thử đăng nhập (AuthAttempts `auth:<id>`) và lấy TRƯỚC khóa dòng users
+      // (cùng thứ tự với đăng nhập ⇒ không deadlock). Đăng nhập PIN đang chạy commit xong mới tới đây ⇒ phiên nó vừa tạo
+      // nằm trong tập bị thu hồi; đăng nhập bắt đầu sau ⇒ nhánh "bận" (401 chung), xong thì gặp PIN mới.
+      if (pinHash !== undefined || b.status !== undefined)
+        await this.tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('auth:' || ${id}, 0))`;
       const before = await this.managed(id, 'staff:write', true);
+      if (!(await this.scope.isAll('staff:write'))) {
+        // L1 (kiểm thử lát 6): không có phạm vi ALL ⇒ chỉ được KHÓA / ghi ngày nghỉ lần đầu / đổi tên / đổi PIN của nhân
+        // viên đang hoạt động — không mở lại tài khoản bị khóa, không xóa/lùi ngày nghỉ đã đặt (quyết định của Master)
+        const reopen = b.status === 'ACTIVE' && before.user.status !== 'ACTIVE';
+        const leftChanged = b.left_at !== undefined && before.leftAt !== null && b.left_at !== day(before.leftAt);
+        const pinOnInactive = b.pin !== undefined && (before.user.status !== 'ACTIVE' || before.leftAt !== null);
+        if (reopen || leftChanged || pinOnInactive)
+          throw new AppError('ACTION_FORBIDDEN', 'Chỉ Master mở lại tài khoản đã khóa / đổi ngày nghỉ đã đặt');
+      }
       const staffData = {
         ...(b.full_name !== undefined ? { fullName: b.full_name } : {}),
         ...(b.hired_at !== undefined ? { hiredAt: b.hired_at ? new Date(b.hired_at) : null } : {}),
@@ -194,6 +213,9 @@ export class StaffAdminService {
       // đổi PIN / khóa ⇒ thu hồi mọi phiên của nhân viên (PIN cũ có thể đã lộ)
       let revoked = 0;
       if (pinHash !== undefined || b.status === 'DISABLED') {
+        // L2: khóa các dòng phiên theo id TRƯỚC (cùng thứ tự với thu hồi thiết bị) ⇒ không deadlock 40P01
+        await this.tx.$queryRaw`
+          SELECT id FROM core.sessions WHERE user_id = ${id}::uuid AND revoked_at IS NULL ORDER BY id FOR UPDATE`;
         const r = await this.tx.session.updateMany({
           where: { userId: id, revokedAt: null },
           data: { revokedAt: new Date(), revokeReason: pinHash !== undefined ? 'PIN_RESET' : 'USER_DISABLED' },
@@ -283,6 +305,8 @@ export class StaffAdminService {
         ra.scopeId,
         () => new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy vai trò'),
       );
+      // người bị gỡ phải là nhân viên cửa hàng trưởng quản lý được (cùng quy tắc managed())
+      await this.managed(ra.userId, 'role:assign');
     }
     await this.tx.userRoleAssignment.update({
       where: { id },
@@ -340,7 +364,9 @@ export class StaffAdminService {
     const s = await this.scope.stores(permission);
     if (s === 'ALL') return row;
     const live = row.user.roleAssignments;
+    // L2: có quyền cấp riêng đang hiệu lực ⇒ chỉ phạm vi ALL quản lý (tránh đặt lại PIN để mượn quyền rộng hơn mình)
     const ok =
+      row.user.permissionGrants.length === 0 &&
       live.length > 0 &&
       live.every(
         (r) => SM_ASSIGNABLE.has(r.role as StaffRole) && r.scopeType === 'STORE' && !!r.scopeId && s.has(r.scopeId),
@@ -365,6 +391,7 @@ const STAFF_SELECT = {
         select: { id: true, role: true, scopeType: true, scopeId: true },
         orderBy: { createdAt: 'asc' as const },
       },
+      permissionGrants: { where: { revokedAt: null }, select: { id: true }, take: 1 },
     },
   },
 } as const;

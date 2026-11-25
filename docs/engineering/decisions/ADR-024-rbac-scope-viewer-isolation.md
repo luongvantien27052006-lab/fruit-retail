@@ -30,7 +30,7 @@
    - Không ai tự sửa / tự gán / tự gỡ vai trò của chính mình. PIN băm Argon2id TRƯỚC transaction (`@OwnTransaction`); PIN
      dễ đoán (6 số lặp, dãy tăng/giảm vòng, cặp/ba lặp, vài PIN phổ biến) ⇒ 400 (ghi nhận lát 4). Đổi PIN / khóa ⇒ thu
      hồi mọi phiên (`PIN_RESET`, `USER_DISABLED`).
-6. **Step-up chỉ cho tài khoản có 2FA** (Master/Viewer): nhân viên (cửa hàng trưởng đăng nhập PIN trên máy POS đã kích
+6. **Step-up chỉ cho tài khoản có 2FA** (Master/Viewer — đã đổi, xem "Sửa theo kiểm thử agent lần 1" L4): nhân viên (cửa hàng trưởng đăng nhập PIN trên máy POS đã kích
    hoạt) không có 2FA nên không có step-up; route họ gọi được đều có phạm vi cửa hàng + vai trò hẹp. SEC2 không liệt kê
    gán vai trò nhân viên — chỉ "tài khoản admin".
 7. **Cô lập Viewer** (§2.5 lớp 3–4, T16, T17):
@@ -40,6 +40,30 @@
      `ViewerDb`: pool riêng `DATABASE_URL_VIEWER`, mỗi lần đọc một transaction READ ONLY với
      `set_config('app.viewer_profile_id', id, true)`; kết nối không phải `viewer_ro` ⇒ từ chối (không âm thầm đọc bằng role
      rộng hơn); thiếu URL ⇒ 503.
+
+## Sửa theo kiểm thử agent lần 1 (98cda64)
+**security-reviewer:**
+- **L1 (TB):** người không có phạm vi ALL (cửa hàng trưởng) không mở lại tài khoản bị khóa, không xóa/lùi ngày nghỉ đã
+  đặt, không đổi PIN của nhân viên đã khóa/đã có ngày nghỉ (403) — chỉ được khóa, ghi ngày nghỉ lần đầu, đổi tên, đổi PIN
+  nhân viên đang hoạt động. Không đảo được quyết định của Master.
+- **L2 (TB):** nhân viên có quyền cấp riêng đang hiệu lực ⇒ chỉ phạm vi ALL quản lý (list + `managed()`), chặn đặt lại PIN
+  để mượn quyền rộng hơn mình.
+- **L3 (Thấp):** `POST /admin/staff` (gán vai trò kèm khi tạo) cần thêm `role:assign` và `x-step-up` — cùng rào với
+  `/admin/role-assignments`.
+- **L4 (Thấp):** step-up giờ **mặc định chặn** tài khoản không có 2FA (403 `STEP_UP_REQUIRED`); chỉ miễn khi route khai
+  báo `@RequireStepUp({ staffExempt: lý do })` — hiện có `POST /admin/staff`, `/admin/role-assignments` (POST, DELETE).
+  Thay mục 6.
+- **L5 (Thấp):** kiểm route viewer/auth gồm cả đường dẫn gốc (`/v1/viewer`, `/v1/auth`).
+- Ghi nhận đã làm: gỡ vai trò cũng yêu cầu người bị gỡ thuộc `managed()`; hạn mức từ chối số âm.
+- Ghi nhận chấp nhận: tạo nhân viên trùng mã trả 409 ⇒ người có `staff:write` dò được mã NV (SEC5 + PIN yếu giảm nhẹ);
+  danh sách `take 500` chưa phân trang (lát 8); route ghi của viewer (CP12) cần thiết kế lại vì app pool bị chặn.
+
+**database-reviewer:**
+- **L1 (TB):** đổi PIN / khóa lấy CÙNG advisory lock `auth:<id>` với lần thử đăng nhập (trước khóa dòng users — cùng thứ
+  tự) ⇒ đăng nhập PIN cũ đang chạy commit trước rồi bị thu hồi luôn; test đua 3 vòng.
+- **L2 (Thấp):** khóa phiên `ORDER BY id FOR UPDATE` trước khi thu hồi (cùng thứ tự với thu hồi thiết bị) ⇒ không 40P01.
+- **L3 (Thấp):** `ViewerDb` hủy kết nối khi ROLLBACK lỗi; kiểm `current_user = viewer_ro` ở MỌI transaction.
+- Ghi nhận đã làm: PUT hạn mức khóa dòng trước khi đọc "before" cho audit.
 
 ## Để lát sau
 - Route `/viewer/*` thật (projection, snapshot), 2 route ghi của viewer qua `viewer_act`: CP12.

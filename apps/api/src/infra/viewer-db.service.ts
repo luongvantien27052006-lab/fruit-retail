@@ -15,7 +15,6 @@ export type ViewerQuery = <R = Record<string, unknown>>(sql: string, params?: un
 export class ViewerDb implements OnModuleDestroy {
   private readonly log = new Logger('ViewerDb');
   private readonly pool: Pool | null;
-  private verified = false;
 
   constructor(@Inject(ENV) env: Env) {
     this.pool = env.DATABASE_URL_VIEWER
@@ -38,22 +37,29 @@ export class ViewerDb implements OnModuleDestroy {
     } catch {
       throw new AppError('DEPENDENCY_UNAVAILABLE', 'Không kết nối được dữ liệu báo cáo');
     }
+    let broken = false;
     try {
       await c.query('BEGIN TRANSACTION READ ONLY');
-      if (!this.verified) {
-        const r = await c.query<{ u: string }>('SELECT current_user AS u');
-        if (r.rows[0]?.u !== 'viewer_ro') throw new Error('DATABASE_URL_VIEWER không phải role viewer_ro');
-        this.verified = true;
+      // kiểm role ở MỖI transaction (gần như miễn phí): SET ROLE / đổi URL không lọt qua lần kiểm đầu
+      const r = await c.query<{ u: string }>(
+        `SELECT current_user AS u, set_config('app.viewer_profile_id', $1, true) AS p`,
+        [profileId],
+      );
+      if (r.rows[0]?.u !== 'viewer_ro') {
+        broken = true;
+        throw new Error('DATABASE_URL_VIEWER không phải role viewer_ro');
       }
-      await c.query(`SELECT set_config('app.viewer_profile_id', $1, true)`, [profileId]);
       const out = await fn(async <R>(sql: string, params: unknown[] = []) => (await c.query(sql, params)).rows as R[]);
       await c.query('COMMIT');
       return out;
     } catch (e) {
-      await c.query('ROLLBACK').catch(() => undefined);
+      // ROLLBACK lỗi (kết nối hỏng / quá hạn) ⇒ hủy kết nối, không trả về pool (L3)
+      await c.query('ROLLBACK').catch(() => {
+        broken = true;
+      });
       throw e;
     } finally {
-      c.release();
+      c.release(broken);
     }
   }
 

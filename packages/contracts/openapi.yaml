@@ -4641,6 +4641,7 @@ paths:
       tags: [admin]
       summary: 'Tạo nhân viên (không gồm tài khoản admin)'
       x-permission: 'staff:write'
+      x-step-up: true # gán vai trò kèm khi tạo — cùng rào với role-assignments (Master); nhân viên miễn (ADR-024)
       x-scope: store
       x-assignable-roles: 'MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)'
       x-spec-ref: '§4.8'

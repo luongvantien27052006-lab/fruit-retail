@@ -52,7 +52,18 @@ export function NoAudit(reason: string): MethodDecorator {
 }
 
 export const AllowWithoutMfa = (): MethodDecorator => SetMetadata(ALLOW_WITHOUT_MFA_KEY, true);
-export const RequireStepUp = (): MethodDecorator => SetMetadata(STEP_UP_KEY, true);
+/**
+ * x-step-up (SEC2): tài khoản có 2FA (Master/Viewer) phải step-up ≤ 5 phút. Tài khoản KHÔNG có 2FA (nhân viên, khách)
+ * mặc định bị CHẶN (403 STEP_UP_REQUIRED) — chỉ được miễn khi route khai báo `staffExempt` kèm lý do (ADR-024 mục 6).
+ */
+export interface StepUpRule {
+  staffExempt?: string;
+}
+export function RequireStepUp(rule: StepUpRule = {}): MethodDecorator {
+  if (rule.staffExempt !== undefined && rule.staffExempt.trim().length < 10)
+    throw new Error('@RequireStepUp({ staffExempt }) cần lý do rõ ràng (≥ 10 ký tự)');
+  return SetMetadata(STEP_UP_KEY, rule);
+}
 /**
  * Handler tự mở transaction (`txHost.withTransaction`) và tự ghi nhật ký. Chỉ dùng cho luồng xác thực, nơi lần thử sai
  * phải được lưu (đếm sai, khóa tạm, thu hồi họ token) trong khi request vẫn trả lỗi.

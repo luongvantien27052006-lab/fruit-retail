@@ -46,6 +46,9 @@ export type ApprovalDecision =
 export function evaluateRow(r: LimitRow, q: ApprovalRequest): ApprovalDecision {
   if (!r.allowed) return { allowed: false, reason: 'NOT_ALLOWED' };
   if (r.sameDayOnly && q.sameDay !== true) return { allowed: false, reason: 'SAME_DAY_ONLY' };
+  // số tiền / giá trị gốc âm là lỗi của người gọi — không bao giờ coi là "trong hạn mức"
+  if ((q.amount !== undefined && q.amount < 0n) || (q.base !== undefined && q.base < 0n))
+    return { allowed: false, reason: 'MISSING_INPUT' };
   const checks: boolean[] = [];
   if (r.maxAmount !== null) {
     if (q.amount === undefined) return { allowed: false, reason: 'MISSING_INPUT' };

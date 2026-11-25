@@ -42,8 +42,9 @@ export class AccessGuard implements CanActivate {
     if (!principal) throw new AppError('AUTHENTICATION_REQUIRED', 'Cần đăng nhập');
     this.cls.set('principal', principal);
     const routePath = String((req.route as { path?: unknown } | undefined)?.path ?? req.path);
-    const viewerRoute = routePath.startsWith('/v1/viewer/');
-    if (principal.userType === 'VIEWER' && !viewerRoute && !routePath.startsWith('/v1/auth/'))
+    const under = (base: string) => routePath === base || routePath.startsWith(`${base}/`);
+    const viewerRoute = under('/v1/viewer');
+    if (principal.userType === 'VIEWER' && !viewerRoute && !under('/v1/auth'))
       throw new AppError('ACTION_FORBIDDEN', 'Tài khoản xem chỉ dùng được màn hình báo cáo');
     if (viewerRoute) {
       if (principal.userType !== 'VIEWER')
@@ -56,11 +57,11 @@ export class AccessGuard implements CanActivate {
       throw new AppError('TWO_FACTOR_ENROLLMENT_REQUIRED', 'Cần đăng ký xác thực 2 lớp trước khi dùng hệ thống');
     // step-up (SEC2) = nhập lại mã 2FA ⇒ chỉ áp cho tài khoản có 2FA (Master/Viewer). Nhân viên (PIN trên máy POS đã kích
     // hoạt) không có 2FA nên không có step-up; route nhân viên được gọi đều có phạm vi cửa hàng + vai trò hẹp (ADR-024).
-    if (
-      this.reflector.get<boolean>(STEP_UP_KEY, ctx.getHandler()) &&
-      (principal.userType === 'MASTER' || principal.userType === 'VIEWER') &&
-      !(principal.stepUpUntil && principal.stepUpUntil.getTime() > Date.now())
-    )
+    const stepUp = this.reflector.get<{ staffExempt?: string } | undefined>(STEP_UP_KEY, ctx.getHandler());
+    const has2fa = principal.userType === 'MASTER' || principal.userType === 'VIEWER';
+    if (stepUp && !has2fa && !stepUp.staffExempt)
+      throw new AppError('STEP_UP_REQUIRED', 'Thao tác này cần tài khoản có xác thực 2 lớp');
+    if (stepUp && has2fa && !(principal.stepUpUntil && principal.stepUpUntil.getTime() > Date.now()))
       throw new AppError('STEP_UP_REQUIRED', 'Cần xác thực lại mã 2FA cho thao tác này');
     if (this.reflector.get<boolean>(MASTER_ONLY_KEY, ctx.getHandler()) && principal.userType !== 'MASTER')
       throw new AppError('ACTION_FORBIDDEN', 'Chỉ Master được thực hiện');

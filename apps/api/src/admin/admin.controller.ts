@@ -104,7 +104,12 @@ export class AdminController {
     return this.staff.list();
   }
 
+  /** gán vai trò kèm khi tạo ⇒ cùng rào với /admin/role-assignments: role:assign + step-up (kiểm thử lát 6 L3) */
   @RequirePermission('staff:write', { scope: 'store' })
+  @RequireStepUp({
+    staffExempt:
+      'cửa hàng trưởng đăng nhập PIN trên máy POS đã kích hoạt, không có 2FA; chỉ gán CASHIER/PICKER ở cửa hàng của máy',
+  })
   @OwnTransaction(OWN_TX_PIN)
   @Post('staff')
   @HttpCode(201)
@@ -130,7 +135,10 @@ export class AdminController {
 
   /** x-step-up: áp cho tài khoản có 2FA (Master); nhân viên (cửa hàng trưởng, PIN trên máy POS) không có step-up — ADR-024 */
   @RequirePermission('role:assign', { scope: 'store' })
-  @RequireStepUp()
+  @RequireStepUp({
+    staffExempt:
+      'cửa hàng trưởng đăng nhập PIN trên máy POS đã kích hoạt, không có 2FA; chỉ gán CASHIER/PICKER ở cửa hàng của máy',
+  })
   @Post('role-assignments')
   @HttpCode(201)
   assignRole(@Body(new ZodPipe(AssignRole)) b: z.infer<typeof AssignRole>) {
@@ -138,7 +146,10 @@ export class AdminController {
   }
 
   @RequirePermission('role:assign', { scope: 'store' })
-  @RequireStepUp()
+  @RequireStepUp({
+    staffExempt:
+      'cửa hàng trưởng đăng nhập PIN trên máy POS đã kích hoạt, không có 2FA; chỉ gán CASHIER/PICKER ở cửa hàng của máy',
+  })
   @Delete('role-assignments/:id')
   @HttpCode(204)
   async revokeRole(@Param('id', new ParseUUIDPipe()) id: string): Promise<void> {
@@ -164,6 +175,8 @@ export class AdminController {
     const out = [];
     for (const i of b.items) {
       const where = { role_action: { role: i.role, action: i.action } };
+      // khóa dòng (nếu có) để audit "before" đúng khi hai PUT song song
+      await tx.$queryRaw`SELECT 1 FROM core.approval_limits WHERE role = ${i.role}::core."Role" AND action = ${i.action}::core."ApprovalAction" FOR UPDATE`;
       const before = await tx.approvalLimit.findUnique({ where });
       const data = {
         allowed: i.allowed,

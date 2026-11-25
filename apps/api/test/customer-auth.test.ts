@@ -11,7 +11,7 @@ import { CUSTOMER_SESSION_S } from '../src/auth/tokens';
 import { createApp } from '../src/bootstrap';
 import { DEFAULT_RATE_POLICIES } from '../src/common/rate-limit';
 import { type Env, loadEnv } from '../src/config/env';
-import { ipBucket } from '../src/infra/rate-limiter.service';
+import { ipBucket, ipTiers } from '../src/infra/rate-limiter.service';
 import { testAuthEnv } from './helpers/auth-env';
 import { schemaErrors } from './helpers/contract';
 import { type MigratedDb, startMigratedDb } from './helpers/db';
@@ -225,7 +225,7 @@ describe('auth khách OTP + giới hạn tần suất (CP03 lát 5)', () => {
 
   // ───────── giới hạn gửi / nhập sai ─────────
 
-  it('giới hạn gửi: cùng SĐT trong 60 giây ⇒ 429 OTP_RATE_LIMITED (retry_after_s); thiết bị 5/giờ; IP 20/giờ', async () => {
+  it('giới hạn gửi: cùng SĐT trong 60 giây ⇒ 429 OTP_RATE_LIMITED (retry_after_s); thiết bị 5/giờ; IP 30/giờ', async () => {
     const phone = newPhone();
     const w = who();
     expect((await otpRequest(phone, w)).status).toBe(200);
@@ -247,27 +247,75 @@ describe('auth khách OTP + giới hạn tần suất (CP03 lát 5)', () => {
     const byIp = [];
     for (let i = 0; i < OTP_SEND_LIMITS.ip[0].max + 1; i++)
       byIp.push((await otpRequest(newPhone(), { ip, device: newDevice() })).status);
-    expect(byIp.filter((s) => s === 200)).toHaveLength(20);
+    expect(byIp.filter((s) => s === 200)).toHaveLength(OTP_SEND_LIMITS.ip[0].max);
     expect(byIp.at(-1)).toBe(429);
     // lần bị từ chối không ăn suất của khóa khác: SĐT bị từ chối ở trên vẫn gửi được từ IP khác
   });
 
-  it('nhập sai 10 lần/giờ theo SĐT (cộng dồn qua các mã) ⇒ 429, kể cả mã đúng; không gửi được thêm lượt thử', async () => {
+  it('nhập sai 10 lần/giờ theo SĐT (qua các mã) ⇒ 429, kể cả mã đúng, không gửi thêm SMS; thử khi không có mã không tính (L1)', async () => {
     const phone = newPhone();
     const w = who();
-    await otpRequest(phone, w);
-    const code = lastCode(phone);
     const st: number[] = [];
-    for (let i = 0; i < 10; i++) st.push((await otpVerify(phone, wrong(code), { ...w, device: newDevice() })).status);
-    expect(st.every((s) => s === 401)).toBe(true);
-    const blocked = await otpVerify(phone, code, w);
+    // hai mã × 5 lượt sai = 10 lần sai thật; lần thử khi mã đã hết lượt (không có mã) không cộng
+    for (let round = 0; round < 2; round++) {
+      if (round) await redis.exec(['redis-cli', 'DEL', ...(await redisKeys('rl:otp.send.phone:60:*'))]);
+      expect((await otpRequest(phone, w)).status).toBe(200);
+      const code = lastCode(phone);
+      for (let i = 0; i < (round ? 5 : 6); i++)
+        st.push((await otpVerify(phone, wrong(code), { ...w, device: newDevice() })).status);
+    }
+    expect(st.every((x) => x === 401)).toBe(true);
+    await redis.exec(['redis-cli', 'DEL', ...(await redisKeys('rl:otp.send.phone:60:*'))]);
+    const resend = await otpRequest(phone, w);
+    expect([resend.status, resend.body.code]).toEqual([429, 'OTP_RATE_LIMITED']); // không gửi SMS vô ích
+    const blocked = await otpVerify(phone, lastCode(phone), w);
     expect([blocked.status, blocked.body.code]).toEqual([429, 'OTP_RATE_LIMITED']);
     const logs = await rows(`SELECT result FROM audit.login_logs WHERE identifier_hash = $1`, [
       Buffer.from(phoneHash(cipher, normalizeVnPhone(phone) ?? '')),
     ]);
-    // lần bị 429 không ghi nhật ký (không tạo dòng log vô hạn từ request chưa xác thực)
     expect(logs.filter((x) => x.result === 'BAD_OTP')).toHaveLength(10);
     expect(logs.some((x) => x.result === 'RATE_LIMITED')).toBe(false);
+
+    // L1: kẻ lạ thử 20 lần trên SĐT chưa xin mã ⇒ 401 nhưng KHÔNG khóa được chủ SĐT
+    const victim = newPhone();
+    for (let i = 0; i < 20; i++)
+      expect((await otpVerify(victim, '000000', { ...w, device: newDevice() })).status).toBe(401);
+    expect((await login(victim, who())).status).toBe(200);
+    expect(
+      await rows(`SELECT 1 FROM audit.login_logs WHERE identifier_hash = $1 AND result = 'BAD_OTP'`, [
+        Buffer.from(phoneHash(cipher, normalizeVnPhone(victim) ?? '')),
+      ]),
+    ).toEqual([]);
+  });
+
+  it('IPv6: gửi OTP giới hạn theo cả /64, /56, /48 (L2); Redis treo ⇒ route xác thực không treo (L4)', async () => {
+    const t = ipTiers('2001:db8:abcd:12ff::1');
+    expect(t.map((x) => x.tier)).toEqual(['p64', 'p56', 'p48']);
+    expect(ipTiers('2001:db8:abcd:1200::9')[1]?.id).toBe(t[1]?.id); // cùng /56
+    expect(ipTiers('2001:db8:abcd:1300::9')[1]?.id).not.toBe(t[1]?.id);
+    expect(ipTiers('2001:db8:abcd:9999::9')[2]?.id).toBe(t[2]?.id); // cùng /48
+    expect(ipTiers('203.0.113.9')).toEqual([{ tier: 'v4', id: 'ip4:203.0.113.9' }]);
+    // /48 dùng chung: 3 /64 khác nhau trong cùng /48 cộng vào một bộ đếm /48
+    const ip48 = '2001:db8:77';
+    for (const sub of ['1', '2', '3'])
+      expect((await otpRequest(newPhone(), { ip: `${ip48}:${sub}::1`, device: newDevice() })).status).toBe(200);
+    const keys48 = await redisKeys('rl:otp.send.p48:3600:*');
+    const counts = await Promise.all(
+      keys48.map(async (k) => (await redis.exec(['redis-cli', 'GET', k])).output.trim()),
+    );
+    expect(counts).toContain('3');
+
+    // Redis treo 2 giây: login vẫn trả lời (cho qua sau 500 ms), OTP trả 503 — không chờ vô hạn
+    const sleeping = redis.exec(['redis-cli', 'DEBUG', 'SLEEP', '2']);
+    await new Promise((r) => setTimeout(r, 100));
+    const t0 = Date.now();
+    const l = await http()
+      .post('/v1/auth/login')
+      .set('X-Forwarded-For', newIp())
+      .send({ email: 'z@fruit.test', password: 'x' });
+    expect(l.status).toBe(401);
+    expect(Date.now() - t0).toBeLessThan(1500);
+    await sleeping;
   });
 
   // ───────── refresh phiên khách ─────────

@@ -180,7 +180,7 @@ export class AuthController {
     return this.customerAuth.request(b.phone);
   }
 
-  /** SEC6: xác minh OTP ⇒ phiên khách (60 ngày trượt); lần đầu ⇒ tạo tài khoản khách */
+  /** SEC6: xác minh OTP ⇒ phiên khách (60 ngày tuyệt đối, refresh không gia hạn); lần đầu ⇒ tạo tài khoản khách */
   @Public()
   @OwnTransaction(OWN_TX)
   @RateLimit('auth.otp_verify')

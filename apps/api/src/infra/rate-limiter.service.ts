@@ -42,6 +42,8 @@ return 0
 `;
 
 export type LimitMode = 'hit' | 'check' | 'add';
+/** Redis treo (kết nối còn nhưng không trả lời) ⇒ coi như lỗi sau 500 ms (kiểm thử lát 5 L4) */
+export const LIMIT_TIMEOUT_MS = 500;
 
 /**
  * Giới hạn tần suất dùng chung (CP03 lát 5, ADR-023) trên Redis. Redis không là nguồn quyết định nghiệp vụ (ADR-002):
@@ -70,7 +72,17 @@ export class RateLimiter {
       await this.redis.ensureConnected();
       const args: (string | number)[] = [mode === 'hit' ? 1 : mode === 'check' ? 0 : 2];
       for (const l of limits) args.push(l.max, l.windowS);
-      wait = Number(await this.redis.client.eval(SCRIPT, limits.length, ...limits.map(keyOf), ...args));
+      let timer: NodeJS.Timeout | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Redis quá hạn')), LIMIT_TIMEOUT_MS);
+      });
+      try {
+        wait = Number(
+          await Promise.race([this.redis.client.eval(SCRIPT, limits.length, ...limits.map(keyOf), ...args), timeout]),
+        );
+      } finally {
+        clearTimeout(timer);
+      }
     } catch (e) {
       if (e instanceof AppError) throw e;
       const now = Date.now();
@@ -99,6 +111,21 @@ export function ipBucket(ip: string | undefined): string {
   if (v4?.[1]) return `ip4:${v4[1]}`;
   if (!isIPv6(ip)) return `ip4:${ip}`;
   return `ip6:${expandV6(ip).slice(0, 4).join(':')}`;
+}
+
+/**
+ * Các tầng IP cho giới hạn gửi OTP (kiểm thử lát 5 L2): IPv4 một tầng; IPv6 ba tầng /64, /56, /48 — kẻ có cả /48 (dễ xin
+ * từ tunnel broker/VPS) không có 65.536 "IP" riêng biệt.
+ */
+export function ipTiers(ip: string | undefined): { tier: 'v4' | 'p64' | 'p56' | 'p48'; id: string }[] {
+  const b = ipBucket(ip);
+  if (!b.startsWith('ip6:')) return [{ tier: 'v4', id: b }];
+  const h = expandV6(ip ?? '');
+  return [
+    { tier: 'p64', id: b },
+    { tier: 'p56', id: `ip6/56:${h.slice(0, 3).join(':')}:${(h[3] ?? '0000').slice(0, 2)}` },
+    { tier: 'p48', id: `ip6/48:${h.slice(0, 3).join(':')}` },
+  ];
 }
 
 function expandV6(ip: string): string[] {

@@ -6,7 +6,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { AuditOutboxService, type Tx } from '../common/audit-outbox.service';
 import { AppError } from '../common/errors';
 import type { RequestStore } from '../common/request-context';
-import { ipBucket, type Limit, RateLimiter } from '../infra/rate-limiter.service';
+import { ipTiers, type Limit, RateLimiter } from '../infra/rate-limiter.service';
 import { AuthAttempts } from './auth-attempts';
 import type { TokenPair } from './auth.service';
 import { OTP_PROVIDER, type OtpProvider } from './otp-provider';
@@ -29,11 +29,24 @@ export const OTP_SEND_LIMITS = {
     { max: 5, windowS: 3600 },
     { max: 20, windowS: 86400 },
   ],
+  /** IPv4 và IPv6 /64 (rộng vì CGNAT di động — L3); IPv6 thêm tầng /56, /48 (L2) */
   ip: [
-    { max: 20, windowS: 3600 },
-    { max: 100, windowS: 86400 },
+    { max: 30, windowS: 3600 },
+    { max: 300, windowS: 86400 },
   ],
-  global: [{ max: 2000, windowS: 3600 }],
+  ip6p56: [
+    { max: 100, windowS: 3600 },
+    { max: 1000, windowS: 86400 },
+  ],
+  ip6p48: [
+    { max: 300, windowS: 3600 },
+    { max: 3000, windowS: 86400 },
+  ],
+  /** trần chi phí SMS toàn hệ thống theo giờ và theo ngày (L2) */
+  global: [
+    { max: 2000, windowS: 3600 },
+    { max: 20000, windowS: 86400 },
+  ],
 } as const;
 /** nhập sai theo SĐT (cộng dồn qua mọi mã): 10 lần / giờ ⇒ chặn xác minh đến hết giờ */
 export const OTP_VERIFY_FAIL_PER_PHONE = { max: 10, windowS: 3600 } as const;
@@ -84,10 +97,22 @@ export class CustomerAuthService {
     const ph = phoneHash(this.cipher, phone);
     const phId = Buffer.from(ph).toString('base64url');
     const ip = this.cls.get('ip');
+    // SĐT đang bị khóa xác minh (nhập sai nhiều) ⇒ không gửi SMS vô ích (L1)
+    await this.limiter.apply([{ name: 'otp.verify_fail.phone', id: phId, ...OTP_VERIFY_FAIL_PER_PHONE }], {
+      mode: 'check',
+      failOpen: false,
+      errorCode: 'OTP_RATE_LIMITED',
+    });
+    const tierLimits = {
+      v4: OTP_SEND_LIMITS.ip,
+      p64: OTP_SEND_LIMITS.ip,
+      p56: OTP_SEND_LIMITS.ip6p56,
+      p48: OTP_SEND_LIMITS.ip6p48,
+    };
     const limits: Limit[] = [
       ...OTP_SEND_LIMITS.phone.map((l) => ({ name: 'otp.send.phone', id: phId, ...l })),
       ...OTP_SEND_LIMITS.device.map((l) => ({ name: 'otp.send.device', id: device, ...l })),
-      ...OTP_SEND_LIMITS.ip.map((l) => ({ name: 'otp.send.ip', id: ipBucket(ip), ...l })),
+      ...ipTiers(ip).flatMap((t) => tierLimits[t.tier].map((l) => ({ name: `otp.send.${t.tier}`, id: t.id, ...l }))),
       ...OTP_SEND_LIMITS.global.map((l) => ({ name: 'otp.send.global', id: 'all', ...l })),
     ];
     // Redis lỗi ⇒ 503 (không gửi SMS khi không giới hạn được)
@@ -132,6 +157,7 @@ export class CustomerAuthService {
     type Out =
       | { kind: 'ok'; value: TokenPair & { customer: { user_id: string; is_new: boolean } } }
       | { kind: 'bad' }
+      | { kind: 'none' }
       | { kind: 'forbidden'; userId: string };
     // một lần thử = một transaction: lượt nhập (attempts + 1) commit dù mã sai
     const out = await this.txHost.withTransaction(async (): Promise<Out> => {
@@ -141,7 +167,9 @@ export class CustomerAuthService {
         SELECT id, code_hash FROM core.otp_challenges
         WHERE phone_hash = ${Buffer.from(ph)} AND consumed_at IS NULL AND expires_at > now() AND attempts < ${OTP_MAX_ATTEMPTS}
         ORDER BY created_at DESC LIMIT 1 FOR UPDATE`;
-      if (!c) return { kind: 'bad' };
+      // không có mã còn dùng được: lần thử không đoán được gì ⇒ KHÔNG cộng bộ đếm sai theo SĐT (L1: nếu cộng, ai cũng
+      // khóa được SĐT người khác bằng 10 request rẻ, không cần gửi SMS)
+      if (!c) return { kind: 'none' };
       await this.tx.otpChallenge.update({
         where: { id: c.id },
         data: { attempts: { increment: 1 } },
@@ -171,8 +199,12 @@ export class CustomerAuthService {
         await this.attempts.log(out.userId, 'DISABLED', ph);
         throw new AppError('ACTION_FORBIDDEN', 'SĐT này không đăng nhập được ứng dụng khách — liên hệ cửa hàng');
       case 'bad':
+        // chỉ lần nhập thật sự tiêu một lượt của mã (mã do SĐT đó xin — đã bị giới hạn gửi) mới cộng
         await this.limiter.apply([failLimit], { mode: 'add', failOpen: true });
         await this.attempts.log(null, 'BAD_OTP', ph);
+        throw otpWrong();
+      case 'none':
+        // không ghi login_logs (request rẻ, chỉ bị guard IP chặn) — cùng lỗi với sai mã
         throw otpWrong();
     }
   }

@@ -35,9 +35,10 @@ export const DEFAULT_RATE_POLICIES: RatePolicies = {
     { by: 'ip', max: 10, windowS: 3600 },
     { by: 'device', max: 5, windowS: 3600 },
   ],
-  'auth.refresh': [{ by: 'ip', max: 300, windowS: 60 }],
-  'auth.otp_request': [{ by: 'ip', max: 30, windowS: 60 }],
-  'auth.otp_verify': [{ by: 'ip', max: 60, windowS: 60 }],
+  // refresh: app khách sau CGNAT làm mới 15 phút/lần — hàng nghìn thuê bao chung một IP (L3)
+  'auth.refresh': [{ by: 'ip', max: 3000, windowS: 60 }],
+  'auth.otp_request': [{ by: 'ip', max: 120, windowS: 60 }],
+  'auth.otp_verify': [{ by: 'ip', max: 300, windowS: 60 }],
 };
 
 export const RateLimit = (policy: keyof typeof DEFAULT_RATE_POLICIES & string): MethodDecorator =>

@@ -21,8 +21,8 @@
 3. **`POST /auth/otp/request`** (công khai, bắt buộc `X-Device-Id`): không tra tài khoản — phản hồi giống hệt dù SĐT đã
    là khách hay chưa. Giới hạn kiểm-rồi-cộng nguyên tử (Lua) trên **mọi** khóa, Redis lỗi ⇒ 503 (không gửi SMS khi không
    giới hạn được):
-   - SĐT: 1 / 60 giây, 5 / giờ, 10 / ngày · thiết bị: 5 / giờ, 20 / ngày · IP: 20 / giờ, 100 / ngày (+ guard 30 / phút)
-     · toàn hệ thống: 2000 / giờ (trần chi phí SMS). Vượt ⇒ 429 `OTP_RATE_LIMITED` + `retry_after_s`.
+   - SĐT: 1 / 60 giây, 5 / giờ, 10 / ngày · thiết bị: 5 / giờ, 20 / ngày · IP: xem mục "Sửa theo kiểm thử agent lần 1"
+     · toàn hệ thống: 2000 / giờ, 20.000 / ngày (trần chi phí SMS). Vượt ⇒ 429 `OTP_RATE_LIMITED` + `retry_after_s`.
    - Mã 6 số `randomInt` (CSPRNG). Lưu `code_hash = HMAC(pepper, "otp:<id>:<mã>")` (không dò ngược từ DB nếu không có
      pepper; gắn id ⇒ không chép sang dòng khác). Mã mới **xóa** mã chưa dùng của cùng SĐT (lượt nhập không cộng dồn qua
      nhiều mã) và dọn dòng > 1 ngày của SĐT. Hạn theo đồng hồ DB (`now() + 5 phút`, CHECK `otp_ttl`).
@@ -50,6 +50,26 @@
 7. **Khóa Redis:** `rl:<tên>:<cửa sổ>:<SHA-256(định danh) 32 ký tự>` — không lưu SĐT/IP rõ; cửa sổ cố định (INCR +
    EXPIRE ở lần đầu). Chính sách nằm ở provider `RATE_POLICIES` — chỉ test lát 3/4 thay bằng ngưỡng nới (không có biến môi
    trường nào tắt giới hạn).
+
+## Sửa theo kiểm thử agent lần 1 (a745e05)
+- **L1 (Trung bình):** thử OTP khi SĐT không có mã còn dùng được không còn cộng bộ đếm sai theo SĐT, không ghi
+  `login_logs` (trước: 10 request rẻ khóa được SĐT người khác 1 giờ mà không tốn SMS). Chỉ lần nhập tiêu một lượt của mã
+  thật mới cộng. `/otp/request` kiểm bộ đếm sai trước ⇒ không gửi SMS vô ích khi SĐT đang bị khóa xác minh. Rủi ro còn
+  lại (chấp nhận): kẻ gian xin 2 mã cho SĐT nạn nhân (2 SMS, bị giới hạn gửi theo SĐT) rồi nhập sai 10 lần ⇒ nạn nhân bị
+  chặn tới hết giờ.
+- **L2 (Trung bình):** giới hạn gửi theo IPv6 thêm tầng /56 (100/giờ, 1000/ngày) và /48 (300/giờ, 3000/ngày) bên cạnh
+  /64; trần toàn hệ thống thêm 20.000/ngày. **Rủi ro còn lại, chặn trước khi bật SMS thật (CP14):** kẻ có nhiều /48 hoặc
+  botnet IPv4 vẫn làm cạn trần toàn hệ thống (DoS đăng nhập khách + tốn tiền đến trần ngày). CP14 phải có: device
+  attestation (Play Integrity / App Attest) hoặc CAPTCHA khi lượng gửi vượt mức bình thường, cảnh báo khi đạt 50–80% trần,
+  và hạn mức riêng cho thiết bị đã từng xác minh thành công. Production hiện không khởi động được ⇒ chưa khai thác được.
+- **L3 (Thấp):** nới ngưỡng IP cho CGNAT: gửi OTP 30/giờ, 300/ngày cho mỗi IPv4 hoặc /64; guard refresh 3000/phút,
+  otp_request 120/phút, otp_verify 300/phút. Đo lại ở staging (CP02/CP19 thêm chỉ số 429).
+- **L4 (Thấp):** lệnh Redis của bộ giới hạn quá 500 ms ⇒ coi như lỗi (fail-open/503 theo route) — Redis treo không làm
+  treo đăng nhập.
+- **L5 (Thấp):** sửa chú thích "60 ngày trượt" ⇒ tuyệt đối.
+- Ghi nhận: giới hạn theo `X-Device-Id` chỉ có tác dụng với client trung thực (header do client đặt) — lớp chặn thật là
+  SĐT / IP / toàn hệ thống. Cấu hình nhầm production thành `NODE_ENV=staging` sẽ nhận TEST_DOUBLE — kiểm khi deploy (CP02).
+  Khi gán `phone_hash` cho nhân viên/admin phải dùng cùng miền `phone:` (kiểm "SĐT nội bộ ⇒ 403").
 
 ## Để lát sau
 - Nhà cung cấp OTP thật, mẫu tin, đồng ý điều khoản (U02), hồ sơ `customers`: CP14.

@@ -22,7 +22,14 @@ import { ZodPipe } from '../common/zod.pipe';
 import { STAFF_CODE_RE } from '../auth/auth.controller';
 import { STAFF_ROLES, StaffAdminService, type StaffRole } from './staff-admin.service';
 
-const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'ngày YYYY-MM-DD');
+// ngày lịch thật (không nhận 2026-13-01, 2026-02-30)
+const date = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'ngày YYYY-MM-DD')
+  .refine((v) => {
+    const d = new Date(`${v}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+  }, 'ngày không tồn tại');
 const RoleSpec = z
   .object({
     role: z.enum(STAFF_ROLES as [StaffRole, ...StaffRole[]]),
@@ -172,8 +179,10 @@ export class AdminController {
       if (!i.allowed && (i.max_amount !== null || i.max_pct_bp !== null))
         throw new AppError('INVALID_REQUEST', 'Dòng không cho phép thì không có ngưỡng', { item: k });
     }
+    // khóa theo thứ tự cố định role:action ⇒ hai PUT song song không khóa chéo nhau (40P01)
+    const items = [...b.items].sort((x, y) => `${x.role}:${x.action}`.localeCompare(`${y.role}:${y.action}`));
     const out = [];
-    for (const i of b.items) {
+    for (const i of items) {
       const where = { role_action: { role: i.role, action: i.action } };
       // khóa dòng (nếu có) để audit "before" đúng khi hai PUT song song
       await tx.$queryRaw`SELECT 1 FROM core.approval_limits WHERE role = ${i.role}::core."Role" AND action = ${i.action}::core."ApprovalAction" FOR UPDATE`;

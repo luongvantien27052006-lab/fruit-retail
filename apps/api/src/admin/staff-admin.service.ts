@@ -172,7 +172,8 @@ export class StaffAdminService {
     },
   ) {
     const p = this.principal();
-    if (id === p.userId) throw new AppError('ACTION_FORBIDDEN', 'Không tự sửa tài khoản của chính mình ở đây');
+    if (id.toLowerCase() === p.userId)
+      throw new AppError('ACTION_FORBIDDEN', 'Không tự sửa tài khoản của chính mình ở đây');
     if (b.pin !== undefined && isWeakPin(b.pin)) throw weakPin();
     const pinHash =
       b.pin !== undefined
@@ -183,12 +184,13 @@ export class StaffAdminService {
       // (cùng thứ tự với đăng nhập ⇒ không deadlock). Đăng nhập PIN đang chạy commit xong mới tới đây ⇒ phiên nó vừa tạo
       // nằm trong tập bị thu hồi; đăng nhập bắt đầu sau ⇒ nhánh "bận" (401 chung), xong thì gặp PIN mới.
       if (pinHash !== undefined || b.status !== undefined)
-        await this.tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('auth:' || ${id}, 0))`;
+        await this.tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('auth:' || ${id}::uuid::text, 0))`;
       const before = await this.managed(id, 'staff:write', true);
       if (!(await this.scope.isAll('staff:write'))) {
         // L1 (kiểm thử lát 6): không có phạm vi ALL ⇒ chỉ được KHÓA / ghi ngày nghỉ lần đầu / đổi tên / đổi PIN của nhân
         // viên đang hoạt động — không mở lại tài khoản bị khóa, không xóa/lùi ngày nghỉ đã đặt (quyết định của Master)
-        const reopen = b.status === 'ACTIVE' && before.user.status !== 'ACTIVE';
+        // trạng thái khác ACTIVE (Master khóa LOCKED / đã DISABLED) ⇒ không đổi status nữa (giữ dấu quyết định của Master)
+        const reopen = b.status !== undefined && before.user.status !== 'ACTIVE';
         const leftChanged = b.left_at !== undefined && before.leftAt !== null && b.left_at !== day(before.leftAt);
         const pinOnInactive = b.pin !== undefined && (before.user.status !== 'ACTIVE' || before.leftAt !== null);
         if (reopen || leftChanged || pinOnInactive)

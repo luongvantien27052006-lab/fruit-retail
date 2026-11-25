@@ -108,7 +108,20 @@ export class StaffAuthService {
         dummy,
         slot,
       },
-      () => verifySecret(pinHash, pin),
+      async () => {
+        // L1' (kiểm thử DB lát 6): ĐỌC LẠI mã băm PIN + ngày nghỉ trong transaction đang giữ khóa `auth:<id>` — mã băm đọc
+        // trước khi chờ suất Argon có thể đã cũ (Master vừa đổi PIN). PIN đã đổi ⇒ PIN cũ là PIN sai (đếm sai như thường).
+        const cur = await this.tx.user.findUnique({
+          where: { id: staff.userId },
+          select: { pinHash: true, staff: { select: { leftAt: true } } },
+        });
+        if (!cur?.pinHash || hasLeft(cur.staff?.leftAt ?? null)) return false;
+        if (cur.pinHash !== pinHash) {
+          await dummy(); // cùng thời gian với nhánh kiểm thật
+          return false;
+        }
+        return verifySecret(cur.pinHash, pin);
+      },
       async () => {
         // kiểm lại trong transaction (vai trò có thể vừa bị thu hồi)
         if (!(await this.allowedOnStore(staff.userId, device.storeId))) throw invalidPin();

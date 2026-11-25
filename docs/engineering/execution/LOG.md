@@ -44,3 +44,4 @@
 | 2026-11-26 | CP03 | NC-19/NC-21 qua 4 vòng kiểm thử agent database-reviewer → SẠCH (925b027). 133/133 test, kiểm hợp đồng 90 route §13.2 missing=0. Lát 6 hết chặn. |
 | 2026-11-26 | CP03 | Lát 6 (RBAC theo phạm vi, hạn mức từ dữ liệu, quản lý nhân viên/vai trò, cô lập Viewer — ADR-024) xong code, 142/142 test, T16/T17 covered; chờ kiểm thử agent. |
 | 2026-11-26 | CP03 | Lát 6 kiểm thử lần 1 (98cda64): security CÒN LỖI (2 TB, 3 Thấp), database CÒN LỖI (1 TB, 2 Thấp). Đã sửa hết (ADR-024 mục "Sửa theo kiểm thử agent lần 1"). 144/144. |
+| 2026-11-26 | CP03 | Lát 6 kiểm thử lần 2 (7b73605): security SẠCH; database còn L1' (TB: đăng nhập dùng mã băm PIN cũ đọc trước) + 2 Thấp — đã sửa. 145/145. |

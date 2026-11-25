@@ -70,4 +70,16 @@ describe('khai báo quyền của route khớp OpenAPI', () => {
     }
     expect(diffs).toEqual([]);
   });
+
+  it('miễn step-up cho nhân viên (staffExempt) chỉ ở danh sách trắng đã duyệt (ADR-024)', () => {
+    const exempt = listRoutes(app)
+      .filter((r) => r.stepUpStaffExempt)
+      .map((r) => `${r.method} ${r.path}`)
+      .sort();
+    expect(exempt).toEqual([
+      'DELETE /admin/role-assignments/{id}',
+      'POST /admin/role-assignments',
+      'POST /admin/staff',
+    ]);
+  });
 });

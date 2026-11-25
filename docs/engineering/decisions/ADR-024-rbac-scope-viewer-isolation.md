@@ -65,6 +65,16 @@
 - **L3 (Thấp):** `ViewerDb` hủy kết nối khi ROLLBACK lỗi; kiểm `current_user = viewer_ro` ở MỌI transaction.
 - Ghi nhận đã làm: PUT hạn mức khóa dòng trước khi đọc "before" cho audit.
 
+## Sửa theo kiểm thử agent lần 2 (7b73605)
+security-reviewer: **SẠCH**. database-reviewer: còn L1' (TB) + 2 Thấp — đã sửa:
+- **L1' (TB):** đăng nhập PIN đọc LẠI `pin_hash` + `left_at` trong transaction đang giữ khóa `auth:<id>` (mã băm đọc trước khi chờ suất Argon có
+  thể đã cũ); PIN đã đổi ⇒ PIN cũ là PIN sai (đếm sai, cùng thời gian nhờ Argon giả).
+- Thấp: khóa advisory dựng từ `id::uuid::text` (UUID chữ hoa ở URL không tạo khóa khác); PUT hạn mức khóa theo thứ tự role:action.
+- Ghi nhận security làm luôn: người không có phạm vi ALL không đổi `status` khi nhân viên đang khác ACTIVE (giữ dấu LOCKED của
+  Master); kiểm ngày lịch thật (2026-13-01, 2026-02-30 ⇒ 400); test hợp đồng có danh sách trắng route `staffExempt`.
+- Ghi nhận chấp nhận: cửa hàng trưởng tạo/đổi PIN thu ngân rồi đăng nhập thay được (dùng `pos:sell`… của thu ngân) — đúng §2.2
+  (SM tạo CASHIER/PICKER), giới hạn cửa hàng của máy, có nhật ký. Route cấp quyền riêng (lát 8) phải khóa dòng users FOR UPDATE.
+
 ## Để lát sau
 - Route `/viewer/*` thật (projection, snapshot), 2 route ghi của viewer qua `viewer_act`: CP12.
 - `/admin/admin-accounts`, khóa/mở khóa, reset 2FA, phiên của người khác, nhật ký, cấu hình: lát 8.

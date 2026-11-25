@@ -4472,6 +4472,7 @@ paths:
       tags: [admin]
       summary: 'Danh sách vùng giao'
       x-permission: 'zone:read'
+      x-scope: store
       x-spec-ref: '§8.2'
       x-detail-cp: CP13
       parameters:
@@ -4543,6 +4544,7 @@ paths:
       tags: [admin]
       summary: 'Chi tiết vùng giao'
       x-permission: 'zone:read'
+      x-scope: store
       x-spec-ref: '§8.2'
       x-detail-cp: CP13
       parameters:
@@ -7470,6 +7472,52 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/approvals:
+    get:
+      operationId: getAdminApprovals
+      tags: [admin]
+      summary: 'Yêu cầu chờ Master duyệt (vượt hạn mức cửa hàng, giảm giá cận hạn — NC-21)'
+      description: >-
+        Mỗi dòng chỉ hiện khi người gọi có mã quyền của loại đó (x-permission-map). Giảm giá cận hạn theo lô (MARKDOWN)
+        chỉ Master duyệt (NC-21) nên chỉ có ở đây, không có ở /pos/approvals.
+      x-permission: 'approval:by-type'
+      x-permission-map:
+        'SPOILAGE': 'spoilage:approve'
+        'STOCKTAKE_ADJUST': 'stocktake:approve'
+        'INTERNAL_USE': 'internal_use:approve'
+        'MARKDOWN': 'markdown:approve'
+        'CASH_DIFFERENCE': 'cash:approve'
+        'SALE_VOID': 'pos:void_sale'
+        'REFUND': 'pos:refund'
+        'PO': 'po:approve'
+      x-spec-ref: '§2.3'
+      x-detail-cp: CP06
+      x-not-in-spec-13-2: true # Tiến duyệt NC-21 (2026-11-26): Master cần danh sách để lấy id duyệt
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [SPOILAGE, STOCKTAKE_ADJUST, INTERNAL_USE, MARKDOWN, CASH_DIFFERENCE, SALE_VOID, REFUND, PO]
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '503':

@@ -30,7 +30,12 @@ const rows = section(/^### 13\.2\./, /^### 13\.3\./).filter(
 );
 const want = new Set();
 for (const row of rows) {
-  const cell = row.split('|')[2] || '';
+  // chỉ cắt '|' NGOÀI backtick: `ship|receive`, `pick|deliver`… là các route thay thế trong cùng ô
+  const cell =
+    row
+      .replace(/`[^`]*`/g, (m) => m.replaceAll('|', '\u0001'))
+      .split('|')[2]
+      ?.replaceAll('\u0001', '|') ?? '';
   if (/CRUD theo mục/.test(cell)) continue;
   let lastBase = '';
   for (const raw of cell.split('·')) {

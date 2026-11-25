@@ -37,3 +37,4 @@
 | 2026-11-25 | CP03 | Lát 4 qua 2 vòng kiểm thử agent bảo mật → SẠCH (46b4507). 122/122 test. Ghi nhận không bắt buộc chuyển lát 5/6 (ADR-022). Lát 4 đóng. |
 | 2026-11-25 | CP03 | Lát 5 (OTP khách + TEST_DOUBLE có nhãn, giới hạn tần suất Redis cho route xác thực — ADR-023) xong code, 132/132 test; chờ kiểm thử agent. |
 | 2026-11-25 | CP03 | Lát 5 qua 2 vòng kiểm thử agent bảo mật → SẠCH (769cb49). 133/133 test. Rủi ro cạn trần gửi OTP toàn hệ thống ghi chặn CP14 ở STATUS. Lát 5 đóng. |
+| 2026-11-26 | CP03 | Tiến quyết NC-19 (đọc chặt quyền SM; hạn mức "hoặc" = một ngưỡng; thêm `zone:read`, `pos_log:read`; giữ phần còn lại) và NC-21 (bỏ giảm giá tay ở POS; giảm giá cận hạn chỉ Master duyệt; voucher vẫn để sau). Migration `0004_nc19_permissions`, hợp đồng bỏ `pos:discount`. Test 133/133. Chờ kiểm thử agent. |

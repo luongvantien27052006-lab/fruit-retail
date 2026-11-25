@@ -67,6 +67,7 @@ describe('0001_foundation', () => {
       'prisma/0001_foundation',
       'prisma/0002_auth_totp_replay',
       'prisma/0003_pos_enrollment_codes',
+      'prisma/0004_nc19_permissions',
     ]);
     await expect(
       applySqlMigrations({ url: ownerUrl, dir: SQL_DIR, prismaDir: PRISMA_DIR, env: passwords, log: () => undefined }),
@@ -316,13 +317,41 @@ describe('0001_foundation', () => {
     );
     const byAction = Object.fromEntries(rows.map((r) => [r.action, { amt: r.amt, pct: r.pct, day: r.day }]));
     expect(byAction).toMatchObject({
-      LINE_DISCOUNT: { amt: '50000', pct: 1000 },
       SALE_VOID: { amt: '500000', pct: null, day: true },
       REFUND: { amt: '200000', pct: null },
       SPOILAGE_APPROVE: { amt: '1000000', pct: null },
       STOCKTAKE_ADJUST: { amt: '1000000', pct: 200 },
-      MARKDOWN: { amt: null, pct: 2000 },
     });
+    // NC-21: không còn giảm giá tay; giảm giá cận hạn chỉ Master duyệt
+    expect(Object.keys(byAction)).not.toContain('LINE_DISCOUNT');
+    expect(Object.keys(byAction)).not.toContain('MARKDOWN');
+    expect(await q(`SELECT 1 FROM core.approval_limits WHERE action = 'LINE_DISCOUNT'`)).toEqual([]);
+    expect(await q(`SELECT role::text FROM core.approval_limits WHERE action = 'MARKDOWN'`)).toEqual([
+      { role: 'MASTER_ADMIN' },
+    ]);
+    await expect(
+      q(
+        `INSERT INTO core.approval_limits (role, action, allowed) VALUES ('STORE_MANAGER', 'MARKDOWN', true)`,
+        [],
+        roleUrl('app_rw'),
+      ),
+    ).rejects.toThrow(/approval_limits_markdown_master_only/);
+    await expect(
+      q(
+        `INSERT INTO core.approval_limits (role, action, allowed) VALUES ('CASHIER', 'LINE_DISCOUNT', true)`,
+        [],
+        roleUrl('app_rw'),
+      ),
+    ).rejects.toThrow(/approval_limits_no_line_discount/);
+    expect(await q(`SELECT 1 FROM core.permissions WHERE code = 'pos:discount'`)).toEqual([]);
+    for (const r of ['MASTER_ADMIN', 'STORE_MANAGER']) {
+      const codes = (await q(`SELECT permission_code FROM core.role_permissions WHERE role = $1`, [r])).map(
+        (x) => x.permission_code,
+      );
+      expect(codes).toEqual(expect.arrayContaining(['zone:read', 'pos_log:read']));
+      if (r === 'STORE_MANAGER') expect(codes).not.toContain('markdown:approve');
+      if (r === 'MASTER_ADMIN') expect(codes).toContain('markdown:approve');
+    }
     const cashier = await q(`SELECT action::text FROM core.approval_limits WHERE role = 'CASHIER'`);
     expect(cashier.map((r) => r.action)).toEqual(['LINE_DELETE']);
   });

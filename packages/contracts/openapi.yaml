@@ -1559,7 +1559,7 @@ paths:
       x-permission: 'pos:sell'
       x-conditional-permissions:
         'line.weight_source=MANUAL': 'pos:manual_weight (người duyệt tại chỗ: thẻ + PIN quản lý)'
-        'line.discount_amount>0': 'pos:discount (trong hạn mức §2.3; dưới giá sàn chỉ Master)'
+        'line.discount_amount>0': 'chỉ từ tem giảm giá cận hạn của lô (markdown Master đã duyệt) — giảm giá tay đã bỏ (NC-21)'
         'line.voided_after_weigh': 'pos:void_line (ghi log đặc biệt)'
       x-spec-ref: '§6.3'
       x-detail-cp: CP07
@@ -2043,7 +2043,7 @@ paths:
       x-permission: 'pos:sell'
       x-conditional-permissions:
         'line.weight_source=MANUAL': 'pos:manual_weight (người duyệt tại chỗ: thẻ + PIN quản lý)'
-        'line.discount_amount>0': 'pos:discount (trong hạn mức §2.3; dưới giá sàn chỉ Master)'
+        'line.discount_amount>0': 'chỉ từ tem giảm giá cận hạn của lô (markdown Master đã duyệt) — giảm giá tay đã bỏ (NC-21)'
         'line.voided_after_weigh': 'pos:void_line (ghi log đặc biệt)'
         'type=NO_SALE_OPEN': 'pos:no_sale_open (PIN cửa hàng trưởng + lý do)'
         'cần duyệt': 'cash:approve'
@@ -9188,7 +9188,7 @@ components:
           type: string
     PermissionCode:
       type: string
-      description: Mã quyền SPEC §19.6 + §21.8; x-added-outside-spec là mã bổ sung đã được Tiến duyệt (NC-08).
+      description: Mã quyền SPEC §19.6 + §21.8; x-added-outside-spec là mã bổ sung đã được Tiến duyệt (NC-08, NC-19). pos:discount đã bỏ (NC-21).
       enum:
         - 'auth:*'
         - 'catalog:read'
@@ -9218,7 +9218,6 @@ components:
         - 'pos:void_line'
         - 'pos:void_sale'
         - 'pos:refund'
-        - 'pos:discount'
         - 'pos:manual_weight'
         - 'pos:no_sale_open'
         - 'shift:open'
@@ -9272,9 +9271,13 @@ components:
         - 'payment:reconcile'
         - 'processing:create'
         - 'complaint:resolve'
+        - 'zone:read'
+        - 'pos_log:read'
       x-added-outside-spec:
         - 'customer:self'
         - 'settings:write'
         - 'payment:reconcile'
         - 'processing:create'
         - 'complaint:resolve'
+        - 'zone:read'
+        - 'pos_log:read'

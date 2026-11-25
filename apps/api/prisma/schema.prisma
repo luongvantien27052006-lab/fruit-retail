@@ -78,6 +78,7 @@ enum AuthChallengeKind {
 
 enum ApprovalAction {
   LINE_DELETE
+  /// không dùng nữa (NC-21: bỏ giảm giá tay) — CHECK approval_limits_no_line_discount chặn
   LINE_DISCOUNT
   SALE_VOID
   REFUND

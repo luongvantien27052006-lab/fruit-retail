@@ -58,7 +58,7 @@ paths:
       x-spec-ref: '§2.4'
       x-detail-cp: CP03
       description: >-
-        Bắt buộc X-Device-Id. Cùng một phản hồi dù SĐT đã có tài khoản hay chưa. Mã mới thay mã cũ. Giới hạn gửi theo SĐT (1/60 giây, 5/giờ, 10/ngày), thiết bị (5/giờ, 20/ngày), IP (gộp /64 với IPv6) và toàn hệ thống; vượt ⇒ 429 OTP_RATE_LIMITED kèm details.retry_after_s. Chưa cấu hình nhà cung cấp ⇒ 503 CONFIGURATION_NOT_READY; Redis lỗi hoặc gửi lỗi ⇒ 503 DEPENDENCY_UNAVAILABLE.
+        Bắt buộc X-Device-Id. Cùng một phản hồi dù SĐT đã có tài khoản hay chưa. Mã mới thay mã cũ. Giới hạn gửi theo SĐT (1/60 giây, 5/giờ, 10/ngày), thiết bị (5/giờ, 20/ngày), IP (IPv4; IPv6 theo /64, /56, /48) và toàn hệ thống (theo giờ và theo ngày); SĐT đang bị khóa xác minh (sai 10 lần/giờ) cũng 429; vượt ⇒ 429 OTP_RATE_LIMITED kèm details.retry_after_s. Chưa cấu hình nhà cung cấp ⇒ 503 CONFIGURATION_NOT_READY; Redis lỗi hoặc gửi lỗi ⇒ 503 DEPENDENCY_UNAVAILABLE.
       parameters:
         - $ref: '#/components/parameters/RequestId'
         - $ref: '#/components/parameters/DeviceId'

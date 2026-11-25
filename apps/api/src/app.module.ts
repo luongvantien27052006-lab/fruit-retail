@@ -10,6 +10,7 @@ import { AccessGuard } from './common/access.guard';
 import { AuditOutboxService } from './common/audit-outbox.service';
 import { ErrorFilter } from './common/error.filter';
 import { MutationInterceptor } from './common/mutation.interceptor';
+import { DEFAULT_RATE_POLICIES, RATE_POLICIES, RateLimitGuard } from './common/rate-limit';
 import { DEVICE_ID_RE, type RequestStore, resolveRequestId } from './common/request-context';
 import { SerializeInterceptor } from './common/serialize.interceptor';
 import type { Env } from './config/env';
@@ -103,6 +104,9 @@ export class AppModule {
       providers: [
         AuditOutboxService,
         { provide: APP_FILTER, useClass: ErrorFilter },
+        { provide: RATE_POLICIES, useValue: DEFAULT_RATE_POLICIES },
+        // giới hạn tần suất TRƯỚC xác thực: request vượt ngưỡng không chạm DB
+        { provide: APP_GUARD, useClass: RateLimitGuard },
         { provide: APP_GUARD, useClass: AccessGuard },
         // Thứ tự: Mutation (ngoài, mở transaction) → Serialize (trong) — lỗi tuần tự hóa cũng rollback
         { provide: APP_INTERCEPTOR, useClass: MutationInterceptor },

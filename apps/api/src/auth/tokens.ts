@@ -12,6 +12,11 @@ export const ADMIN_SLIDING_S = 12 * 3600;
 export const ADMIN_ABSOLUTE_S = 7 * 24 * 3600;
 /** nhân viên POS: 24 giờ tuyệt đối kể từ đăng nhập PIN, refresh không gia hạn (ADR-012, ADR-022) */
 export const STAFF_SESSION_S = 24 * 3600;
+/**
+ * khách: 60 ngày TUYỆT ĐỐI kể từ lúc xác minh OTP, refresh không gia hạn (ADR-012 "khách 60 ngày"; CHECK
+ * sessions_times của lát 1 chặn phiên dài hơn 60 ngày kể từ created_at — ADR-023)
+ */
+export const CUSTOMER_SESSION_S = 60 * 24 * 3600;
 
 const ISSUER = 'fruit-api';
 const AUDIENCE = 'fruit';

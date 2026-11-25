@@ -13,6 +13,7 @@ import { createApp } from '../src/bootstrap';
 import { createMaster } from '../src/cli/create-master';
 import { loadEnv } from '../src/config/env';
 import { newJwtKey, testAuthEnv } from './helpers/auth-env';
+import { relaxedRatePolicies } from './helpers/rate-limit';
 import { eventPayloadErrors, schemaErrors } from './helpers/contract';
 import { type MigratedDb, startMigratedDb } from './helpers/db';
 
@@ -84,7 +85,7 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
       ...authEnv,
     });
     cipher = new PiiCipher(loadAuthKeys(env));
-    app = await createApp(env, { logger: false });
+    app = await createApp(env, { logger: false }, { providers: [relaxedRatePolicies] });
     await app.init();
   });
   afterAll(async () => {

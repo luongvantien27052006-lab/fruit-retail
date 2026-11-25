@@ -269,8 +269,9 @@ export class AuthService {
     if (!rt) throw new AppError('AUTHENTICATION_REQUIRED', 'Refresh token không hợp lệ');
     const s = rt.session;
     const staff = s.userType === 'STAFF';
-    // phiên khách: lát 5 (luồng OTP) — chưa nhận ở đây
-    if (!isAdmin(s.userType) && !staff) throw new AppError('AUTHENTICATION_REQUIRED', 'Refresh token không hợp lệ');
+    const customer = s.userType === 'CUSTOMER';
+    if (!isAdmin(s.userType) && !staff && !customer)
+      throw new AppError('AUTHENTICATION_REQUIRED', 'Refresh token không hợp lệ');
     if (staff) {
       // SEC3: refresh của nhân viên bắt buộc chữ ký đúng thiết bị của phiên — kiểm TRƯỚC phát hiện dùng lại: token bị lộ
       // mà không có khóa thiết bị thì vô dụng, và không đủ để kẻ gian thu hồi phiên của thu ngân
@@ -295,8 +296,8 @@ export class AuthService {
     let reused = false;
     try {
       return await this.txHost.withTransaction(async () => {
-        // nhân viên: hạn tuyệt đối 24 giờ, không gia hạn; admin: 12 giờ trượt, trần 7 ngày
-        const expiresAt = staff ? s.expiresAt : slidingExpiry(s.createdAt, now);
+        // nhân viên (24 giờ) và khách (60 ngày): hạn tuyệt đối, không gia hạn; admin: 12 giờ trượt, trần 7 ngày
+        const expiresAt = staff || customer ? s.expiresAt : slidingExpiry(s.createdAt, now);
         if (expiresAt <= now) throw new AppError('SESSION_REVOKED', 'Phiên đã hết hạn — đăng nhập lại');
         // khóa dòng phiên TRƯỚC (thu hồi song song phải chờ, hoặc ta thấy phiên đã thu hồi ⇒ 401, không phải lỗi trigger)
         const live = await this.tx.session.updateMany({
@@ -319,7 +320,7 @@ export class AuthService {
         }
         const access = await this.tokens.sign({
           sub: s.userId,
-          typ: staff ? 'staff' : tokenTyp(s.userType),
+          typ: staff ? 'staff' : customer ? 'customer' : tokenTyp(s.userType),
           sid: s.id,
           amr: s.amr as Amr[],
           ...(staff && s.posDeviceId ? { dev: s.posDeviceId } : {}),
@@ -645,7 +646,7 @@ export class AuthService {
           action: 'auth.refresh_reuse',
           resourceType: 'session',
           resourceId: sessionId,
-          actor: { userId, userType: userType as AdminType | 'STAFF' },
+          actor: { userId, userType: userType as AdminType | 'STAFF' | 'CUSTOMER' },
           reason: 'refresh token đã xoay bị dùng lại — thu hồi cả họ',
         });
       await this.attempts.log(userId, 'REFRESH_REUSE', null);

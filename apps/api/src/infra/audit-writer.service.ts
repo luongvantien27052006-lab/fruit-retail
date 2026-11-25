@@ -24,7 +24,10 @@ export type LoginResult =
   | 'DEVICE_NOT_ACTIVE'
   | 'DEVICE_REVOKED'
   | 'DEVICE_PROOF_INVALID'
-  | 'DEVICE_NONCE_REUSED';
+  | 'DEVICE_NONCE_REUSED'
+  // khách (lát 5 — ADR-023)
+  | 'OTP_SENT'
+  | 'BAD_OTP';
 
 export interface LoginLogEntry {
   userId?: string | null;

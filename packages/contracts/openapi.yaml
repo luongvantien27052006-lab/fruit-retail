@@ -57,6 +57,8 @@ paths:
       x-permission: 'public'
       x-spec-ref: '§2.4'
       x-detail-cp: CP03
+      description: >-
+        Bắt buộc X-Device-Id. Cùng một phản hồi dù SĐT đã có tài khoản hay chưa. Mã mới thay mã cũ. Giới hạn gửi theo SĐT (1/60 giây, 5/giờ, 10/ngày), thiết bị (5/giờ, 20/ngày), IP (gộp /64 với IPv6) và toàn hệ thống; vượt ⇒ 429 OTP_RATE_LIMITED kèm details.retry_after_s. Chưa cấu hình nhà cung cấp ⇒ 503 CONFIGURATION_NOT_READY; Redis lỗi hoặc gửi lỗi ⇒ 503 DEPENDENCY_UNAVAILABLE.
       parameters:
         - $ref: '#/components/parameters/RequestId'
         - $ref: '#/components/parameters/DeviceId'
@@ -65,14 +67,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthOtpRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthOtpRequestResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -96,6 +98,8 @@ paths:
       x-permission: 'public'
       x-spec-ref: '§2.4'
       x-detail-cp: CP03
+      description: >-
+        Bắt buộc X-Device-Id. Mã sai / hết hạn / đã dùng / quá 5 lần nhập ⇒ cùng 401 OTP_INVALID. Sai 10 lần trong một giờ theo SĐT ⇒ 429 OTP_RATE_LIMITED. Lần đầu xác minh đúng ⇒ tạo tài khoản khách. SĐT thuộc tài khoản nội bộ hoặc khách bị khóa ⇒ 403 ACTION_FORBIDDEN.
       parameters:
         - $ref: '#/components/parameters/RequestId'
         - $ref: '#/components/parameters/DeviceId'
@@ -104,14 +108,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthOtpVerifyRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthOtpVerifyResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -8797,6 +8801,71 @@ components:
           pattern: '^\d{6}$'
         device_proof:
           $ref: '#/components/schemas/DeviceProof'
+    AuthOtpRequest:
+      type: object
+      required: [phone]
+      additionalProperties: false
+      properties:
+        phone:
+          type: string
+          minLength: 9
+          maxLength: 20
+          pattern: '^[+0-9 .-]+$'
+          description: SĐT di động Việt Nam (0912…, 84912…, +84912…); server chuẩn hóa E.164
+    AuthOtpRequestResponse:
+      type: object
+      required: [expires_at, resend_after_s]
+      additionalProperties: false
+      properties:
+        expires_at:
+          type: string
+          format: date-time
+        resend_after_s:
+          type: integer
+          minimum: 1
+    AuthOtpVerifyRequest:
+      type: object
+      required: [phone, code]
+      additionalProperties: false
+      properties:
+        phone:
+          type: string
+          minLength: 9
+          maxLength: 20
+          pattern: '^[+0-9 .-]+$'
+        code:
+          type: string
+          pattern: '^[0-9]{6}$'
+    AuthOtpVerifyResponse:
+      description: Phiên khách 60 ngày tuyệt đối (refresh không gia hạn); amr = [otp].
+      type: object
+      required: [access_token, access_token_expires_at, refresh_token, session_id, amr, customer]
+      additionalProperties: false
+      properties:
+        access_token:
+          type: string
+        access_token_expires_at:
+          type: string
+          format: date-time
+        refresh_token:
+          type: string
+        session_id:
+          type: string
+          format: uuid
+        amr:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthAmr'
+        customer:
+          type: object
+          required: [user_id, is_new]
+          additionalProperties: false
+          properties:
+            user_id:
+              type: string
+              format: uuid
+            is_new:
+              type: boolean
     AuthPinResponse:
       description: |
         Phiên nhân viên gắn thiết bị, hạn tuyệt đối 24 giờ (refresh không gia hạn). Mọi request sau phải gửi X-Device-Id của

@@ -21,6 +21,7 @@ import { createApp } from '../src/bootstrap';
 import { createMaster } from '../src/cli/create-master';
 import { loadEnv } from '../src/config/env';
 import { testAuthEnv } from './helpers/auth-env';
+import { relaxedRatePolicies } from './helpers/rate-limit';
 import { schemaErrors } from './helpers/contract';
 import { type MigratedDb, startMigratedDb } from './helpers/db';
 
@@ -190,7 +191,7 @@ describe('auth nhân viên POS + thiết bị (CP03 lát 4)', () => {
       ...testAuthEnv(db.roleUrl('audit_writer')),
     });
     cipher = new PiiCipher(loadAuthKeys(env));
-    app = await createApp(env, { logger: false });
+    app = await createApp(env, { logger: false }, { providers: [relaxedRatePolicies] });
     await app.init();
     master = await masterBearer();
   });

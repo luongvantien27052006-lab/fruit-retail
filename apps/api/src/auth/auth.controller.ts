@@ -12,9 +12,11 @@ import {
   RequireStepUp,
 } from '../common/access';
 import { AppError } from '../common/errors';
+import { RateLimit } from '../common/rate-limit';
 import type { RequestStore } from '../common/request-context';
 import { ZodPipe } from '../common/zod.pipe';
 import { AuthService } from './auth.service';
+import { CustomerAuthService } from './customer-auth.service';
 import { DeviceProofSchema, ENROLLMENT_CODE_RE } from './device-proof';
 import { PosDeviceService } from './pos-device.service';
 import { StaffAuthService } from './staff-auth.service';
@@ -46,18 +48,26 @@ const RegisterBody = z
     device_proof: DeviceProofSchema,
   })
   .strict();
+const PhoneField = z
+  .string()
+  .min(9)
+  .max(20)
+  .regex(/^[+\d .-]+$/, 'số điện thoại');
+const OtpRequestBody = z.object({ phone: PhoneField }).strict();
+const OtpVerifyBody = z.object({ phone: PhoneField, code: z.string().regex(/^\d{6}$/, 'mã 6 chữ số') }).strict();
 const EmptyBody = z.object({}).strict().default({});
 
 const OWN_TX = 'luồng xác thực: lần sai phải được ghi (đếm sai/khóa/thu hồi) dù request trả lỗi';
 const OWN_TX_HASH = 'băm mã khôi phục (Argon2) trước khi mở transaction — không giữ kết nối khi chờ suất';
 const MFA_BEARER_RE = /^Bearer ([A-Za-z0-9_-]{43})$/;
 
-/** /v1/auth/* — Master/Viewer (SEC1, SEC2, SEC4, SEC5 — ADR-021), nhân viên POS (SEC3 — ADR-022). Khách: lát 5. */
+/** /v1/auth/* — Master/Viewer (SEC1, SEC2, SEC4, SEC5 — ADR-021), nhân viên POS (SEC3 — ADR-022). Khách SĐT + OTP (SEC6 — ADR-023). */
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly staffAuth: StaffAuthService,
+    private readonly customerAuth: CustomerAuthService,
     private readonly devices: PosDeviceService,
     private readonly cls: ClsService<RequestStore>,
   ) {}
@@ -70,6 +80,7 @@ export class AuthController {
 
   @Public()
   @OwnTransaction(OWN_TX)
+  @RateLimit('auth.login')
   @Post('login')
   @HttpCode(200)
   login(@Body(new ZodPipe(LoginBody)) b: z.infer<typeof LoginBody>) {
@@ -78,6 +89,7 @@ export class AuthController {
 
   @MfaChallenge()
   @OwnTransaction(OWN_TX)
+  @RateLimit('auth.mfa')
   @Post('2fa/verify')
   @HttpCode(200)
   verify(@Req() req: Request, @Body(new ZodPipe(CodeBody)) b: z.infer<typeof CodeBody>) {
@@ -86,6 +98,7 @@ export class AuthController {
 
   @MfaChallenge()
   @OwnTransaction(OWN_TX)
+  @RateLimit('auth.mfa')
   @Post('2fa/recover')
   @HttpCode(200)
   recover(@Req() req: Request, @Body(new ZodPipe(RecoverBody)) b: z.infer<typeof RecoverBody>) {
@@ -122,6 +135,7 @@ export class AuthController {
 
   @Authenticated()
   @OwnTransaction(OWN_TX)
+  @RateLimit('auth.step_up')
   @Post('step-up')
   @HttpCode(200)
   stepUp(@Body(new ZodPipe(CodeBody)) b: z.infer<typeof CodeBody>) {
@@ -130,6 +144,7 @@ export class AuthController {
 
   @Public()
   @OwnTransaction(OWN_TX)
+  @RateLimit('auth.refresh')
   @Post('refresh')
   @HttpCode(200)
   refresh(@Body(new ZodPipe(RefreshBody)) b: z.infer<typeof RefreshBody>) {
@@ -139,6 +154,7 @@ export class AuthController {
   /** SEC3: mã NV + PIN trên thiết bị ACTIVE, kèm X-Device-Id + chữ ký thiết bị (ADR-022) */
   @Public()
   @OwnTransaction(OWN_TX)
+  @RateLimit('auth.pin')
   @Post('pin')
   @HttpCode(200)
   pin(@Body(new ZodPipe(PinBody)) b: z.infer<typeof PinBody>) {
@@ -147,10 +163,31 @@ export class AuthController {
 
   /** Thiết bị POS tự đăng ký khóa công khai ⇒ PENDING chờ Master/cửa hàng trưởng kích hoạt */
   @Public()
+  @RateLimit('auth.device_register')
   @Post('devices/register')
   @HttpCode(201)
   register(@Body(new ZodPipe(RegisterBody)) b: z.infer<typeof RegisterBody>) {
     return this.devices.register(b);
+  }
+
+  /** SEC6: gửi OTP 6 số (hạn 5 phút) tới SĐT khách; cùng phản hồi dù SĐT đã có tài khoản hay chưa */
+  @Public()
+  @OwnTransaction('gửi OTP: ghi mã (commit) trước rồi mới gọi nhà cung cấp — không giữ transaction khi gửi')
+  @RateLimit('auth.otp_request')
+  @Post('otp/request')
+  @HttpCode(200)
+  otpRequest(@Body(new ZodPipe(OtpRequestBody)) b: z.infer<typeof OtpRequestBody>) {
+    return this.customerAuth.request(b.phone);
+  }
+
+  /** SEC6: xác minh OTP ⇒ phiên khách (60 ngày trượt); lần đầu ⇒ tạo tài khoản khách */
+  @Public()
+  @OwnTransaction(OWN_TX)
+  @RateLimit('auth.otp_verify')
+  @Post('otp/verify')
+  @HttpCode(200)
+  otpVerify(@Body(new ZodPipe(OtpVerifyBody)) b: z.infer<typeof OtpVerifyBody>) {
+    return this.customerAuth.verify(b.phone, b.code);
   }
 
   @Authenticated()

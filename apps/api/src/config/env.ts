@@ -21,6 +21,11 @@ const schema = z.object({
   JWT_SIGNING_KEYS: z.string().optional(),
   PII_ENC_KEYS: z.string().optional(),
   PII_HASH_PEPPER: z.string().optional(),
+  // OTP khách (SEC6, ADR-023). Kiểm ở AuthModule lúc API khởi động: production bắt buộc nhà cung cấp thật (chưa có ⇒ không
+  // khởi động); TEST_DOUBLE chỉ cho development/test/staging; thiếu ⇒ route OTP trả 503 CONFIGURATION_NOT_READY.
+  OTP_PROVIDER: z.enum(['TEST_DOUBLE', 'SMS_BRANDNAME', 'ZALO_ZNS']).optional(),
+  OTP_API_KEY: z.string().optional(),
+  OTP_SENDER: z.string().optional(),
   LOG_LEVEL: z.enum(['silent', 'fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
 

@@ -34,3 +34,4 @@
 | 2026-11-25 | CP03 | Lát 3 (auth Master/Viewer: Argon2id, TOTP + mã khôi phục, khóa tăng dần, JWT EdDSA xoay khóa, refresh xoay vòng + phát hiện dùng lại, step-up, CLI tạo Master — ADR-021) xong code, 98/98 test; chờ kiểm thử agent. |
 | 2026-11-25 | CP03 | Lát 3 qua 4 vòng kiểm thử agent bảo mật → SẠCH (c82f322 + sửa T6). Sửa chính: một lần thử xác thực = một transaction khóa theo tài khoản (đợt song song ≤ 5 lần, không rò, không khóa vĩnh viễn), login 401 chung, chống đua đăng ký 2FA, no-store, giới hạn suất Argon2 theo IP. Test 105/105. |
 | 2026-11-25 | CP03 | Lát 4: Tiến chọn "Thêm mã ghi danh" cho M1 ⇒ NC-20 (route `POST /admin/pos-devices/enrollment-codes` ngoài §13.2). Đã làm: migration 0003, `/auth/devices/register` nhận `enrollment_code`. Test 122/122. Chờ kiểm thử agent lần 2. |
+| 2026-11-25 | CP03 | Lát 4 qua 2 vòng kiểm thử agent bảo mật → SẠCH (46b4507). 122/122 test. Ghi nhận không bắt buộc chuyển lát 5/6 (ADR-022). Lát 4 đóng. |

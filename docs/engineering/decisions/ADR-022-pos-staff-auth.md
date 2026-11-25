@@ -89,6 +89,17 @@ chống spam route đăng ký công khai, phạm vi cửa hàng của nhân viê
 - L6 (log không giới hạn từ request chưa xác thực): vào bộ giới hạn tần suất lát 5. Ghi nhận: chưa có bộ đếm sai PIN
   theo thiết bị (dò PIN phổ biến rải nhiều nhân viên) và chưa chặn PIN yếu — lát 5 / lát 6–8 (đặt PIN).
 
+## Kiểm thử agent lần 2 (46b4507): SẠCH
+Không lỗi Cao/Trung bình/Thấp bắt buộc. Ghi nhận không bắt buộc, làm ở lát sau:
+- Trần mã ghi danh đếm theo đồng hồ app (lệch vài giây, không hệ quả bảo mật) — đổi sang `now()` DB khi tiện.
+- Trigger `pos_enrollment_code_guard` chưa cố định `store_id`/`code_hash`/`expires_at`/`created_at` khi UPDATE (hiện chỉ
+  quyền cột chặn) — thêm lớp phòng thủ ở migration sau.
+- Đăng ký sai mã không để vết — lát 5 (rate limit + log có giới hạn).
+- OpenAPI `.../activate`, `.../revoke` thiếu `x-scope: store` (code đã kiểm phạm vi) — sửa tài liệu hợp đồng.
+- `activate` và `/auth/pin` chưa kiểm cửa hàng còn hoạt động — lát 6 (vòng đời cửa hàng).
+- `Cache-Control: no-store` cho response tạo mã ghi danh — lát 5 cùng chính sách header.
+- PrincipalResolver không kiểm lại vai trò mỗi request (tối đa một access token 15 phút sau khi mất vai trò) — lát 6.
+
 ## Để lát sau
 - Thẻ nhân viên (`staff_badges` chỉ lưu hash — ràng buộc lát 1): route cấp thẻ `/admin/badges` và đổi người bằng thẻ là
   `x-detail-cp: CP09` (định dạng mã thẻ theo `barcode_rules` §21.3.8 chốt ở CP09).

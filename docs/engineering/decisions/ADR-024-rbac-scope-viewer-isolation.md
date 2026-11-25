@@ -1,7 +1,6 @@
 # ADR-024: RBAC theo phạm vi cửa hàng, hạn mức duyệt từ dữ liệu, cô lập Viewer (CP03 lát 6)
 
-- Trạng thái: accepted (kỹ thuật) · Ngày: 2026-11-26 · Người quyết: phiên điều phối (CP03 lát 6) — chờ agent
-  security-reviewer + database-reviewer kiểm
+- Trạng thái: accepted (kỹ thuật) · Ngày: 2026-11-26 · Người quyết: phiên điều phối (CP03 lát 6) — đã qua kiểm thử agent (SẠCH)
 - Làm rõ: ADR-006/011 (role DB, RLS viewer), ADR-012 (quyền tra mỗi request), ADR-022 (thiết bị POS), NC-19, NC-21
 
 ## Quyết định
@@ -74,6 +73,12 @@ security-reviewer: **SẠCH**. database-reviewer: còn L1' (TB) + 2 Thấp — �
   Master); kiểm ngày lịch thật (2026-13-01, 2026-02-30 ⇒ 400); test hợp đồng có danh sách trắng route `staffExempt`.
 - Ghi nhận chấp nhận: cửa hàng trưởng tạo/đổi PIN thu ngân rồi đăng nhập thay được (dùng `pos:sell`… của thu ngân) — đúng §2.2
   (SM tạo CASHIER/PICKER), giới hạn cửa hàng của máy, có nhật ký. Route cấp quyền riêng (lát 8) phải khóa dòng users FOR UPDATE.
+
+## Kiểm thử lần 3 (a3df1ca): SẠCH (database-reviewer; security-reviewer SẠCH từ lần 2)
+Ghi nhận Thấp để lát 8: (G1) nhánh `pin_hash` trống / `left_at` tới trong khe đua chưa chạy Argon giả; (G2) refine ngày nhận năm 0000
+(Postgres 22008 ⇒ 500) — giới hạn năm 1900–2100; (G3) `assignRole` so tự gán chưa chuyển chữ thường; (G4) đăng nhập mật khẩu admin
+cùng dạng L1' — khi thêm đổi mật khẩu / reset 2FA phải đọc lại `password_hash`, `totp_enabled_at` trong transaction và phía đổi lấy
+`pg_advisory_xact_lock('auth:'||id::uuid::text)`.
 
 ## Để lát sau
 - Route `/viewer/*` thật (projection, snapshot), 2 route ghi của viewer qua `viewer_act`: CP12.

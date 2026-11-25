@@ -9,7 +9,9 @@ import { AuditOutboxService, type Tx } from '../common/audit-outbox.service';
 import type { Principal } from '../common/access';
 import { AppError } from '../common/errors';
 import type { RequestStore } from '../common/request-context';
-import { AuditWriterService, type LoginResult } from '../infra/audit-writer.service';
+import { AuthAttempts, challengeInvalid, otpInvalid } from './auth-attempts';
+import { type DeviceProof, refreshBinding } from './device-proof';
+import { PosDeviceService } from './pos-device.service';
 import { ARGON_PROFILES, dummyHash, hashSecret, verifySecret, withArgonSlot } from './password';
 import { PiiCipher, totpAad } from './pii-cipher';
 import {
@@ -25,10 +27,6 @@ import {
   STEP_UP_TTL_S,
 } from './tokens';
 
-/** SEC5: 5 lần sai liên tiếp ⇒ khóa 15 phút, mỗi lần khóa sau gấp đôi, trần 24 giờ (ADR-012, ADR-021) */
-export const MAX_FAILED = 5;
-const LOCK_BASE_MIN = 15;
-const LOCK_MAX_MIN = 24 * 60;
 const RECOVERY_CODES = 10;
 const TOTP_ISSUER = 'Fruit Retail';
 /** ±1 bước 30 s cho lệch đồng hồ điện thoại */
@@ -52,9 +50,6 @@ export type LoginResponse =
 // /auth/login trả CÙNG một lỗi cho sai email, sai mật khẩu, tài khoản khóa/vô hiệu (không liệt kê được email — S3)
 const invalidCredentials = () =>
   new AppError('AUTHENTICATION_REQUIRED', 'Email hoặc mật khẩu không đúng, hoặc tài khoản đang tạm khóa');
-const challengeInvalid = () =>
-  new AppError('MFA_CHALLENGE_INVALID', 'Phiên xác minh 2FA không hợp lệ hoặc đã hết hạn — đăng nhập lại');
-const otpInvalid = () => new AppError('OTP_INVALID', 'Mã xác minh không đúng');
 
 export const normalizeEmail = (e: string) => e.normalize('NFC').trim().toLowerCase();
 
@@ -103,9 +98,10 @@ export class AuthService {
     @Inject(TransactionHost) private readonly txHost: Tx,
     private readonly cipher: PiiCipher,
     private readonly tokens: AccessTokens,
-    private readonly auditWriter: AuditWriterService,
+    private readonly attempts: AuthAttempts,
     private readonly ao: AuditOutboxService,
     private readonly cls: ClsService<RequestStore>,
+    private readonly devices: PosDeviceService,
   ) {}
 
   private get tx() {
@@ -121,23 +117,23 @@ export class AuthService {
     if (!user || !isAdmin(user.type) || !user.passwordHash) {
       // cùng thời gian với nhánh sai mật khẩu
       try {
-        await withArgonSlot(this.slotKey(), async () => void (await verifySecret(await dummyHash(), password)));
+        await withArgonSlot(this.attempts.ipSlot(), async () => void (await verifySecret(await dummyHash(), password)));
       } catch (e) {
         // hết suất: ghi nhật ký như nhánh email có thật (T4)
         if (e instanceof AppError && e.code === 'RATE_LIMITED')
-          await this.loginLog(null, 'RATE_LIMITED', identifierHash);
+          await this.attempts.log(null, 'RATE_LIMITED', identifierHash);
         throw e;
       }
-      await this.loginLog(null, 'UNKNOWN_USER', identifierHash);
+      await this.attempts.log(null, 'UNKNOWN_USER', identifierHash);
       throw invalidCredentials();
     }
     const hash = user.passwordHash;
-    return this.attempt(
+    return this.attempts.run(
       {
         userId: user.id,
         identifierHash,
         argon: true,
-        publicLogin: true,
+        publicError: invalidCredentials,
         failResult: 'BAD_CREDENTIALS',
         dummy: async () => void (await verifySecret(await dummyHash(), password)),
       },
@@ -151,7 +147,7 @@ export class AuthService {
             data: { id: uuidv7(), kind: 'MFA', userId: user.id, secretHash: sha256(challenge), expiresAt },
             select: { id: true },
           });
-          await this.loginLog(user.id, 'MFA_REQUIRED', identifierHash);
+          await this.attempts.log(user.id, 'MFA_REQUIRED', identifierHash);
           return {
             status: 'MFA_REQUIRED' as const,
             mfa_challenge: challenge,
@@ -160,9 +156,9 @@ export class AuthService {
         }
         // Chưa đăng ký 2FA (tài khoản mới / vừa reset 2FA): mật khẩu là yếu tố duy nhất ⇒ xóa bộ đếm; phiên chỉ gọi
         // được route đăng ký (AccessGuard)
-        await this.clearFailures(user.id, false);
+        await this.attempts.clearFailures(user.id, false);
         const p = await this.createSession(user, ['pwd']);
-        await this.loginLog(user.id, 'ENROLLMENT_REQUIRED', identifierHash);
+        await this.attempts.log(user.id, 'ENROLLMENT_REQUIRED', identifierHash);
         return { status: 'ENROLLMENT_REQUIRED' as const, ...p };
       },
     );
@@ -171,13 +167,12 @@ export class AuthService {
   async verifyMfa(challenge: string, code: string): Promise<TokenPair> {
     const { ch, user } = await this.loadChallenge(challenge);
     let step: number | undefined;
-    return this.attempt(
+    return this.attempts.run(
       {
         userId: user.id,
         identifierHash: null,
         challengeId: ch.id,
         argon: false,
-        publicLogin: false,
         failResult: 'BAD_TOTP',
       },
       () => {
@@ -187,10 +182,10 @@ export class AuthService {
       async () => {
         await this.consumeChallenge(ch.id);
         await this.useTotpStep(user.id, step ?? -1);
-        await this.clearFailures(user.id, true);
+        await this.attempts.clearFailures(user.id, true);
         const pair = await this.createSession(user, ['pwd', 'otp']);
         await this.maybeNewDevice(user.id, pair.session_id);
-        await this.loginLog(user.id, 'SUCCESS', null); // bước cuối trước commit (ghi lỗi ⇒ không ra phiên)
+        await this.attempts.log(user.id, 'SUCCESS', null); // bước cuối trước commit (ghi lỗi ⇒ không ra phiên)
         return pair;
       },
     );
@@ -201,13 +196,12 @@ export class AuthService {
     const code = normalizeRecoveryCode(codeRaw);
     let matched: string | undefined;
     let remaining = 0;
-    return this.attempt(
+    return this.attempts.run(
       {
         userId: user.id,
         identifierHash: null,
         challengeId: ch.id,
         argon: true,
-        publicLogin: false,
         failResult: 'BAD_RECOVERY',
       },
       async () => {
@@ -233,7 +227,7 @@ export class AuthService {
     await this.consumeChallenge(challengeId);
     const used = await this.tx.recoveryCode.updateMany({ where: { id, usedAt: null }, data: { usedAt: new Date() } });
     if (used.count !== 1) throw otpInvalid(); // dùng song song cùng một mã
-    await this.clearFailures(user.id, true);
+    await this.attempts.clearFailures(user.id, true);
     const pair = await this.createSession(user, ['pwd', 'rcv']);
     await this.ao.recordAudit({
       action: 'auth.recovery_code_use',
@@ -242,13 +236,13 @@ export class AuthService {
       actor: { userId: user.id, userType: user.type as AdminType },
     });
     await this.maybeNewDevice(user.id, pair.session_id);
-    await this.loginLog(user.id, 'SUCCESS_RECOVERY', null);
+    await this.attempts.log(user.id, 'SUCCESS_RECOVERY', null);
     return { ...pair, recovery_codes_remaining: remaining };
   }
 
   // ───────────────────────────── refresh / phiên ─────────────────────────────
 
-  async refresh(refreshToken: string): Promise<TokenPair> {
+  async refresh(refreshToken: string, proof?: DeviceProof): Promise<TokenPair> {
     if (!OPAQUE_TOKEN_RE.test(refreshToken))
       throw new AppError('AUTHENTICATION_REQUIRED', 'Refresh token không hợp lệ');
     const rt = await this.tx.refreshToken.findUnique({
@@ -265,6 +259,7 @@ export class AuthService {
             createdAt: true,
             expiresAt: true,
             revokedAt: true,
+            posDeviceId: true,
             user: { select: { status: true } },
           },
         },
@@ -272,8 +267,18 @@ export class AuthService {
     });
     if (!rt) throw new AppError('AUTHENTICATION_REQUIRED', 'Refresh token không hợp lệ');
     const s = rt.session;
-    // phiên nhân viên/khách: lát 4/5 (cần chữ ký thiết bị / luồng OTP) — chưa nhận ở đây
-    if (!isAdmin(s.userType)) throw new AppError('AUTHENTICATION_REQUIRED', 'Refresh token không hợp lệ');
+    const staff = s.userType === 'STAFF';
+    // phiên khách: lát 5 (luồng OTP) — chưa nhận ở đây
+    if (!isAdmin(s.userType) && !staff) throw new AppError('AUTHENTICATION_REQUIRED', 'Refresh token không hợp lệ');
+    if (staff) {
+      // SEC3: refresh của nhân viên bắt buộc chữ ký đúng thiết bị của phiên — kiểm TRƯỚC phát hiện dùng lại: token bị lộ
+      // mà không có khóa thiết bị thì vô dụng, và không đủ để kẻ gian thu hồi phiên của thu ngân
+      if (!proof || !s.posDeviceId)
+        throw new AppError('AUTHENTICATION_REQUIRED', 'Thiếu chữ ký thiết bị (device_proof)');
+      if (this.cls.get('deviceId')?.toLowerCase() !== s.posDeviceId)
+        throw new AppError('AUTHENTICATION_REQUIRED', 'Refresh token không thuộc thiết bị này');
+      await this.devices.verifyProof('refresh', refreshBinding(refreshToken), proof);
+    }
     if (rt.usedAt) {
       await this.revokeForReuse(s.id, s.userId, s.userType);
       throw new AppError('SESSION_REVOKED', 'Phiên đã bị thu hồi — đăng nhập lại');
@@ -285,7 +290,8 @@ export class AuthService {
     let reused = false;
     try {
       return await this.txHost.withTransaction(async () => {
-        const expiresAt = slidingExpiry(s.createdAt, now);
+        // nhân viên: hạn tuyệt đối 24 giờ, không gia hạn; admin: 12 giờ trượt, trần 7 ngày
+        const expiresAt = staff ? s.expiresAt : slidingExpiry(s.createdAt, now);
         if (expiresAt <= now) throw new AppError('SESSION_REVOKED', 'Phiên đã hết hạn — đăng nhập lại');
         // khóa dòng phiên TRƯỚC (thu hồi song song phải chờ, hoặc ta thấy phiên đã thu hồi ⇒ 401, không phải lỗi trigger)
         const live = await this.tx.session.updateMany({
@@ -308,9 +314,10 @@ export class AuthService {
         }
         const access = await this.tokens.sign({
           sub: s.userId,
-          typ: s.userType === 'MASTER' ? 'master' : 'viewer',
+          typ: staff ? 'staff' : tokenTyp(s.userType),
           sid: s.id,
           amr: s.amr as Amr[],
+          ...(staff && s.posDeviceId ? { dev: s.posDeviceId } : {}),
         });
         return {
           access_token: access.token,
@@ -475,15 +482,15 @@ export class AuthService {
     const u = await this.adminUser(p);
     if (!u.totpEnabledAt) throw new AppError('INVALID_STATE_TRANSITION', 'Chưa bật 2FA');
     let step: number | undefined;
-    return this.attempt(
-      { userId: u.id, identifierHash: null, argon: false, publicLogin: false, failResult: 'STEP_UP_FAILED' },
+    return this.attempts.run(
+      { userId: u.id, identifierHash: null, argon: false, failResult: 'STEP_UP_FAILED' },
       () => {
         step = totpStep(this.totpSecret(u), code, u.totpLastStep);
         return Promise.resolve(step !== undefined);
       },
       async () => {
         await this.useTotpStep(u.id, step ?? -1);
-        await this.clearFailures(u.id, false);
+        await this.attempts.clearFailures(u.id, false);
         const until = new Date(Date.now() + STEP_UP_TTL_S * 1000);
         // phiên phải còn hiệu lực (thu hồi song song ⇒ 0 dòng)
         const s = await this.tx.session.updateMany({
@@ -526,129 +533,6 @@ export class AuthService {
     return this.cipher.decrypt(u.totpSecretEnc, totpAad(u.id)).toString('utf8');
   }
 
-  /**
-   * MỘT lần thử xác thực = MỘT transaction (kiểm thử lát 3 S1/R1/R3):
-   * 1. lấy suất Argon2 (nếu cần) TRƯỚC khi mở transaction — hàng đợi đầy ⇒ 429, chưa động vào DB;
-   * 2. `pg_try_advisory_xact_lock` theo tài khoản — lần thử khác của cùng tài khoản đang chạy ⇒ 429 ngay (không chờ, không
-   *    giữ kết nối), nên mọi lần thử của một tài khoản chạy TUẦN TỰ;
-   * 3. đọc trạng thái khóa MỚI NHẤT; khóa/vô hiệu ⇒ từ chối không kiểm thật; có challenge ⇒ tính một lượt (attempts + 1);
-   * 4. kiểm (mật khẩu/mã); sai ⇒ cộng bộ đếm (đủ 5 ⇒ khóa có hạn) và COMMIT; đúng ⇒ `onSuccess` trong cùng transaction.
-   * Không có "chỗ giữ" nào tồn tại ngoài transaction: request chết giữa chừng ⇒ rollback, không rò, không khóa vĩnh viễn.
-   * login_logs của lần bị từ chối/sai ghi SAU khi commit (pool audit_writer lỗi không làm mất lần đếm — S4).
-   */
-  private async attempt<T>(
-    g: {
-      userId: string;
-      identifierHash: Uint8Array | null;
-      challengeId?: string;
-      /** cần suất Argon2 (mật khẩu, mã khôi phục) */
-      argon: boolean;
-      /** /auth/login: mọi từ chối trả cùng 401 (S3) */
-      publicLogin: boolean;
-      failResult: LoginResult;
-      /** cân thời gian nhánh bị từ chối của /auth/login */
-      dummy?: () => Promise<void>;
-    },
-    check: () => Promise<boolean>,
-    onSuccess: () => Promise<T>,
-  ): Promise<T> {
-    type Out =
-      | { kind: 'ok'; value: T }
-      | { kind: 'busy' | 'challenge' | 'fail' }
-      | { kind: 'locked'; status: string; until: Date | null };
-    const run = (): Promise<Out> =>
-      this.txHost.withTransaction(async (): Promise<Out> => {
-        const [lk] = await this.tx.$queryRaw<{ ok: boolean }[]>`
-          SELECT pg_try_advisory_xact_lock(hashtextextended('auth:' || ${g.userId}, 0)) AS ok`;
-        if (!lk?.ok) {
-          // /auth/login: nhánh bận phải giống hệt sai mật khẩu (thời gian + mã lỗi) — không lộ email có thật (T1)
-          if (g.dummy) await g.dummy();
-          return { kind: 'busy' };
-        }
-        const [st] = await this.tx.$queryRaw<{ status: string; locked_until: Date | null; locked: boolean }[]>`
-          SELECT status::text AS status, locked_until, (locked_until IS NOT NULL AND locked_until > now()) AS locked
-          FROM core.users WHERE id = ${g.userId}::uuid`;
-        if (!st || st.status !== 'ACTIVE' || st.locked) {
-          if (g.dummy) await g.dummy();
-          return { kind: 'locked', status: st?.status ?? 'DISABLED', until: st?.locked ? st.locked_until : null };
-        }
-        if (g.challengeId) {
-          const c = await this.tx.authChallenge.updateMany({
-            where: {
-              id: g.challengeId,
-              usedAt: null,
-              attempts: { lt: MFA_CHALLENGE_MAX_ATTEMPTS },
-              expiresAt: { gt: new Date() },
-            },
-            data: { attempts: { increment: 1 } },
-          });
-          if (c.count !== 1) return { kind: 'challenge' };
-        }
-        if (!(await check())) {
-          await this.tx.$executeRaw`
-            UPDATE core.users SET
-              lock_count = CASE WHEN failed_login_count + 1 >= ${MAX_FAILED} THEN lock_count + 1 ELSE lock_count END,
-              locked_until = CASE WHEN failed_login_count + 1 >= ${MAX_FAILED}
-                THEN now() + make_interval(mins => LEAST(${LOCK_BASE_MIN} * (2 ^ LEAST(lock_count, 7))::int, ${LOCK_MAX_MIN}))
-                ELSE locked_until END,
-              failed_login_count = CASE WHEN failed_login_count + 1 >= ${MAX_FAILED} THEN 0 ELSE failed_login_count + 1 END
-            WHERE id = ${g.userId}::uuid`;
-          return { kind: 'fail' };
-        }
-        return { kind: 'ok', value: await onSuccess() };
-      });
-    let out: Out;
-    try {
-      out = g.argon ? await withArgonSlot(this.slotKey(), run) : await run();
-    } catch (e) {
-      if (e instanceof AppError && e.code === 'RATE_LIMITED')
-        await this.loginLog(g.userId, 'RATE_LIMITED', g.identifierHash);
-      throw e;
-    }
-    switch (out.kind) {
-      case 'ok':
-        return out.value;
-      case 'busy':
-        await this.loginLog(g.userId, 'RATE_LIMITED', g.identifierHash);
-        if (g.publicLogin) throw invalidCredentials();
-        throw new AppError(
-          'RATE_LIMITED',
-          'Đang xử lý một lần đăng nhập khác của tài khoản này — thử lại sau giây lát',
-        );
-      case 'challenge':
-        await this.loginLog(g.userId, 'CHALLENGE_INVALID', null);
-        throw challengeInvalid();
-      case 'locked':
-        await this.loginLog(g.userId, out.status === 'DISABLED' ? 'DISABLED' : 'LOCKED', g.identifierHash);
-        throw g.publicLogin ? invalidCredentials() : this.lockedError(out.until);
-      case 'fail':
-        await this.loginLog(g.userId, g.failResult, g.identifierHash);
-        throw g.publicLogin ? invalidCredentials() : otpInvalid();
-    }
-  }
-
-  /** Khóa giới hạn suất Argon2 theo nguồn (IP đã qua trust proxy) */
-  private slotKey(): string {
-    return `ip:${this.cls.get('ip') ?? '?'}`;
-  }
-
-  private lockedError(until?: Date | null): AppError {
-    return new AppError(
-      'ACCOUNT_LOCKED',
-      'Tài khoản đang bị khóa',
-      until ? { retry_after_s: Math.max(1, Math.ceil((until.getTime() - Date.now()) / 1000)) } : undefined,
-    );
-  }
-
-  /** Lần thử đúng (trong transaction của `attempt`, đã giữ khóa tài khoản): full = đăng nhập trọn vẹn, xóa cả mức khóa. */
-  private async clearFailures(userId: string, full: boolean): Promise<void> {
-    await this.tx.user.update({
-      where: { id: userId },
-      data: { failedLoginCount: 0, ...(full ? { lockCount: 0, lockedUntil: null, lastLoginAt: new Date() } : {}) },
-      select: { id: true },
-    });
-  }
-
   private async loadChallenge(challenge: string) {
     if (!OPAQUE_TOKEN_RE.test(challenge)) throw challengeInvalid();
     const ch = await this.tx.authChallenge.findUnique({
@@ -663,7 +547,7 @@ export class AuthService {
       ch.expiresAt.getTime() <= Date.now() ||
       ch.attempts >= MFA_CHALLENGE_MAX_ATTEMPTS
     ) {
-      await this.loginLog(ch?.userId ?? null, 'CHALLENGE_INVALID', null);
+      await this.attempts.log(ch?.userId ?? null, 'CHALLENGE_INVALID', null);
       throw challengeInvalid();
     }
     const user = (await this.tx.user.findUnique({
@@ -671,7 +555,7 @@ export class AuthService {
       select: USER_AUTH_SELECT,
     })) as UserAuthRow | null;
     if (!user || !isAdmin(user.type) || !user.totpEnabledAt) {
-      await this.loginLog(ch.userId, 'CHALLENGE_INVALID', null);
+      await this.attempts.log(ch.userId, 'CHALLENGE_INVALID', null);
       throw challengeInvalid();
     }
     return { ch, user };
@@ -756,17 +640,17 @@ export class AuthService {
           action: 'auth.refresh_reuse',
           resourceType: 'session',
           resourceId: sessionId,
-          actor: { userId, userType: userType as AdminType },
+          actor: { userId, userType: userType as AdminType | 'STAFF' },
           reason: 'refresh token đã xoay bị dùng lại — thu hồi cả họ',
         });
-      await this.loginLog(userId, 'REFRESH_REUSE', null);
+      await this.attempts.log(userId, 'REFRESH_REUSE', null);
     });
   }
 
   /** 10 mã mới + hash (một suất Argon2, băm tuần tự) — gọi khi CHƯA giữ khóa dòng nào */
   private async newRecoveryCodes(): Promise<{ codes: string[]; hashes: string[] }> {
     const codes = Array.from({ length: RECOVERY_CODES }, newRecoveryCode);
-    const hashes = await withArgonSlot(this.slotKey(), async () => {
+    const hashes = await withArgonSlot(this.attempts.ipSlot(), async () => {
       const out: string[] = [];
       for (const c of codes) out.push(await hashSecret(normalizeRecoveryCode(c), ARGON_PROFILES.CODE));
       return out;
@@ -780,17 +664,6 @@ export class AuthService {
       data: fresh.hashes.map((codeHash) => ({ id: uuidv7(), userId, codeHash })),
     });
     return fresh.codes;
-  }
-
-  private async loginLog(userId: string | null, result: LoginResult, identifierHash: Uint8Array | null): Promise<void> {
-    await this.auditWriter.loginLog({
-      userId,
-      identifierHash,
-      result,
-      ip: this.cls.get('ip') ?? null,
-      device: this.cls.get('deviceId') ?? null,
-      userAgent: this.cls.get('userAgent') ?? null,
-    });
   }
 }
 

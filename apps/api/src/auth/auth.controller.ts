@@ -15,6 +15,9 @@ import { AppError } from '../common/errors';
 import type { RequestStore } from '../common/request-context';
 import { ZodPipe } from '../common/zod.pipe';
 import { AuthService } from './auth.service';
+import { DeviceProofSchema } from './device-proof';
+import { PosDeviceService } from './pos-device.service';
+import { StaffAuthService } from './staff-auth.service';
 import { MAX_SECRET_LEN } from './password';
 
 const totpCode = z.string().regex(/^\d{6}$/, 'mã 6 chữ số');
@@ -23,18 +26,39 @@ const LoginBody = z
   .strict();
 const CodeBody = z.object({ code: totpCode }).strict();
 const RecoverBody = z.object({ recovery_code: z.string().min(16).max(40) }).strict();
-const RefreshBody = z.object({ refresh_token: z.string().min(1).max(128) }).strict();
+const RefreshBody = z
+  .object({ refresh_token: z.string().min(1).max(128), device_proof: DeviceProofSchema.optional() })
+  .strict();
+export const STAFF_CODE_RE = /^[A-Za-z0-9_-]{1,32}$/;
+const PinBody = z
+  .object({
+    staff_code: z.string().regex(STAFF_CODE_RE, 'mã nhân viên 1–32 ký tự chữ/số/_/-'),
+    pin: z.string().regex(/^\d{6}$/, 'PIN 6 chữ số'),
+    device_proof: DeviceProofSchema,
+  })
+  .strict();
+const RegisterBody = z
+  .object({
+    store_code: z.string().regex(/^[A-Za-z0-9_-]{1,32}$/, 'mã cửa hàng'),
+    name: z.string().trim().min(1).max(100),
+    platform: z.enum(['windows', 'android']),
+    public_key: z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'khóa Ed25519 thô 32 byte, base64url'),
+    device_proof: DeviceProofSchema,
+  })
+  .strict();
 const EmptyBody = z.object({}).strict().default({});
 
 const OWN_TX = 'luồng xác thực: lần sai phải được ghi (đếm sai/khóa/thu hồi) dù request trả lỗi';
 const OWN_TX_HASH = 'băm mã khôi phục (Argon2) trước khi mở transaction — không giữ kết nối khi chờ suất';
 const MFA_BEARER_RE = /^Bearer ([A-Za-z0-9_-]{43})$/;
 
-/** /v1/auth/* cho Master/Viewer (SEC1, SEC2, SEC4, SEC5 — ADR-012, ADR-021). POS/khách: lát 4/5. */
+/** /v1/auth/* — Master/Viewer (SEC1, SEC2, SEC4, SEC5 — ADR-021), nhân viên POS (SEC3 — ADR-022). Khách: lát 5. */
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly auth: AuthService,
+    private readonly staffAuth: StaffAuthService,
+    private readonly devices: PosDeviceService,
     private readonly cls: ClsService<RequestStore>,
   ) {}
 
@@ -109,7 +133,24 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(200)
   refresh(@Body(new ZodPipe(RefreshBody)) b: z.infer<typeof RefreshBody>) {
-    return this.auth.refresh(b.refresh_token);
+    return this.auth.refresh(b.refresh_token, b.device_proof);
+  }
+
+  /** SEC3: mã NV + PIN trên thiết bị ACTIVE, kèm X-Device-Id + chữ ký thiết bị (ADR-022) */
+  @Public()
+  @OwnTransaction(OWN_TX)
+  @Post('pin')
+  @HttpCode(200)
+  pin(@Body(new ZodPipe(PinBody)) b: z.infer<typeof PinBody>) {
+    return this.staffAuth.pinLogin(b);
+  }
+
+  /** Thiết bị POS tự đăng ký khóa công khai ⇒ PENDING chờ Master/cửa hàng trưởng kích hoạt */
+  @Public()
+  @Post('devices/register')
+  @HttpCode(201)
+  register(@Body(new ZodPipe(RegisterBody)) b: z.infer<typeof RegisterBody>) {
+    return this.devices.register(b);
   }
 
   @Authenticated()

@@ -378,14 +378,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthPinRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthPinResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -419,14 +419,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/PosDeviceRegisterRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/PosDeviceRegisterResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6276,13 +6276,19 @@ paths:
       x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PENDING, ACTIVE, REVOKED]
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/PosDeviceList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6316,14 +6322,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/PosDeviceActivateRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/PosDevice'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6363,14 +6369,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/PosDeviceRevokeRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/PosDeviceRevokeResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -8524,10 +8530,13 @@ components:
           type: string
           minLength: 1
           maxLength: 128
+        device_proof:
+          $ref: '#/components/schemas/DeviceProof'
+          description: Bắt buộc với phiên nhân viên POS (mục đích refresh, kèm X-Device-Id của phiên)
     AuthAmr:
       type: string
-      enum: [pwd, otp, rcv]
-      description: 'Phương thức xác thực của phiên: pwd mật khẩu, otp TOTP, rcv mã khôi phục'
+      enum: [pwd, otp, rcv, pin]
+      description: 'Phương thức xác thực của phiên: pwd mật khẩu, otp TOTP, rcv mã khôi phục, pin PIN nhân viên trên thiết bị POS'
     AuthTokenPair:
       type: object
       required: [access_token, access_token_expires_at, refresh_token, session_id, amr]
@@ -8709,6 +8718,218 @@ components:
           maxItems: 100
           items:
             $ref: '#/components/schemas/AuthSession'
+    DeviceProof:
+      type: object
+      description: |
+        Chữ ký thiết bị POS (SEC3, ADR-022). Thông điệp ký (UTF-8, nối bằng "\n"):
+        `fruit-device-proof/v1`, mục đích (`register` | `pin` | `refresh`), X-Device-Id (chữ thường), `ts`, `nonce`, ràng buộc.
+        Ràng buộc: register = `store_code` + "\n" + `public_key`; pin = mã NV đã chuẩn hóa (trim, chữ HOA);
+        refresh = base64url(SHA-256(refresh_token)). `ts` lệch đồng hồ server quá 120 s ⇒ 401; nonce dùng lại ⇒ 401.
+      required: [ts, nonce, signature]
+      additionalProperties: false
+      properties:
+        ts:
+          type: integer
+          minimum: 1
+          description: epoch giây theo đồng hồ thiết bị
+        nonce:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{22,43}$'
+          description: 16–32 byte ngẫu nhiên, base64url không đệm, mỗi request một nonce mới
+        signature:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{86}$'
+          description: chữ ký Ed25519 64 byte của thông điệp, base64url không đệm
+    AuthPinRequest:
+      type: object
+      required: [staff_code, pin, device_proof]
+      additionalProperties: false
+      properties:
+        staff_code:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{1,32}$'
+          description: Mã nhân viên (không phân biệt hoa/thường)
+        pin:
+          type: string
+          pattern: '^\d{6}$'
+        device_proof:
+          $ref: '#/components/schemas/DeviceProof'
+    AuthPinResponse:
+      description: |
+        Phiên nhân viên gắn thiết bị, hạn tuyệt đối 24 giờ (refresh không gia hạn). Mọi request sau phải gửi X-Device-Id của
+        thiết bị này; /auth/refresh kèm `device_proof`. Sai mã NV / sai PIN / tạm khóa / không thuộc cửa hàng của thiết bị ⇒
+        cùng một lỗi 401.
+      type: object
+      required: [access_token, access_token_expires_at, refresh_token, session_id, amr, staff, device_id]
+      additionalProperties: false
+      properties:
+        access_token:
+          type: string
+        access_token_expires_at:
+          type: string
+          format: date-time
+        refresh_token:
+          type: string
+        session_id:
+          type: string
+          format: uuid
+        amr:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthAmr'
+        device_id:
+          type: string
+          format: uuid
+        staff:
+          type: object
+          required: [user_id, staff_code, full_name]
+          additionalProperties: false
+          properties:
+            user_id:
+              type: string
+              format: uuid
+            staff_code:
+              type: string
+            full_name:
+              type: string
+    PosDeviceRegisterRequest:
+      type: object
+      description: X-Device-Id = UUID do thiết bị tự sinh một lần (thành `device_id`).
+      required: [store_code, name, platform, public_key, device_proof]
+      additionalProperties: false
+      properties:
+        store_code:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{1,32}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        platform:
+          type: string
+          enum: [windows, android]
+        public_key:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{43}$'
+          description: khóa công khai Ed25519 thô 32 byte, base64url không đệm
+        device_proof:
+          $ref: '#/components/schemas/DeviceProof'
+    PosDeviceRegisterResponse:
+      type: object
+      required: [device_id, status, pairing_code, registered_at]
+      additionalProperties: false
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          const: PENDING
+        pairing_code:
+          type: string
+          pattern: '^[A-Z2-7]{4}-[A-Z2-7]{4}$'
+          description: Hiển thị trên thiết bị; người kích hoạt nhập/đối chiếu mã này
+        registered_at:
+          type: string
+          format: date-time
+    PosDevice:
+      type: object
+      required:
+        [
+          id,
+          store_id,
+          register_id,
+          name,
+          platform,
+          status,
+          pairing_code,
+          registered_at,
+          activated_at,
+          revoked_at,
+          revoke_reason,
+          last_seen_at,
+        ]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        store_id:
+          type: string
+          format: uuid
+        register_id:
+          type: [string, 'null']
+          format: uuid
+        name:
+          type: string
+        platform:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, ACTIVE, REVOKED]
+        pairing_code:
+          type: string
+          pattern: '^[A-Z2-7]{4}-[A-Z2-7]{4}$'
+        registered_at:
+          type: string
+          format: date-time
+        activated_at:
+          type: [string, 'null']
+          format: date-time
+        revoked_at:
+          type: [string, 'null']
+          format: date-time
+        revoke_reason:
+          type: [string, 'null']
+        last_seen_at:
+          type: [string, 'null']
+          format: date-time
+    PosDeviceList:
+      type: object
+      description: Tối đa 200 thiết bị mới nhất trong phạm vi cửa hàng của người gọi; PENDING quá 7 ngày không hiện.
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PosDevice'
+    PosDeviceActivateRequest:
+      type: object
+      required: [pairing_code]
+      additionalProperties: false
+      properties:
+        pairing_code:
+          type: string
+          pattern: '^[A-Za-z2-7]{4}-?[A-Za-z2-7]{4}$'
+        register_id:
+          type: [string, 'null']
+          format: uuid
+          description: Quầy thuộc cùng cửa hàng của thiết bị
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+    PosDeviceRevokeRequest:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    PosDeviceRevokeResponse:
+      description: Thu hồi thiết bị ⇒ mọi phiên đang mở trên thiết bị bị thu hồi trong cùng transaction.
+      type: object
+      required: [device, revoked_sessions]
+      additionalProperties: false
+      properties:
+        device:
+          $ref: '#/components/schemas/PosDevice'
+        revoked_sessions:
+          type: integer
+          minimum: 0
     PendingBody:
       type: object
       description: Khung — schema chi tiết được định nghĩa ở CP ghi trong x-detail-cp của route.

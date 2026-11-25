@@ -1,8 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { TransactionHost } from '@nestjs-cls/transactional';
+import { ClsService } from 'nestjs-cls';
 import type { Principal } from '../common/access';
 import type { Tx } from '../common/audit-outbox.service';
 import { AppError } from '../common/errors';
+import type { RequestStore } from '../common/request-context';
 import { AccessTokens } from './tokens';
 
 /** Token DI để AccessGuard (common) không phụ thuộc trực tiếp module auth. */
@@ -25,6 +27,7 @@ export class PrincipalResolver implements PrincipalResolverPort {
   constructor(
     @Inject(TransactionHost) private readonly txHost: Tx,
     private readonly tokens: AccessTokens,
+    private readonly cls: ClsService<RequestStore>,
   ) {}
 
   async resolve(authorization: string | undefined): Promise<Principal | undefined> {
@@ -53,6 +56,10 @@ export class PrincipalResolver implements PrincipalResolverPort {
       throw new AppError('AUTHENTICATION_REQUIRED', 'Cần đăng nhập');
     if (s.revokedAt || s.expiresAt.getTime() <= Date.now() || s.user.status !== 'ACTIVE')
       throw new AppError('SESSION_REVOKED', 'Phiên đã hết hạn hoặc bị thu hồi — đăng nhập lại');
+    // SEC3: token nhân viên chỉ dùng được kèm X-Device-Id đúng thiết bị của phiên (thiết bị thu hồi ⇒ phiên đã bị
+    // trigger thu hồi ở trên). Không thay chữ ký thiết bị — chỉ chặn token bị chép sang máy khác dùng ngây thơ.
+    if (s.userType === 'STAFF' && (!s.posDeviceId || this.cls.get('deviceId')?.toLowerCase() !== s.posDeviceId))
+      throw new AppError('AUTHENTICATION_REQUIRED', 'Cần đăng nhập trên đúng thiết bị');
 
     const [roles, grants] = await Promise.all([
       tx.userRoleAssignment.findMany({ where: { userId: s.userId, revokedAt: null }, select: { role: true } }),

@@ -18,7 +18,13 @@ export type LoginResult =
   | 'CHALLENGE_INVALID'
   | 'REFRESH_REUSE'
   | 'STEP_UP_FAILED'
-  | 'RATE_LIMITED';
+  | 'RATE_LIMITED'
+  // nhân viên POS (lát 4 — ADR-022)
+  | 'STORE_NOT_ALLOWED'
+  | 'DEVICE_NOT_ACTIVE'
+  | 'DEVICE_REVOKED'
+  | 'DEVICE_PROOF_INVALID'
+  | 'DEVICE_NONCE_REUSED';
 
 export interface LoginLogEntry {
   userId?: string | null;

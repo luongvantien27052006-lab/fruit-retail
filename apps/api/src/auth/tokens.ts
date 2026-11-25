@@ -10,11 +10,13 @@ export const STEP_UP_TTL_S = 5 * 60;
 /** admin: 12 giờ trượt (ADR-012), trần tuyệt đối 7 ngày kể từ đăng nhập (ADR-021) */
 export const ADMIN_SLIDING_S = 12 * 3600;
 export const ADMIN_ABSOLUTE_S = 7 * 24 * 3600;
+/** nhân viên POS: 24 giờ tuyệt đối kể từ đăng nhập PIN, refresh không gia hạn (ADR-012, ADR-022) */
+export const STAFF_SESSION_S = 24 * 3600;
 
 const ISSUER = 'fruit-api';
 const AUDIENCE = 'fruit';
 
-export type Amr = 'pwd' | 'otp' | 'rcv';
+export type Amr = 'pwd' | 'otp' | 'rcv' | 'pin';
 
 export interface AccessClaims {
   sub: string;
@@ -23,6 +25,8 @@ export interface AccessClaims {
   amr: Amr[];
   /** epoch giây; chỉ để client hiển thị — server luôn đọc sessions.step_up_until */
   step_up_until?: number;
+  /** thiết bị POS của phiên nhân viên (ADR-012 claim dev) — chỉ để client; server đọc sessions.pos_device_id */
+  dev?: string;
 }
 
 /** Chuỗi ngẫu nhiên 256 bit (refresh token, mfa_challenge) — base64url, 43 ký tự. */
@@ -39,6 +43,7 @@ export class AccessTokens {
     const exp = iat + ACCESS_TTL_S;
     const body: Record<string, unknown> = { typ: c.typ, sid: c.sid, amr: c.amr };
     if (c.step_up_until) body['step_up_until'] = c.step_up_until;
+    if (c.dev) body['dev'] = c.dev;
     const token = await new SignJWT(body)
       .setProtectedHeader({ alg: 'EdDSA', typ: 'at+jwt', kid: this.keys.jwt.signKid })
       .setIssuer(ISSUER)

@@ -1,5 +1,7 @@
 import { Global, Module } from '@nestjs/common';
+import { ApprovalLimitsService } from '../common/approval-limits.service';
 import { AuditOutboxService } from '../common/audit-outbox.service';
+import { ScopeService } from '../common/scope.service';
 import { ENV, type Env } from '../config/env';
 import { AuditWriterService } from '../infra/audit-writer.service';
 import { AUTH_KEYS, type AuthKeys, loadAuthKeys } from './auth-config';
@@ -36,8 +38,10 @@ import { AccessTokens } from './tokens';
     PosDeviceService,
     StaffAuthService,
     PrincipalResolver,
+    ScopeService,
+    ApprovalLimitsService,
     { provide: PRINCIPAL_RESOLVER, useExisting: PrincipalResolver },
   ],
-  exports: [PRINCIPAL_RESOLVER, PiiCipher, AccessTokens, AuditWriterService],
+  exports: [PRINCIPAL_RESOLVER, PiiCipher, AccessTokens, AuditWriterService, ScopeService, ApprovalLimitsService],
 })
 export class AuthModule {}

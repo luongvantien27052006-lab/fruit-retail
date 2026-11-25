@@ -29,11 +29,16 @@ const WRITE_OPS = new Set([
  * sẽ đọc nhầm nhau). Đọc bằng Prisma ngoài transaction vẫn được; SQL thô ($queryRaw/$executeRaw) luôn cần transaction
  * (đọc thô thì đặt trong @Transactional).
  */
-export function guardedPrisma(base: PrismaService, host: () => TransactionHost) {
+export function guardedPrisma(base: PrismaService, host: () => TransactionHost, blocked: () => boolean = () => false) {
   return base.$extends({
     name: 'write-requires-transaction',
     query: {
       $allOperations({ operation, model, args, query }) {
+        // route /v1/viewer/*: KHÔNG truy vấn nào qua pool app_rw — viewer chỉ đọc qua ViewerDb (viewer_ro + RLS, ADR-024)
+        if (blocked())
+          throw new Error(
+            `Truy vấn pool app_rw bị chặn trong route viewer: ${model ?? 'raw'}.${operation} (dùng ViewerDb)`,
+          );
         if (WRITE_OPS.has(operation) && !host().isTransactionActive())
           throw new Error(
             `Ghi DB ngoài transaction bị chặn: ${model ?? 'raw'}.${operation} (mutation phải chạy trong MutationInterceptor/@Transactional)`,

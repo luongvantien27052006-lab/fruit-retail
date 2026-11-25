@@ -34,21 +34,21 @@ export class PosDeviceController {
     return p;
   }
 
-  @RequirePermission('device:write')
+  @RequirePermission('device:write', { scope: 'store' })
   @Get()
   list(@Query(new ZodPipe(ListQuery)) q: z.infer<typeof ListQuery>) {
     return this.devices.list(this.principal(), q.status);
   }
 
   /** Mã ghi danh dùng một lần, hạn 30 phút — máy POS nhập mã này khi đăng ký (ADR-022, sửa M1) */
-  @RequirePermission('device:write')
+  @RequirePermission('device:write', { scope: 'store' })
   @Post('enrollment-codes')
   @HttpCode(201)
   createEnrollmentCode(@Body(new ZodPipe(EnrollmentBody)) b: z.infer<typeof EnrollmentBody>) {
     return this.devices.createEnrollmentCode(this.principal(), b.store_id);
   }
 
-  @RequirePermission('device:write')
+  @RequirePermission('device:write', { scope: 'store' })
   @Post(':id/activate')
   @HttpCode(200)
   activate(
@@ -58,7 +58,7 @@ export class PosDeviceController {
     return this.devices.activate(this.principal(), id, b);
   }
 
-  @RequirePermission('device:write')
+  @RequirePermission('device:write', { scope: 'store' })
   @OwnTransaction('thu hồi thiết bị: thử lại cả transaction khi deadlock 40P01 (khóa phiên trước, thiết bị sau)')
   @Post(':id/revoke')
   @HttpCode(200)

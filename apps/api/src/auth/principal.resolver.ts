@@ -48,6 +48,7 @@ export class PrincipalResolver implements PrincipalResolverPort {
         expiresAt: true,
         revokedAt: true,
         posDeviceId: true,
+        posDevice: { select: { storeId: true, store: { select: { status: true, archivedAt: true } } } },
         user: { select: { status: true, type: true, staff: { select: { leftAt: true } } } },
       },
     });
@@ -65,24 +66,52 @@ export class PrincipalResolver implements PrincipalResolverPort {
     if (s.userType === 'STAFF' && leftAt && leftAt.getTime() <= Date.now())
       throw new AppError('SESSION_REVOKED', 'Nhân viên đã nghỉ việc — phiên hết hiệu lực');
 
-    const [roles, grants] = await Promise.all([
-      tx.userRoleAssignment.findMany({ where: { userId: s.userId, revokedAt: null }, select: { role: true } }),
+    // Nhân viên trên máy POS: chỉ vai trò / quyền cấp riêng phạm vi ALL hoặc ĐÚNG cửa hàng của thiết bị có hiệu lực
+    // trong phiên này (ADR-024; kiểm thử lát 4 ghi nhận 8): mất vai trò ở cửa hàng ⇒ phiên chết ngay, không chờ refresh;
+    // vai trò ở cửa hàng khác không mang quyền sang máy này. Cửa hàng ngừng hoạt động ⇒ phiên chết.
+    const storeId = s.userType === 'STAFF' ? s.posDevice?.storeId : undefined;
+    if (s.userType === 'STAFF') {
+      const st = s.posDevice?.store;
+      if (!storeId || !st || st.status !== 'ACTIVE' || st.archivedAt)
+        throw new AppError('SESSION_REVOKED', 'Cửa hàng của thiết bị không còn hoạt động — đăng nhập lại');
+    }
+    const inScope = storeId
+      ? { OR: [{ scopeType: 'ALL' as const }, { scopeType: 'STORE' as const, scopeId: storeId }] }
+      : {};
+    const [roles, grants, profiles] = await Promise.all([
+      tx.userRoleAssignment.findMany({
+        where: { userId: s.userId, revokedAt: null, ...inScope },
+        select: { role: true },
+      }),
       tx.userPermissionGrant.findMany({
-        where: { userId: s.userId, revokedAt: null },
+        where: { userId: s.userId, revokedAt: null, ...inScope },
         select: { permissionCode: true },
       }),
+      s.userType === 'VIEWER'
+        ? tx.viewerProfileAssignment.findMany({
+            where: { userId: s.userId, viewerProfile: { archivedAt: null } },
+            select: { viewerProfileId: true },
+            take: 2,
+          })
+        : Promise.resolve([]),
     ]);
+    if (s.userType === 'STAFF' && roles.length === 0)
+      throw new AppError('SESSION_REVOKED', 'Không còn vai trò tại cửa hàng của thiết bị — đăng nhập lại');
     const roleList = [...new Set(roles.map((r) => r.role))];
     const fromRoles = roleList.length
       ? await tx.rolePermission.findMany({ where: { role: { in: roleList } }, select: { permissionCode: true } })
       : [];
     const permissions = new Set([...fromRoles, ...grants].map((x) => x.permissionCode));
     const admin = s.userType === 'MASTER' || s.userType === 'VIEWER';
+    const profile = profiles.length === 1 ? profiles[0]?.viewerProfileId : undefined;
     return {
       userId: s.userId,
       userType: s.userType,
       sessionId: s.id,
       permissions,
+      roles: new Set(roleList),
+      ...(profile ? { viewerProfileId: profile } : {}),
+      ...(storeId ? { posStoreId: storeId } : {}),
       ...(roleList[0] ? { role: roleList[0] } : {}),
       ...(s.posDeviceId ? { posDeviceId: s.posDeviceId } : {}),
       amr: s.amr,

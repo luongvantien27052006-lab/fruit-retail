@@ -2,7 +2,7 @@ import { RequestMethod } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA, VERSION_METADATA } from '@nestjs/common/constants';
 import { DiscoveryService, Reflector } from '@nestjs/core';
 import type { INestApplication } from '@nestjs/common';
-import { type Access, ACCESS_KEY, ALLOW_WITHOUT_MFA_KEY, OWN_TX_KEY, STEP_UP_KEY } from './access';
+import { type Access, ACCESS_KEY, ALLOW_WITHOUT_MFA_KEY, MASTER_ONLY_KEY, OWN_TX_KEY, STEP_UP_KEY } from './access';
 
 export interface RouteInfo {
   controller: string;
@@ -17,6 +17,7 @@ export interface RouteInfo {
   stepUp?: boolean;
   allowWithoutMfa?: boolean;
   ownTx?: boolean;
+  masterOnly?: boolean;
 }
 
 const joinPath = (...parts: string[]) =>
@@ -53,7 +54,11 @@ export function listRoutes(app: INestApplication): RouteInfo[] {
     if (Reflect.getMetadata(VERSION_METADATA, type) !== undefined)
       throw new Error(`${type.name}: dự án dùng tiền tố /v1 cố định, không dùng versioning của Nest`);
     // guard chỉ đọc @RequireStepUp/@AllowWithoutMfa/@OwnTransaction ở method — đặt ở class sẽ bị bỏ qua lặng lẽ ⇒ cấm
-    if ([STEP_UP_KEY, ALLOW_WITHOUT_MFA_KEY, OWN_TX_KEY].some((k) => Reflect.getMetadata(k, type) !== undefined))
+    if (
+      [STEP_UP_KEY, ALLOW_WITHOUT_MFA_KEY, OWN_TX_KEY, MASTER_ONLY_KEY].some(
+        (k) => Reflect.getMetadata(k, type) !== undefined,
+      )
+    )
       throw new Error(`${type.name}: @RequireStepUp/@AllowWithoutMfa/@OwnTransaction chỉ đặt ở method`);
     const bases = asPaths(Reflect.getMetadata(PATH_METADATA, type));
     const proto = Object.getPrototypeOf(instance) as object;
@@ -78,6 +83,7 @@ export function listRoutes(app: INestApplication): RouteInfo[] {
             ...(Reflect.getMetadata(STEP_UP_KEY, fn) ? { stepUp: true } : {}),
             ...(Reflect.getMetadata(ALLOW_WITHOUT_MFA_KEY, fn) ? { allowWithoutMfa: true } : {}),
             ...(Reflect.getMetadata(OWN_TX_KEY, fn) ? { ownTx: true } : {}),
+            ...(Reflect.getMetadata(MASTER_ONLY_KEY, fn) ? { masterOnly: true } : {}),
           });
     }
   }

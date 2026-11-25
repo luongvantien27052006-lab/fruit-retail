@@ -164,6 +164,9 @@ export class StaffAuthService {
 
 /** Nhân viên có vai trò còn hiệu lực phạm vi ALL hoặc đúng cửa hàng của thiết bị (đăng nhập PIN + refresh — L2). */
 export async function staffAllowedOnStore(tx: Tx['tx'], userId: string, storeId: string): Promise<boolean> {
+  // cửa hàng ngừng hoạt động / lưu trữ ⇒ không ai đăng nhập được trên máy của cửa hàng đó (ADR-024)
+  const store = await tx.store.findUnique({ where: { id: storeId }, select: { status: true, archivedAt: true } });
+  if (!store || store.status !== 'ACTIVE' || store.archivedAt) return false;
   const n = await tx.userRoleAssignment.count({
     where: { userId, revokedAt: null, OR: [{ scopeType: 'ALL' }, { scopeType: 'STORE', scopeId: storeId }] },
   });

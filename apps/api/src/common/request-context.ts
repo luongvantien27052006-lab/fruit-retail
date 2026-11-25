@@ -12,6 +12,10 @@ export interface RequestStore extends ClsStore {
   /** User-Agent (cắt 512 ký tự) — chỉ để hiển thị danh sách phiên/nhật ký đăng nhập */
   userAgent?: string;
   principal?: Principal;
+  /** phạm vi cửa hàng theo mã quyền, nhớ trong request (ScopeService) */
+  scopeCache?: Map<string, 'ALL' | ReadonlySet<string>>;
+  /** route /v1/viewer/*: cấm mọi truy vấn qua pool app_rw (chỉ pool viewer_ro — ADR-024) */
+  appDbBlocked?: boolean;
   /** số dòng audit.logs đã ghi trong transaction mutation hiện tại */
   auditCount: number;
 }

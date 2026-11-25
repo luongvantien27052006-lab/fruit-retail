@@ -42,3 +42,4 @@
 | 2026-11-26 | CP03 | NC-19/NC-21 kiểm lần 2 (17f4484): còn 4 Thấp — sửa screens.md (T09/P18/A09), script kiểm §13.2 cắt sai `|` trong backtick (61 → 80 route, missing=0), thêm `GET /admin/approvals`, `x-scope: store` cho zones; ERD bỏ discount_approved_by. |
 | 2026-11-26 | CP03 | NC-19/NC-21 kiểm lần 3 (21553a4): còn 2 Thấp — script §13.2 bỏ qua hàng Admin (nay kiểm 90 route, missing=0; route đã miễn mà xuất hiện lại ⇒ FAIL), `/admin/approvals*` gắn `x-master-only`. |
 | 2026-11-26 | CP03 | NC-19/NC-21 qua 4 vòng kiểm thử agent database-reviewer → SẠCH (925b027). 133/133 test, kiểm hợp đồng 90 route §13.2 missing=0. Lát 6 hết chặn. |
+| 2026-11-26 | CP03 | Lát 6 (RBAC theo phạm vi, hạn mức từ dữ liệu, quản lý nhân viên/vai trò, cô lập Viewer — ADR-024) xong code, 142/142 test, T16/T17 covered; chờ kiểm thử agent. |

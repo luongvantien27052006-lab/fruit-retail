@@ -7,7 +7,7 @@ import { AuditOutboxService, type Tx } from '../common/audit-outbox.service';
 import { findSqlState } from '../common/db-errors';
 import { AppError } from '../common/errors';
 import type { RequestStore } from '../common/request-context';
-import { storeScope } from '../common/store-scope';
+import { ScopeService } from '../common/scope.service';
 import { AuthAttempts } from './auth-attempts';
 import {
   type DeviceProof,
@@ -75,6 +75,7 @@ export class PosDeviceService {
     private readonly ao: AuditOutboxService,
     private readonly attempts: AuthAttempts,
     private readonly cls: ClsService<RequestStore>,
+    private readonly scope: ScopeService,
   ) {}
 
   private get tx() {
@@ -171,7 +172,7 @@ export class PosDeviceService {
    * response; DB và audit chỉ giữ SHA-256 / id. Tối đa MAX_LIVE_ENROLLMENT_CODES mã còn dùng được mỗi cửa hàng.
    */
   async createEnrollmentCode(p: Principal, storeId: string) {
-    const scope = await storeScope(this.tx, p.userId, 'device:write');
+    const scope = await this.scope.stores('device:write');
     if (scope !== 'ALL' && !scope.has(storeId)) throw new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy cửa hàng');
     const store = await this.tx.store.findUnique({
       where: { id: storeId },
@@ -204,7 +205,7 @@ export class PosDeviceService {
   }
 
   async list(p: Principal, status?: 'PENDING' | 'ACTIVE' | 'REVOKED') {
-    const scope = await storeScope(this.tx, p.userId, 'device:write');
+    const scope = await this.scope.stores('device:write');
     if (scope !== 'ALL' && scope.size === 0) return { items: [] };
     const rows = await this.tx.posDevice.findMany({
       where: {
@@ -224,6 +225,12 @@ export class PosDeviceService {
   async activate(p: Principal, id: string, b: { pairing_code: string; register_id?: string | null; name?: string }) {
     const d = await this.scopedDevice(p, id, true);
     if (d.status !== 'PENDING') throw new AppError('INVALID_STATE_TRANSITION', `Thiết bị đang ${d.status}`);
+    const store = await this.tx.store.findUnique({
+      where: { id: d.storeId },
+      select: { status: true, archivedAt: true },
+    });
+    if (!store || store.status !== 'ACTIVE' || store.archivedAt)
+      throw new AppError('INVALID_STATE_TRANSITION', 'Cửa hàng của thiết bị không hoạt động');
     if (d.registeredAt <= pendingCutoff())
       throw new AppError('INVALID_STATE_TRANSITION', 'Yêu cầu đăng ký đã quá 7 ngày — thiết bị đăng ký lại');
     if (normalizePairingCode(b.pairing_code) !== normalizePairingCode(pairingCode(d.fingerprint)))
@@ -299,7 +306,7 @@ export class PosDeviceService {
 
   /** Thiết bị trong phạm vi cửa hàng của người gọi; ngoài phạm vi ⇒ 404 (không lộ tồn tại). */
   private async scopedDevice(p: Principal, id: string, lockRow: boolean) {
-    const scope = await storeScope(this.tx, p.userId, 'device:write');
+    const scope = await this.scope.stores('device:write');
     if (lockRow) await this.tx.$queryRaw`SELECT id FROM core.pos_devices WHERE id = ${id}::uuid FOR UPDATE`;
     const d = await this.tx.posDevice.findUnique({
       where: { id },

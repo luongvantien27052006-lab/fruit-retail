@@ -4625,7 +4625,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/StaffList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4653,14 +4653,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/StaffCreateRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Staff'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4700,7 +4700,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Staff'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4730,14 +4730,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/StaffUpdateRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Staff'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5793,14 +5793,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/RoleAssignmentRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/RoleAssignment'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5861,6 +5861,7 @@ paths:
       tags: [admin]
       summary: 'Cấu hình hạn mức duyệt (chỉ Master)'
       x-permission: 'settings:write'
+      x-master-only: true
       x-step-up: true
       x-spec-ref: '§2.3'
       x-detail-cp: CP03
@@ -5872,14 +5873,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/ApprovalLimitsPutRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/ApprovalLimitsResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6310,6 +6311,7 @@ paths:
       tags: [admin]
       summary: 'Kích hoạt thiết bị POS'
       x-permission: 'device:write'
+      x-scope: store
       x-spec-ref: '§2.4'
       x-detail-cp: CP03
       parameters:
@@ -6357,6 +6359,7 @@ paths:
       tags: [admin]
       summary: 'Thu hồi thiết bị POS'
       x-permission: 'device:write'
+      x-scope: store
       x-spec-ref: '§2.4'
       x-detail-cp: CP03
       parameters:
@@ -8801,6 +8804,212 @@ components:
           pattern: '^\d{6}$'
         device_proof:
           $ref: '#/components/schemas/DeviceProof'
+    StaffRoleSpec:
+      type: object
+      required: [role]
+      additionalProperties: false
+      description: Vai trò cửa hàng cần store_id; WAREHOUSE_STAFF cần warehouse_id. Cửa hàng trưởng chỉ gán CASHIER, PICKER ở cửa hàng mình.
+      properties:
+        role:
+          type: string
+          enum: [STORE_MANAGER, CASHIER, PICKER, SHIPPER, WAREHOUSE_STAFF]
+        store_id:
+          type: [string, 'null']
+          format: uuid
+        warehouse_id:
+          type: [string, 'null']
+          format: uuid
+    StaffCreateRequest:
+      type: object
+      required: [staff_code, full_name, pin, role]
+      additionalProperties: false
+      properties:
+        staff_code:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{1,32}$'
+          description: chuẩn hóa chữ HOA; DB yêu cầu 2–20 ký tự [A-Z0-9_-]
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        pin:
+          type: string
+          pattern: '^[0-9]{6}$'
+          description: PIN 6 số; PIN dễ đoán (lặp, dãy liên tiếp, phổ biến) bị từ chối 400
+        hired_at:
+          type: [string, 'null']
+          format: date
+        role:
+          $ref: '#/components/schemas/StaffRoleSpec'
+    StaffUpdateRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      description: Đổi PIN hoặc khóa (DISABLED) ⇒ thu hồi mọi phiên của nhân viên. Không tự sửa chính mình.
+      properties:
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        hired_at:
+          type: [string, 'null']
+          format: date
+        left_at:
+          type: [string, 'null']
+          format: date
+        status:
+          type: string
+          enum: [ACTIVE, DISABLED]
+        pin:
+          type: string
+          pattern: '^[0-9]{6}$'
+    StaffRoleAssignment:
+      type: object
+      required: [id, role, scope_type, store_id, warehouse_id]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        role:
+          type: string
+        scope_type:
+          type: string
+          enum: [ALL, STORE, WAREHOUSE]
+        store_id:
+          type: [string, 'null']
+          format: uuid
+        warehouse_id:
+          type: [string, 'null']
+          format: uuid
+    Staff:
+      type: object
+      required: [user_id, staff_code, full_name, hired_at, left_at, status, roles]
+      additionalProperties: false
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        staff_code:
+          type: string
+        full_name:
+          type: string
+        hired_at:
+          type: [string, 'null']
+          format: date
+        left_at:
+          type: [string, 'null']
+          format: date
+        status:
+          type: string
+          enum: [ACTIVE, LOCKED, DISABLED]
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/StaffRoleAssignment'
+    StaffList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Staff'
+    RoleAssignmentRequest:
+      type: object
+      required: [user_id, role]
+      additionalProperties: false
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [STORE_MANAGER, CASHIER, PICKER, SHIPPER, WAREHOUSE_STAFF]
+        store_id:
+          type: [string, 'null']
+          format: uuid
+        warehouse_id:
+          type: [string, 'null']
+          format: uuid
+    RoleAssignment:
+      type: object
+      required: [id, user_id, role, store_id, warehouse_id, created_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+        store_id:
+          type: [string, 'null']
+          format: uuid
+        warehouse_id:
+          type: [string, 'null']
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+    ApprovalLimitItem:
+      type: object
+      required: [role, action, allowed, max_amount, max_pct_bp]
+      additionalProperties: false
+      description: >-
+        Cả hai ngưỡng null = không giới hạn; hai ngưỡng: ANY = đạt một (NC-19(c)), ALL = đạt cả hai. allowed=false thì không
+        có ngưỡng. DB chặn LINE_DISCOUNT (NC-21), MARKDOWN ngoài MASTER_ADMIN (NC-21), MASTER_ADMIN LINE_DELETE/NO_SALE_OPEN
+        (NC-19(d)) ⇒ 400.
+      properties:
+        role:
+          type: string
+          enum: [MASTER_ADMIN, STORE_MANAGER, CASHIER, PICKER, WAREHOUSE_STAFF, SHIPPER]
+        action:
+          type: string
+          enum: [LINE_DELETE, SALE_VOID, REFUND, SPOILAGE_APPROVE, STOCKTAKE_ADJUST, MANUAL_WEIGHT, NO_SALE_OPEN, MARKDOWN]
+        allowed:
+          type: boolean
+        max_amount:
+          type: [integer, 'null']
+          minimum: 0
+          description: VND
+        max_pct_bp:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 10000
+          description: phần trăm theo basis point (10% = 1000)
+        limit_mode:
+          type: string
+          enum: [ANY, ALL]
+        same_day_only:
+          type: boolean
+        requires_pin:
+          type: boolean
+        requires_note:
+          type: boolean
+    ApprovalLimitsPutRequest:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/ApprovalLimitItem'
+    ApprovalLimitsResponse:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApprovalLimitItem'
     AuthOtpRequest:
       type: object
       required: [phone]

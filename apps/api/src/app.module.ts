@@ -5,6 +5,7 @@ import { TransactionalAdapterPrisma } from '@nestjs-cls/transactional-adapter-pr
 import type { IncomingMessage } from 'node:http';
 import { ClsModule } from 'nestjs-cls';
 import { LoggerModule } from 'nestjs-pino';
+import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
 import { AccessGuard } from './common/access.guard';
 import { AuditOutboxService } from './common/audit-outbox.service';
@@ -98,6 +99,7 @@ export class AppModule {
         }),
         DiscoveryModule,
         AuthModule,
+        AdminModule,
         ...(extras.imports ?? []),
       ],
       controllers: [HealthController, ...(extras.controllers ?? [])],

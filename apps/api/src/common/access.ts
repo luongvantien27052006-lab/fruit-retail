@@ -20,7 +20,13 @@ export const STEP_UP_KEY = 'fruit:step-up';
 export const OWN_TX_KEY = 'fruit:own-tx';
 
 export type Access =
-  { kind: 'public' } | { kind: 'mfa' } | { kind: 'authenticated' } | { kind: 'permission'; code: string };
+  | { kind: 'public' }
+  | { kind: 'mfa' }
+  | { kind: 'authenticated' }
+  | { kind: 'permission'; code: string; scope?: 'store' };
+
+/** Route chỉ tài khoản MASTER (`x-master-only`) — guard chặn mọi loại người dùng khác dù có mã quyền. */
+export const MASTER_ONLY_KEY = 'fruit:master-only';
 
 const PERMISSION_RE = /^[a-z_]+:[a-z_]+$/;
 
@@ -30,10 +36,16 @@ export const Authenticated = (): MethodDecorator & ClassDecorator =>
   SetMetadata(ACCESS_KEY, { kind: 'authenticated' } satisfies Access);
 export const MfaChallenge = (): MethodDecorator & ClassDecorator =>
   SetMetadata(ACCESS_KEY, { kind: 'mfa' } satisfies Access);
-export function RequirePermission(code: string): MethodDecorator & ClassDecorator {
+/**
+ * `scope: 'store'` (= `x-scope: store` của OpenAPI): handler BẮT BUỘC lọc theo `ScopeService` (cửa hàng được giao của
+ * mã quyền này). Khai báo để test đối chiếu hợp đồng ↔ code bắt được route quên phạm vi (ADR-024).
+ */
+export function RequirePermission(code: string, opts: { scope?: 'store' } = {}): MethodDecorator & ClassDecorator {
   if (!PERMISSION_RE.test(code)) throw new Error(`Mã quyền sai định dạng: ${code}`);
-  return applyDecorators(SetMetadata(ACCESS_KEY, { kind: 'permission', code } satisfies Access));
+  const access: Access = opts.scope ? { kind: 'permission', code, scope: opts.scope } : { kind: 'permission', code };
+  return applyDecorators(SetMetadata(ACCESS_KEY, access));
 }
+export const MasterOnly = (): MethodDecorator => SetMetadata(MASTER_ONLY_KEY, true);
 export function NoAudit(reason: string): MethodDecorator {
   if (reason.trim().length < 10) throw new Error('@NoAudit cần lý do rõ ràng (≥ 10 ký tự)');
   return SetMetadata(NO_AUDIT_KEY, reason);
@@ -59,7 +71,13 @@ export interface Principal {
   permissions: ReadonlySet<string>;
   /** Vai trò chính để ghi audit */
   role?: string;
+  /** mọi vai trò đang hiệu lực (hạn mức duyệt lấy mức rộng nhất trong phạm vi — ADR-024) */
+  roles: ReadonlySet<string>;
+  /** Viewer: hồ sơ xem duy nhất đang gán (không có / nhiều hồ sơ ⇒ không vào được /viewer/*) */
+  viewerProfileId?: string;
   posDeviceId?: string;
+  /** nhân viên trên máy POS: cửa hàng của thiết bị — phạm vi mọi mã quyền thu về cửa hàng này */
+  posStoreId?: string;
   /** phương thức xác thực của phiên (đọc từ DB): pwd, otp, rcv */
   amr: readonly string[];
   /** Master/Viewer đã qua 2FA trong phiên này (amr có otp hoặc rcv); STAFF/CUSTOMER luôn true */

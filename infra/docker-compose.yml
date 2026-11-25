@@ -87,6 +87,16 @@ services:
       JWT_SIGNING_KEYS: ${JWT_SIGNING_KEYS:?bắt buộc — xem infra/.env.example}
       PII_ENC_KEYS: ${PII_ENC_KEYS:?bắt buộc — xem infra/.env.example}
       PII_HASH_PEPPER: ${PII_HASH_PEPPER:?bắt buộc — xem infra/.env.example}
+      # OTP khách (ADR-023): trống ⇒ route OTP 503; dev có thể đặt TEST_DOUBLE
+      OTP_PROVIDER: ${OTP_PROVIDER:-}
+      # File (ADR-014/025): trống ⇒ /files/* 503
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
     depends_on:
       db-bootstrap: { condition: service_completed_successfully }
       redis: { condition: service_healthy }

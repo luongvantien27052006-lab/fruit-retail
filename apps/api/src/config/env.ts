@@ -26,13 +26,24 @@ const schema = z.object({
   OTP_PROVIDER: z.enum(['TEST_DOUBLE', 'SMS_BRANDNAME', 'ZALO_ZNS']).optional(),
   OTP_API_KEY: z.string().optional(),
   OTP_SENDER: z.string().optional(),
+  // Lưu file (§19.4, ADR-014/025): object storage tương thích S3, bucket riêng tư. Thiếu ⇒ route /files/* trả 503.
+  S3_ENDPOINT: z.string().url().optional(),
+  /** địa chỉ client dùng để PUT/GET presigned (mặc định = S3_ENDPOINT) — khác khi API gọi S3 qua mạng nội bộ */
+  S3_PUBLIC_ENDPOINT: z.string().url().optional(),
+  S3_BUCKET: z.string().min(3).max(63).optional(),
+  S3_ACCESS_KEY: z.string().optional(),
+  S3_SECRET_KEY: z.string().optional(),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).default('true'),
   LOG_LEVEL: z.enum(['silent', 'fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
 
 export type Env = z.infer<typeof schema>;
 
 export function loadEnv(source: Record<string, string | undefined> = process.env): Env {
-  const parsed = schema.safeParse(source);
+  // biến đặt rỗng (compose `${X:-}`) = không đặt — tránh "" lọt vào enum/url của biến tùy chọn
+  const cleaned = Object.fromEntries(Object.entries(source).filter(([, v]) => v !== undefined && v !== ''));
+  const parsed = schema.safeParse(cleaned);
   if (!parsed.success) {
     const fields = parsed.error.issues.map((i) => i.path.join('.')).join(', ');
     // Không in giá trị (URL có thể chứa mật khẩu) — FR-INV-18.

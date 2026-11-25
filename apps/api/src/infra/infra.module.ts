@@ -3,6 +3,7 @@ import { ModuleRef } from '@nestjs/core';
 import { TransactionHost } from '@nestjs-cls/transactional';
 import { ClsService } from 'nestjs-cls';
 import { ENV, type Env } from '../config/env';
+import { ObjectStorage } from './object-storage.service';
 import { PrismaService } from './prisma.service';
 import { RateLimiter } from './rate-limiter.service';
 import { RedisService } from './redis.service';
@@ -26,6 +27,7 @@ export class InfraModule {
         RedisService,
         RateLimiter,
         ViewerDb,
+        ObjectStorage,
         {
           provide: TX_PRISMA,
           // TransactionHost của plugin cần TX_PRISMA ⇒ lấy lười qua ModuleRef (tránh phụ thuộc vòng)
@@ -49,7 +51,7 @@ export class InfraModule {
           inject: [PrismaService, ModuleRef],
         },
       ],
-      exports: [ENV, PrismaService, RedisService, RateLimiter, ViewerDb, TX_PRISMA],
+      exports: [ENV, PrismaService, RedisService, RateLimiter, ViewerDb, ObjectStorage, TX_PRISMA],
     };
   }
 }

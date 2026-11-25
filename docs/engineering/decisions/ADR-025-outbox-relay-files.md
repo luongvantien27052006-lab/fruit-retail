@@ -1,0 +1,58 @@
+# ADR-025: Outbox relay + consumer idempotent, upload file qua S3 (CP03 lát 7)
+
+- Trạng thái: accepted (kỹ thuật) · Ngày: 2026-11-26 · Người quyết: phiên điều phối (CP03 lát 7) — chờ agent
+  silent-failure-hunter + code-reviewer kiểm
+- Làm rõ: ADR-002 (worker, Redis không là nguồn quyết định), ADR-007 (outbox, processed_events), ADR-014 (file),
+  ADR-017 (Redis AOF everysec, noeviction)
+
+## Quyết định — outbox
+1. **Relay** (`infra/outbox/outbox-relay.ts`, chạy trong tiến trình worker): mỗi lượt MỘT transaction — khóa ≤ 100 dòng
+   `published_at IS NULL AND dead_at IS NULL AND next_attempt_at <= now()` theo `(next_attempt_at, id)` bằng
+   `FOR UPDATE SKIP LOCKED` (nhiều worker không lấy trùng), đẩy từng dòng vào BullMQ (`outbox-events`) với **jobId = id
+   sự kiện**, rồi đánh dấu `published_at`. Đẩy lại cùng jobId là không làm gì ⇒ worker chết sau khi đẩy mà trước khi
+   commit: lần sau đẩy lại không tạo job trùng.
+2. **Lỗi đẩy:** một lệnh Redis quá 2 giây = lỗi; lỗi một dòng ⇒ không thử phần còn lại của lượt (không giữ khóa chờ
+   timeout từng dòng); các dòng đó `attempts + 1`, lùi `2^n` giây (trần 1 giờ), `last_error`; quá 10 lần ⇒ `dead_at`
+   (relay không lấy nữa — giám sát/xử lý tay, CP19).
+3. **Consumer** (`ConsumerRunner`): mỗi consumer một transaction — `INSERT processed_events(consumer, event_id) ON
+   CONFLICT DO NOTHING`; chèn được mới chạy `handle` trong cùng transaction ⇒ giao nhiều lần, tác dụng một lần. Consumer A
+   lỗi không rollback tác dụng của B; job ném lỗi ⇒ BullMQ thử lại (8 lần, lùi dần từ 2 giây), consumer đã xong tự bỏ
+   qua; hết lượt ⇒ job nằm tập "failed" (giữ, không xóa) + log error.
+4. **Bộ quét** (5 phút): Redis AOF `everysec` có thể mất ≤ 1 giây job khi sập ⇒ sự kiện đã đánh dấu gửi > 10 phút mà còn
+   consumer quan tâm chưa có `processed_events`, và job KHÔNG còn trong Redis ⇒ đẩy lại cùng jobId. Job còn trong Redis
+   (kể cả đang lỗi) để yên. ⇒ không mất sự kiện dù Redis mất dữ liệu gần nhất.
+5. Job xong giữ 7 ngày (khóa trùng jobId trong cửa sổ đó); sau 7 ngày, đẩy lại một sự kiện cũ vẫn an toàn nhờ
+   processed_events.
+6. Hiện **chưa có consumer nghiệp vụ** (`EVENT_CONSUMERS = []` ở WorkerModule): projection (CP12), thông báo
+   (`auth.new_device_login`…) đăng ký sau. Relay vẫn chạy (sự kiện được đẩy và giữ trong Redis 7 ngày).
+7. Worker dùng role `app_rw` (UPDATE cột outbox, INSERT processed_events). Consumer projection sau này dùng
+   `projector_rw` (CP12).
+
+## Quyết định — file
+1. **Lưu trữ** (`infra/object-storage.service.ts`): S3 tương thích, bucket riêng tư; env `S3_ENDPOINT`, `S3_BUCKET`,
+   `S3_ACCESS_KEY`, `S3_SECRET_KEY` (§19.4) + `S3_REGION`, `S3_FORCE_PATH_STYLE`, `S3_PUBLIC_ENDPOINT` (địa chỉ ký URL cho
+   client khi API gọi S3 qua mạng nội bộ). Thiếu ⇒ `/files/*` 503. Không bật checksum CRC tự động của SDK (kho tương
+   thích có thể không hỗ trợ) — sha256 do server tự tính. Local/CI: SeaweedFS (cùng image diễn tập backup); thật: Tiến
+   chọn nhà cung cấp (khác bucket backup — ADR-014).
+2. **Loại file** client tải lên: `PHOTO_SPOILAGE`, `PHOTO_WEIGHT` (chỉ `capture_source = CAMERA` — app chụp trực tiếp),
+   `PHOTO_COMPLAINT`, `PHOTO_RECEIPT`, `PHOTO_PRODUCT`; ảnh `image/jpeg|webp` ≤ 5 MB. File báo cáo do server tạo, không qua
+   presign.
+3. **presign** (`auth:*`): bản ghi `PENDING` + presigned PUT 5 phút ký cả `Content-Type` và `Content-Length` (gửi khác
+   ⇒ S3 từ chối); tối đa 20 PENDING/người/giờ (khóa advisory theo người ⇒ không vượt khi gửi song song); audit
+   `file.presign`.
+4. **complete** (chỉ người tạo; người khác ⇒ 404): tải lại + tính sha256, đếm byte, nhận định dạng theo byte đầu NGOÀI
+   transaction (`@OwnTransaction`), rồi transaction ngắn khóa dòng (`FOR UPDATE`, còn PENDING) ghi kết quả. Lệch kích
+   thước / sha256 / định dạng thật, hoặc PENDING > 1 giờ ⇒ `REJECTED` (+ lý do, xóa object); chưa PUT ⇒ 409 (thử lại
+   được). Trùng sha256 với file READY khác ⇒ READY + `duplicate_of_id` + cảnh báo `DUPLICATE_CONTENT` (FR-INV-16: phát
+   hiện ảnh dùng lại, không chặn).
+5. **download-url:** READY, người tạo hoặc Master ⇒ presigned GET 60 giây (`Content-Disposition: attachment`). Quyền theo
+   chủ sở hữu (`owner_type` — phiếu hủy, khiếu nại…) thêm khi nghiệp vụ gắn file (CP06+). Viewer bị guard chặn (ADR-024);
+   tải file báo cáo của viewer qua `/viewer/files/{id}/download` (CP12).
+
+## Hệ quả
+- Thư viện: `bullmq` 6.7.4, `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner` 3.1166.0 (ghim chính xác);
+  `msgpackr-extract` (native tùy chọn) không chạy script cài đặt.
+- `loadEnv` coi biến rỗng là không đặt (compose `${X:-}`). Compose API truyền `OTP_PROVIDER`, `S3_*`.
+- OpenAPI: `FilePresignRequest/Response`, `FileCompleteResponse`, `FileDownloadUrlResponse`. Không migration.
+- Để sau: job dọn object/bản ghi PENDING quá hạn và `processed_events` cũ (CP19); màn xem job "failed" + chạy lại (lát 8 /
+  CP19); quyền tải theo owner (CP06+).

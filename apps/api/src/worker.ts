@@ -3,13 +3,15 @@ import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 import { loadEnv } from './config/env';
 import { PrismaService } from './infra/prisma.service';
+import { EVENT_CONSUMERS, type EventConsumer } from './infra/outbox/events';
+import { OutboxWorker } from './infra/outbox/outbox-worker';
 import { RedisService } from './infra/redis.service';
 import { WorkerModule } from './worker.module';
 
 const HEARTBEAT_MS = 30_000;
 const BEAT_TIMEOUT_MS = 10_000;
 
-/** Entry worker (ADR-002): outbox relay, projector, cron — thêm từ CP03. Hiện chỉ có heartbeat. */
+/** Entry worker (ADR-002): heartbeat + outbox relay / consumer (CP03 lát 7 — ADR-025); projector, cron thêm sau. */
 async function main(): Promise<void> {
   const env = loadEnv();
   const app = await NestFactory.createApplicationContext(WorkerModule.forRoot(env), { bufferLogs: true });
@@ -44,6 +46,8 @@ async function main(): Promise<void> {
   };
   await beat();
   const interval = setInterval(() => void beat(), HEARTBEAT_MS);
+  const outbox = new OutboxWorker(prisma, app.get<EventConsumer[]>(EVENT_CONSUMERS), { redisUrl: env.REDIS_URL });
+  await outbox.start();
 
   // Một cơ chế tắt duy nhất (không bật enableShutdownHooks song song).
   let stopping = false;
@@ -53,6 +57,7 @@ async function main(): Promise<void> {
     log.log(`worker nhận ${signal}, đang dừng`, 'Worker');
     clearInterval(interval);
     try {
+      await outbox.stop();
       await app.close();
       process.exit(0);
     } catch (err) {
@@ -62,7 +67,7 @@ async function main(): Promise<void> {
   };
   process.once('SIGTERM', () => void stop('SIGTERM'));
   process.once('SIGINT', () => void stop('SIGINT'));
-  log.log('worker đã khởi động (heartbeat 30 s; CP03 thêm outbox relay)', 'Worker');
+  log.log('worker đã khởi động (heartbeat 30 s, outbox relay + consumer)', 'Worker');
 }
 
 main().catch((err: unknown) => {

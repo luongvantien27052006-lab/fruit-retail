@@ -8827,8 +8827,8 @@ components:
           const: PENDING
         pairing_code:
           type: string
-          pattern: '^[A-Z2-7]{4}-[A-Z2-7]{4}$'
-          description: Hiển thị trên thiết bị; người kích hoạt nhập/đối chiếu mã này
+          pattern: '^[A-Z2-7]{5}-[A-Z2-7]{5}$'
+          description: Hiển thị trên thiết bị (50 bit fingerprint khóa); người kích hoạt nhập mã đọc từ máy — API danh sách không trả mã này
         registered_at:
           type: string
           format: date-time
@@ -8842,7 +8842,6 @@ components:
           name,
           platform,
           status,
-          pairing_code,
           registered_at,
           activated_at,
           revoked_at,
@@ -8867,9 +8866,6 @@ components:
         status:
           type: string
           enum: [PENDING, ACTIVE, REVOKED]
-        pairing_code:
-          type: string
-          pattern: '^[A-Z2-7]{4}-[A-Z2-7]{4}$'
         registered_at:
           type: string
           format: date-time
@@ -8886,7 +8882,9 @@ components:
           format: date-time
     PosDeviceList:
       type: object
-      description: Tối đa 200 thiết bị mới nhất trong phạm vi cửa hàng của người gọi; PENDING quá 7 ngày không hiện.
+      description: |
+        Tối đa 200 thiết bị mới nhất trong phạm vi cửa hàng của người gọi. PENDING quá 7 ngày không bao giờ hiện; mặc định
+        (không lọc status) ẩn REVOKED — lọc status=REVOKED để xem.
       required: [items]
       additionalProperties: false
       properties:
@@ -8901,7 +8899,7 @@ components:
       properties:
         pairing_code:
           type: string
-          pattern: '^[A-Za-z2-7]{4}-?[A-Za-z2-7]{4}$'
+          pattern: '^[A-Za-z2-7]{5}-?[A-Za-z2-7]{5}$'
         register_id:
           type: [string, 'null']
           format: uuid

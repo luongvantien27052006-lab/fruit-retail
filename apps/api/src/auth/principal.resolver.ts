@@ -48,7 +48,7 @@ export class PrincipalResolver implements PrincipalResolverPort {
         expiresAt: true,
         revokedAt: true,
         posDeviceId: true,
-        user: { select: { status: true, type: true } },
+        user: { select: { status: true, type: true, staff: { select: { leftAt: true } } } },
       },
     });
     // token hợp lệ nhưng phiên không khớp người dùng: coi như token giả
@@ -60,6 +60,10 @@ export class PrincipalResolver implements PrincipalResolverPort {
     // trigger thu hồi ở trên). Không thay chữ ký thiết bị — chỉ chặn token bị chép sang máy khác dùng ngây thơ.
     if (s.userType === 'STAFF' && (!s.posDeviceId || this.cls.get('deviceId')?.toLowerCase() !== s.posDeviceId))
       throw new AppError('AUTHENTICATION_REQUIRED', 'Cần đăng nhập trên đúng thiết bị');
+    // L2: ngày nghỉ việc tới ⇒ phiên nhân viên hết hiệu lực ngay (quyền theo vai trò đã tính lại mỗi request bên dưới)
+    const leftAt = s.user.staff?.leftAt;
+    if (s.userType === 'STAFF' && leftAt && leftAt.getTime() <= Date.now())
+      throw new AppError('SESSION_REVOKED', 'Nhân viên đã nghỉ việc — phiên hết hiệu lực');
 
     const [roles, grants] = await Promise.all([
       tx.userRoleAssignment.findMany({ where: { userId: s.userId, revokedAt: null }, select: { role: true } }),

@@ -12,6 +12,7 @@ import type { RequestStore } from '../common/request-context';
 import { AuthAttempts, challengeInvalid, otpInvalid } from './auth-attempts';
 import { type DeviceProof, refreshBinding } from './device-proof';
 import { PosDeviceService } from './pos-device.service';
+import { hasLeft, staffAllowedOnStore } from './staff-auth.service';
 import { ARGON_PROFILES, dummyHash, hashSecret, verifySecret, withArgonSlot } from './password';
 import { PiiCipher, totpAad } from './pii-cipher';
 import {
@@ -277,7 +278,11 @@ export class AuthService {
         throw new AppError('AUTHENTICATION_REQUIRED', 'Thiếu chữ ký thiết bị (device_proof)');
       if (this.cls.get('deviceId')?.toLowerCase() !== s.posDeviceId)
         throw new AppError('AUTHENTICATION_REQUIRED', 'Refresh token không thuộc thiết bị này');
-      await this.devices.verifyProof('refresh', refreshBinding(refreshToken), proof);
+      const dev = await this.devices.verifyProof('refresh', refreshBinding(refreshToken), proof);
+      // L2: nghỉ việc / mất vai trò ở cửa hàng của thiết bị ⇒ không gia hạn token (phiên hết hiệu lực theo access 15 phút)
+      const st = await this.tx.staff.findUnique({ where: { userId: s.userId }, select: { leftAt: true } });
+      if (!st || hasLeft(st.leftAt) || !(await staffAllowedOnStore(this.tx, s.userId, dev.storeId)))
+        throw new AppError('SESSION_REVOKED', 'Nhân viên không còn được làm việc trên thiết bị này — đăng nhập lại');
     }
     if (rt.usedAt) {
       await this.revokeForReuse(s.id, s.userId, s.userType);

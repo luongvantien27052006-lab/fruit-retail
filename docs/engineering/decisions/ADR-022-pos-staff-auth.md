@@ -57,6 +57,22 @@ chống spam route đăng ký công khai, phạm vi cửa hàng của nhân viê
 10. **Tách `AuthAttempts`** (`auth/auth-attempts.ts`) khỏi `AuthService` để Master/Viewer và nhân viên dùng đúng một
     cơ chế khóa đã qua 4 vòng kiểm thử lát 3 (không đổi hành vi; `publicLogin` → `publicError`).
 
+## Sửa theo kiểm thử agent lần 1 (0fa1428)
+- **M1 (Trung bình) — CHỜ TIẾN QUYẾT:** route đăng ký công khai + trần 20 PENDING/cửa hàng ⇒ ai biết mã cửa hàng cũng
+  lấp đầy hàng chờ, chặn đăng ký máy thật (máy ACTIVE không ảnh hưởng); cửa hàng không có trả 400 ⇒ dò được mã cửa
+  hàng. Đề xuất: mã ghi danh ngắn hạn do Master/cửa hàng trưởng tạo (thêm route admin — ngoài §13.2, cần Tiến duyệt).
+- L1: tạo phiên thua cuộc đua với thu hồi ⇒ 403 `DEVICE_REVOKED` + login_logs (trước: 400 không log); 23514 ở bước
+  nonce chỉ báo `DEVICE_REVOKED` khi thiết bị thật sự không còn ACTIVE.
+- L2: nhân viên nghỉ việc (`left_at` tới) ⇒ phiên hết hiệu lực ngay (PrincipalResolver); refresh staff kiểm lại nghỉ
+  việc + vai trò ở cửa hàng của thiết bị.
+- L3: mã ghép đôi 50 bit (`XXXXX-XXXXX`), từ chối đăng ký trùng mã với máy đang chờ cùng cửa hàng; API danh sách không
+  trả mã ghép đôi (người kích hoạt phải đọc từ máy).
+- L4: danh sách không bao giờ hiện PENDING hết hạn; mặc định ẩn REVOKED.
+- L5: `revoked_sessions` đếm sau khi cập nhật thiết bị (gồm phiên vừa tạo song song bị trigger thu hồi).
+- Nonce phải ở dạng base64url chuẩn (một giá trị byte chỉ có một cách viết).
+- L6 (log không giới hạn từ request chưa xác thực): vào bộ giới hạn tần suất lát 5. Ghi nhận: chưa có bộ đếm sai PIN
+  theo thiết bị (dò PIN phổ biến rải nhiều nhân viên) và chưa chặn PIN yếu — lát 5 / lát 6–8 (đặt PIN).
+
 ## Để lát sau
 - Thẻ nhân viên (`staff_badges` chỉ lưu hash — ràng buộc lát 1): route cấp thẻ `/admin/badges` và đổi người bằng thẻ là
   `x-detail-cp: CP09` (định dạng mã thẻ theo `barcode_rules` §21.3.8 chốt ở CP09).

@@ -10,7 +10,9 @@ import { PosDeviceService } from './pos-device.service';
 const ListQuery = z.object({ status: z.enum(['PENDING', 'ACTIVE', 'REVOKED']).optional() }).strict();
 const ActivateBody = z
   .object({
-    pairing_code: z.string().regex(/^[A-Za-z2-7]{4}-?[A-Za-z2-7]{4}$/, 'mã ghép đôi XXXX-XXXX hiển thị trên thiết bị'),
+    pairing_code: z
+      .string()
+      .regex(/^[A-Za-z2-7]{5}-?[A-Za-z2-7]{5}$/, 'mã ghép đôi XXXXX-XXXXX hiển thị trên thiết bị'),
     register_id: z.string().uuid().nullable().optional(),
     name: z.string().trim().min(1).max(100).optional(),
   })

@@ -513,11 +513,22 @@ describe('auth nhân viên POS + thiết bị (CP03 lát 4)', () => {
     ]);
     expect(res.every((r) => r.status < 500)).toBe(true);
     expect(res.at(-1)?.status).toBe(200);
+    // L1: đăng nhập thua cuộc đua ⇒ 403 DEVICE_REVOKED (không phải 400), có dòng login_logs
+    for (const x of res.slice(0, 5)) {
+      expect([200, 429, 403]).toContain(x.status);
+      if (x.status === 403) expect(x.body.code).toBe('DEVICE_REVOKED');
+    }
     const live = await rows(
       `SELECT count(*)::int AS n FROM core.sessions WHERE pos_device_id = $1 AND revoked_at IS NULL`,
       [d.id],
     );
     expect(live[0]?.n).toBe(0);
+    // L5: số phiên trong response = số phiên thực bị thu hồi vì thiết bị
+    const [{ n: revoked } = { n: -1 }] = await rows(
+      `SELECT count(*)::int AS n FROM core.sessions WHERE pos_device_id = $1 AND revoke_reason = 'DEVICE_REVOKED'`,
+      [d.id],
+    );
+    expect(res.at(-1)?.body.revoked_sessions).toBe(revoked);
   });
 
   it('nhiều nhân viên đăng nhập song song trên cùng thiết bị ⇒ không deadlock; quá 3 suất Argon2/thiết bị ⇒ 429', async () => {
@@ -573,5 +584,98 @@ describe('auth nhân viên POS + thiết bị (CP03 lát 4)', () => {
     );
     // audit ghi thiết bị POS đã xác minh của người thực hiện
     expect(au).toEqual({ actor_type: 'STAFF', device_id: da.id });
+  });
+
+  // ───────── sửa theo kiểm thử agent lần 1 ─────────
+
+  it('L1 — tạo phiên khi thiết bị vừa bị thu hồi ⇒ 403 DEVICE_REVOKED + login_logs', async () => {
+    const s = await store();
+    const n = await staff(s.id);
+    const d = await activeDevice(s.code);
+    // mô phỏng thu hồi commit sau bước kiểm chữ ký: trigger chặn tạo phiên STAFF trên thiết bị này
+    await rows(`ALTER TABLE core.sessions DISABLE TRIGGER sessions_guard`);
+    await rows(`
+      CREATE FUNCTION core.zz_block_session() RETURNS trigger LANGUAGE plpgsql AS $f$
+      BEGIN RAISE EXCEPTION 'thu hồi giả lập' USING ERRCODE = 'check_violation'; END $f$`);
+    await rows(
+      `CREATE TRIGGER zz_block BEFORE INSERT ON core.sessions FOR EACH ROW EXECUTE FUNCTION core.zz_block_session()`,
+    );
+    try {
+      const r = await pin(d, n.code, n.pin);
+      expect([r.status, r.body.code]).toEqual([403, 'DEVICE_REVOKED']);
+    } finally {
+      await rows(`DROP TRIGGER zz_block ON core.sessions`);
+      await rows(`DROP FUNCTION core.zz_block_session()`);
+      await rows(`ALTER TABLE core.sessions ENABLE TRIGGER sessions_guard`);
+    }
+    const logs = await rows(`SELECT result FROM audit.login_logs WHERE user_id = $1`, [n.userId]);
+    expect(logs.map((x) => x.result)).toEqual(['DEVICE_REVOKED']);
+  });
+
+  it('L2 — nghỉ việc ⇒ phiên chết ngay; mất vai trò ở cửa hàng ⇒ refresh bị từ chối', async () => {
+    const s = await store();
+    const a = await staff(s.id);
+    const b = await staff(s.id);
+    const d = await activeDevice(s.code);
+    const la = await pin(d, a.code, a.pin);
+    const lb = await pin(d, b.code, b.pin);
+    await rows(`UPDATE core.staff SET left_at = current_date WHERE user_id = $1`, [a.userId]);
+    const use = await http()
+      .get('/v1/auth/sessions')
+      .set('Authorization', `Bearer ${la.body.access_token as string}`)
+      .set('X-Device-Id', d.id);
+    expect([use.status, use.body.code]).toEqual([401, 'SESSION_REVOKED']);
+    const rta = la.body.refresh_token as string;
+    const refA = await http()
+      .post('/v1/auth/refresh')
+      .set('X-Device-Id', d.id)
+      .send({ refresh_token: rta, device_proof: proof(d, 'refresh', refreshBinding(rta)) });
+    expect(refA.status).toBe(401);
+    await rows(`UPDATE core.user_role_assignments SET revoked_at = now(), revoked_by = user_id WHERE user_id = $1`, [
+      b.userId,
+    ]);
+    const rtb = lb.body.refresh_token as string;
+    const refB = await http()
+      .post('/v1/auth/refresh')
+      .set('X-Device-Id', d.id)
+      .send({ refresh_token: rtb, device_proof: proof(d, 'refresh', refreshBinding(rtb)) });
+    expect([refB.status, refB.body.code]).toEqual([401, 'SESSION_REVOKED']);
+  });
+
+  it('L3/L4 — danh sách không trả mã ghép đôi, ẩn REVOKED mặc định, không hiện PENDING hết hạn; mã 50 bit', async () => {
+    const s = await store();
+    const d = newDevice(s.code);
+    await register(d);
+    expect(d.pairing).toMatch(/^[A-Z2-7]{5}-[A-Z2-7]{5}$/);
+    const gone = newDevice(s.code);
+    await register(gone);
+    await http().post(`/v1/admin/pos-devices/${gone.id}/revoke`).set('Authorization', master).send({ reason: 'rác' });
+    const old = newDevice(s.code);
+    await register(old);
+    await rows(`ALTER TABLE core.pos_devices DISABLE TRIGGER pos_device_transition`);
+    await rows(`UPDATE core.pos_devices SET registered_at = now() - interval '8 days' WHERE id = $1`, [old.id]);
+    await rows(`ALTER TABLE core.pos_devices ENABLE TRIGGER pos_device_transition`);
+    const all = await http().get('/v1/admin/pos-devices').set('Authorization', master);
+    expect(schemaErrors('PosDeviceList', all.body)).toEqual([]);
+    const ids = (all.body.items as { id: string }[]).map((x) => x.id);
+    expect(ids).toContain(d.id);
+    expect(ids).not.toContain(gone.id);
+    expect(ids).not.toContain(old.id);
+    expect(JSON.stringify(all.body)).not.toContain(d.pairing);
+    const rev = await http().get('/v1/admin/pos-devices?status=REVOKED').set('Authorization', master);
+    expect((rev.body.items as { id: string }[]).map((x) => x.id)).toContain(gone.id);
+  });
+
+  it('nonce phải ở dạng base64url chuẩn (không bit thừa) ⇒ một nonce chỉ có một cách viết', async () => {
+    const s = await store();
+    const n = await staff(s.id);
+    const d = await activeDevice(s.code);
+    const canon = randomBytes(16).toString('base64url'); // 22 ký tự, 4 bit cuối thừa = 0
+    const last = canon.at(-1) ?? 'A';
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const alt = canon.slice(0, -1) + alphabet[(alphabet.indexOf(last) & ~15) | 1];
+    expect(Buffer.from(alt, 'base64url').equals(Buffer.from(canon, 'base64url'))).toBe(true);
+    expect((await pin(d, n.code, n.pin, proof(d, 'pin', n.code, { nonce: alt }))).status).toBe(401);
+    expect((await pin(d, n.code, n.pin, proof(d, 'pin', n.code, { nonce: canon }))).status).toBe(200);
   });
 });

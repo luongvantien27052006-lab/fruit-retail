@@ -3,6 +3,7 @@ import { TransactionHost } from '@nestjs-cls/transactional';
 import { ClsService } from 'nestjs-cls';
 import { v7 as uuidv7 } from 'uuid';
 import type { Tx } from '../common/audit-outbox.service';
+import { findSqlState } from '../common/db-errors';
 import { AppError } from '../common/errors';
 import type { RequestStore } from '../common/request-context';
 import { AuthAttempts } from './auth-attempts';
@@ -76,6 +77,27 @@ export class StaffAuthService {
       throw invalidPin();
     }
     const pinHash = staff.user.pinHash;
+    try {
+      return await this.loginOnce(staff, device, identifierHash, pinHash, b.pin, slot, dummy);
+    } catch (e) {
+      // L1: thu hồi thiết bị commit giữa bước kiểm chữ ký và tạo phiên ⇒ trigger sessions_guard (23514)
+      if (findSqlState(e) === '23514') {
+        await this.attempts.log(staff.userId, 'DEVICE_REVOKED', identifierHash);
+        throw new AppError('DEVICE_REVOKED', 'Thiết bị vừa bị thu hồi');
+      }
+      throw e;
+    }
+  }
+
+  private loginOnce(
+    staff: { userId: string; staffCode: string; fullName: string },
+    device: VerifiedDevice,
+    identifierHash: Uint8Array,
+    pinHash: string,
+    pin: string,
+    slot: string,
+    dummy: () => Promise<void>,
+  ) {
     return this.attempts.run(
       {
         userId: staff.userId,
@@ -86,7 +108,7 @@ export class StaffAuthService {
         dummy,
         slot,
       },
-      () => verifySecret(pinHash, b.pin),
+      () => verifySecret(pinHash, pin),
       async () => {
         // kiểm lại trong transaction (vai trò có thể vừa bị thu hồi)
         if (!(await this.allowedOnStore(staff.userId, device.storeId))) throw invalidPin();
@@ -102,16 +124,8 @@ export class StaffAuthService {
     );
   }
 
-  /** Nhân viên có vai trò còn hiệu lực phạm vi ALL hoặc đúng cửa hàng của thiết bị. */
-  private async allowedOnStore(userId: string, storeId: string): Promise<boolean> {
-    const n = await this.tx.userRoleAssignment.count({
-      where: {
-        userId,
-        revokedAt: null,
-        OR: [{ scopeType: 'ALL' }, { scopeType: 'STORE', scopeId: storeId }],
-      },
-    });
-    return n > 0;
+  private allowedOnStore(userId: string, storeId: string): Promise<boolean> {
+    return staffAllowedOnStore(this.tx, userId, storeId);
   }
 
   private async createSession(userId: string, device: VerifiedDevice): Promise<TokenPair> {
@@ -148,7 +162,15 @@ export class StaffAuthService {
   }
 }
 
+/** Nhân viên có vai trò còn hiệu lực phạm vi ALL hoặc đúng cửa hàng của thiết bị (đăng nhập PIN + refresh — L2). */
+export async function staffAllowedOnStore(tx: Tx['tx'], userId: string, storeId: string): Promise<boolean> {
+  const n = await tx.userRoleAssignment.count({
+    where: { userId, revokedAt: null, OR: [{ scopeType: 'ALL' }, { scopeType: 'STORE', scopeId: storeId }] },
+  });
+  return n > 0;
+}
+
 /** Ngày nghỉ việc đã tới (left_at là DATE, so theo ngày UTC) */
-function hasLeft(leftAt: Date | null): boolean {
+export function hasLeft(leftAt: Date | null): boolean {
   return leftAt !== null && leftAt.getTime() <= Date.now();
 }

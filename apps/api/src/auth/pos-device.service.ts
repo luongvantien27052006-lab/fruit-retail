@@ -102,6 +102,17 @@ export class PosDeviceService {
     if (pending >= MAX_PENDING_PER_STORE)
       throw new AppError('RATE_LIMITED', 'Cửa hàng có quá nhiều thiết bị chờ kích hoạt — kích hoạt hoặc từ chối bớt');
     const fingerprint = fingerprintOf(publicKey);
+    // L3: hai máy chờ cùng mã ghép đôi trong một cửa hàng ⇒ người kích hoạt có thể nhầm — từ chối máy sau
+    const code = pairingCode(fingerprint);
+    const waiting = await this.tx.posDevice.findMany({
+      where: { storeId: store.id, status: 'PENDING', registeredAt: { gt: pendingCutoff() } },
+      select: { fingerprint: true },
+    });
+    if (waiting.some((w) => pairingCode(w.fingerprint) === code))
+      throw new AppError(
+        'INVALID_STATE_TRANSITION',
+        'Trùng mã ghép đôi với máy đang chờ — sinh khóa mới rồi đăng ký lại',
+      );
     try {
       // lỗi trùng làm hỏng transaction của request — không sao: ném 409 ngay, interceptor rollback
       await this.tx.posDevice.create({
@@ -135,9 +146,10 @@ export class PosDeviceService {
     const rows = await this.tx.posDevice.findMany({
       where: {
         ...(scope === 'ALL' ? {} : { storeId: { in: [...scope] } }),
-        ...(status ? { status } : {}),
-        // hàng chờ hết hạn không hiện ở danh sách PENDING
-        ...(status === 'PENDING' ? { registeredAt: { gt: pendingCutoff() } } : {}),
+        // mặc định ẩn REVOKED (rác/đã thu hồi không đẩy máy đang dùng ra khỏi 200 dòng); lọc status=REVOKED để xem
+        ...(status ? { status } : { status: { in: ['PENDING', 'ACTIVE'] } }),
+        // hàng chờ hết hạn không bao giờ hiện (L4)
+        NOT: { status: 'PENDING', registeredAt: { lte: pendingCutoff() } },
       },
       orderBy: { registeredAt: 'desc' },
       take: 200,
@@ -206,16 +218,20 @@ export class PosDeviceService {
       data: { status: 'REVOKED', revokedBy: p.userId, revokedAt: new Date(), revokeReason: reason },
     });
     if (r.count !== 1) throw new AppError('INVALID_STATE_TRANSITION', 'Thiết bị đã bị thu hồi');
+    void sessions;
+    // L5: đếm SAU cập nhật — gồm cả phiên vừa tạo song song mà trigger thu hồi luôn (REVOKED là trạng thái cuối nên mọi
+    // phiên DEVICE_REVOKED của thiết bị đều do transaction này)
+    const revokedSessions = await this.tx.session.count({ where: { posDeviceId: id, revokeReason: 'DEVICE_REVOKED' } });
     const after = await this.tx.posDevice.findUniqueOrThrow({ where: { id }, select: DEVICE_SELECT });
     await this.ao.recordAudit({
       action: 'pos_device.revoke',
       resourceType: 'pos_device',
       resourceId: id,
       before: { status: pre.status },
-      after: { status: 'REVOKED', revoked_sessions: sessions.length },
+      after: { status: 'REVOKED', revoked_sessions: revokedSessions },
       reason,
     });
-    return { device: toWireDevice(after), revoked_sessions: sessions.length };
+    return { device: toWireDevice(after), revoked_sessions: revokedSessions };
   }
 
   /** Thiết bị trong phạm vi cửa hàng của người gọi; ngoài phạm vi ⇒ 404 (không lộ tồn tại). */
@@ -288,7 +304,14 @@ export class PosDeviceService {
         await this.attempts.log(null, 'DEVICE_NONCE_REUSED', null);
         throw proofInvalid();
       }
-      if (findSqlState(e) === '23514') throw new AppError('DEVICE_REVOKED', 'Thiết bị vừa bị thu hồi');
+      if (findSqlState(e) === '23514') {
+        // chỉ báo DEVICE_REVOKED khi thiết bị THẬT SỰ không còn ACTIVE (23514 khác — vd hạn nonce — là lỗi hệ thống)
+        const now2 = await this.tx.posDevice.findUnique({ where: { id }, select: { status: true } });
+        if (now2?.status !== 'ACTIVE') {
+          await this.attempts.log(null, 'DEVICE_REVOKED', null);
+          throw new AppError('DEVICE_REVOKED', 'Thiết bị vừa bị thu hồi');
+        }
+      }
       throw e;
     }
     return { id: d.id, storeId: d.storeId };
@@ -296,6 +319,8 @@ export class PosDeviceService {
 
   private checkProof(publicKey: Uint8Array, purpose: ProofPurpose, id: string, binding: string, proof: DeviceProof) {
     if (Math.abs(Math.floor(Date.now() / 1000) - proof.ts) > PROOF_SKEW_S) throw proofInvalid();
+    // nonce dạng chuẩn duy nhất (không bit thừa) ⇒ một giá trị byte chỉ có một chuỗi ⇒ ràng buộc duy nhất theo chuỗi đủ
+    if (Buffer.from(proof.nonce, 'base64url').toString('base64url') !== proof.nonce) throw proofInvalid();
     if (!verifyEd25519(publicKey, proofMessage(purpose, id, proof.ts, proof.nonce, binding), proof.signature))
       throw proofInvalid();
   }
@@ -337,7 +362,6 @@ function toWireDevice(d: {
     name: d.name,
     platform: d.platform,
     status: d.status,
-    pairing_code: pairingCode(d.fingerprint),
     registered_at: d.registeredAt.toISOString(),
     activated_at: d.activatedAt?.toISOString() ?? null,
     revoked_at: d.revokedAt?.toISOString() ?? null,

@@ -74,15 +74,17 @@ export const fingerprintOf = (publicKeyRaw: Uint8Array) =>
   new Uint8Array(createHash('sha256').update(publicKeyRaw).digest());
 
 /**
- * Mã ghép đôi hiển thị trên thiết bị và trang kích hoạt: 40 bit đầu của fingerprint, base32 (RFC 4648), dạng
- * `XXXX-XXXX`. Người kích hoạt đối chiếu/nhập mã này ⇒ không kích hoạt nhầm thiết bị lạ chen vào hàng chờ.
+ * Mã ghép đôi hiển thị trên thiết bị: 50 bit đầu của fingerprint, base32 (RFC 4648), dạng `XXXXX-XXXXX`. Người kích
+ * hoạt nhập mã đọc từ màn hình máy (API danh sách KHÔNG trả mã này) ⇒ không kích hoạt nhầm thiết bị lạ trong hàng chờ.
+ * 50 bit: tìm khóa trùng mã của một máy thật cần ~2^50 phép tính trong thời gian máy đó còn chờ (kiểm thử lát 4 L3).
  */
 const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 export function pairingCode(fingerprint: Uint8Array): string {
   let bits = 0n;
-  for (let i = 0; i < 5; i++) bits = (bits << 8n) | BigInt(fingerprint[i] ?? 0);
+  for (let i = 0; i < 7; i++) bits = (bits << 8n) | BigInt(fingerprint[i] ?? 0);
+  bits >>= 6n; // 56 → 50 bit
   let out = '';
-  for (let i = 7; i >= 0; i--) out += B32[Number((bits >> BigInt(i * 5)) & 31n)];
-  return `${out.slice(0, 4)}-${out.slice(4)}`;
+  for (let i = 9; i >= 0; i--) out += B32[Number((bits >> BigInt(i * 5)) & 31n)];
+  return `${out.slice(0, 5)}-${out.slice(5)}`;
 }
 export const normalizePairingCode = (c: string) => c.toUpperCase().replace(/[\s-]/g, '');

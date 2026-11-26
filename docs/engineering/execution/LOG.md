@@ -52,3 +52,4 @@
 | 2026-11-27 | CP03 | Lát 7 SẠCH sau 3 vòng kiểm thử agent (silent-failure-hunter + code-reviewer — 20322d8). 163/163 test. Ghi nhận Thấp sang CP19 (giám sát outbox, job dọn object). Lát 7 đóng. |
 | 2026-11-27 | CP03 | Lát 8 chia 8a (API quản trị) + 8b (admin web). 8a xong code (ADR-026), 168/168 test; chờ kiểm thử agent. |
 | 2026-11-27 | CP03 | Lát 8a kiểm thử security lần 1 (f8163ef): CÒN LỖI (TB: khóa tài khoản DISABLED rồi mở khóa ⇒ hồi sinh; Thấp ×2). Đã sửa + G-a/G-c/G-d. 168/168. |
+| 2026-11-27 | CP03 | Lát 8a kiểm thử security lần 2 (486f31f): còn L2' (Thấp: PATCH /admin/staff lấy khóa đăng nhập trước khi kiểm phạm vi) — đã sửa. 168/168. |

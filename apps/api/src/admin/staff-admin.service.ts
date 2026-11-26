@@ -183,6 +183,9 @@ export class StaffAdminService {
       // L1 (kiểm thử DB lát 6): CÙNG khóa với lần thử đăng nhập (AuthAttempts `auth:<id>`) và lấy TRƯỚC khóa dòng users
       // (cùng thứ tự với đăng nhập ⇒ không deadlock). Đăng nhập PIN đang chạy commit xong mới tới đây ⇒ phiên nó vừa tạo
       // nằm trong tập bị thu hồi; đăng nhập bắt đầu sau ⇒ nhánh "bận" (401 chung), xong thì gặp PIN mới.
+      // L2' (kiểm thử 8a lần 2): người không có phạm vi ALL ⇒ kiểm quản lý được TRƯỚC khi lấy khóa đăng nhập của tài
+      // khoản đích (gửi liên tục vào id Master không cản được Master đăng nhập); kiểm lại dưới khóa ở dưới
+      if (!(await this.scope.isAll('staff:write'))) await this.managed(id, 'staff:write');
       if (pinHash !== undefined || b.status !== undefined)
         await this.tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('auth:' || ${id}::uuid::text, 0))`;
       const before = await this.managed(id, 'staff:write', true);

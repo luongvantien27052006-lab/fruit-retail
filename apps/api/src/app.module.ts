@@ -42,6 +42,7 @@ export const REDACT_PATHS = [
   '*.*.phone',
   '*.*.password',
   '*.*.token',
+  '*.*.temporary_password',
   '*.refresh_token',
   '*.mfa_challenge',
   '*.recovery_code',

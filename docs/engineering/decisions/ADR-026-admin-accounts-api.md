@@ -42,6 +42,10 @@
   kích hoạt hết hạn (đề xuất 72 giờ); reset 2FA tùy chọn cấp kèm mật khẩu tạm mới. G-e — "Master ACTIVE cuối" đếm cả Master chưa
   kích hoạt 2FA: bất biến ≥ 1 Master ACTIVE vẫn giữ (người gọi không tự khóa mình); chấp nhận.
 
+## Sửa theo kiểm thử agent lần 2 (486f31f)
+- **L2' (Thấp):** `PATCH /admin/staff/{id}` (lát 6) cũng lấy khóa đăng nhập trước khi kiểm phạm vi ⇒ nay người không có phạm vi
+  ALL kiểm `managed()` không khóa trước, kiểm lại dưới khóa. Thêm che `*.*.temporary_password`.
+
 ## Hệ quả
 - Không migration. OpenAPI: schema `AdminAccountCreate*`, `ReasonRequest`, `UserLock/UnlockResponse`,
   `TwoFactorResetResponse`, `AdminSessionList`, `SessionRevokeResponse`, `AuditLogList`; `x-scope` cho lock, `x-master-only`

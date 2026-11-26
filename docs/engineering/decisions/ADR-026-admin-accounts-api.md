@@ -1,7 +1,6 @@
 # ADR-026: API quản trị tài khoản — admin, khóa/mở khóa, reset 2FA, phiên, nhật ký (CP03 lát 8a)
 
-- Trạng thái: accepted (kỹ thuật) · Ngày: 2026-11-27 · Người quyết: phiên điều phối (CP03 lát 8a) — chờ agent
-  security-reviewer kiểm
+- Trạng thái: accepted (kỹ thuật) · Ngày: 2026-11-27 · Người quyết: phiên điều phối (CP03 lát 8a) — đã qua kiểm thử agent (SẠCH)
 - Làm rõ: ADR-012, ADR-021 (đăng nhập Master), ADR-024 (phạm vi, step-up, quy tắc cửa hàng trưởng), SEC2, SEC4, §2.1, §14
 
 ## Quyết định
@@ -45,6 +44,11 @@
 ## Sửa theo kiểm thử agent lần 2 (486f31f)
 - **L2' (Thấp):** `PATCH /admin/staff/{id}` (lát 6) cũng lấy khóa đăng nhập trước khi kiểm phạm vi ⇒ nay người không có phạm vi
   ALL kiểm `managed()` không khóa trước, kiểm lại dưới khóa. Thêm che `*.*.temporary_password`.
+
+## Kiểm thử lần 3 (1aedfb4): SẠCH (security-reviewer)
+Ghi nhận Thấp: `assignRole` khóa dòng users trước khi kiểm phạm vi (không gây nhánh bận đăng nhập, chỉ trễ nhẹ — làm đồng bộ khi
+sửa tiếp); người có `staff:write` phạm vi ALL (không phải Master) vẫn lấy được khóa `auth:` thoáng qua (cần Master ủy quyền);
+chưa có test riêng "không giữ khóa `auth:`" cho L2/L2'.
 
 ## Hệ quả
 - Không migration. OpenAPI: schema `AdminAccountCreate*`, `ReasonRequest`, `UserLock/UnlockResponse`,

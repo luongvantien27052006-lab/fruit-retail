@@ -98,7 +98,9 @@ export class AdminAccountsController {
     return this.svc.revokeSession(id, b.reason);
   }
 
+  /** chỉ Master (G-d): nhật ký toàn chuỗi — không lọc phạm vi nên không cho quyền cấp riêng `audit:read` dùng */
   @RequirePermission('audit:read')
+  @MasterOnly()
   @Get('audit-logs')
   auditLogs(@Query(new ZodPipe(AuditQuery)) q: z.infer<typeof AuditQuery>) {
     return this.svc.auditLogs(q);

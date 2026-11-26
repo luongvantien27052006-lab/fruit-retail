@@ -6765,6 +6765,7 @@ paths:
       tags: [admin]
       summary: 'Tra cứu nhật ký'
       x-permission: 'audit:read'
+      x-master-only: true # nhật ký toàn chuỗi, không lọc phạm vi (ADR-026)
       x-spec-ref: '§14'
       x-detail-cp: CP03
       parameters:

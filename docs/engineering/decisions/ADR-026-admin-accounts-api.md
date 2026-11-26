@@ -30,6 +30,18 @@
 9. Cùng lát làm ghi nhận lát 6: G1 (Argon giả ở nhánh PIN trống/nghỉ việc trong khe đua), G2 (ngày 1900–2100), G3 (so tự
    gán chữ thường), G4 (mục 8).
 
+## Sửa theo kiểm thử agent lần 1 (f8163ef)
+- **L1 (TB):** chỉ khóa tài khoản ĐANG ACTIVE (DISABLED/LOCKED ⇒ 409) — trước: khóa người Master đã cho nghỉ (DISABLED) rồi Master
+  bấm mở khóa sẽ hồi sinh tài khoản.
+- **L2 (Thấp):** người không phải Master kiểm phạm vi TRƯỚC khi lấy khóa đăng nhập của tài khoản đích (không cản đăng nhập Master
+  bằng cách gửi khóa liên tục), kiểm lại sau khi khóa.
+- **L3 (Thấp):** so phiên hiện tại không phân biệt hoa/thường.
+- Ghi nhận đã làm: G-a (nhánh thành công của đăng nhập dùng trạng thái 2FA đọc dưới khóa); G-c (che `*.temporary_password` trong
+  log; khi làm bộ idempotency không được lưu response của route này); G-d (`GET /admin/audit-logs` chỉ Master).
+- Ghi nhận để 8b: G-b — chưa có đổi mật khẩu: lần đăng ký 2FA đầu tiên (admin web) bắt buộc đổi mật khẩu tạm; tài khoản chưa
+  kích hoạt hết hạn (đề xuất 72 giờ); reset 2FA tùy chọn cấp kèm mật khẩu tạm mới. G-e — "Master ACTIVE cuối" đếm cả Master chưa
+  kích hoạt 2FA: bất biến ≥ 1 Master ACTIVE vẫn giữ (người gọi không tự khóa mình); chấp nhận.
+
 ## Hệ quả
 - Không migration. OpenAPI: schema `AdminAccountCreate*`, `ReasonRequest`, `UserLock/UnlockResponse`,
   `TwoFactorResetResponse`, `AdminSessionList`, `SessionRevokeResponse`, `AuditLogList`; `x-scope` cho lock, `x-master-only`

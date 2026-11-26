@@ -51,3 +51,4 @@
 | 2026-11-27 | CP03 | Lát 7 kiểm thử lần 2 (cd76b58): cả hai agent CÒN LỖI — Redis PING được nhưng từ chối ghi vẫn giết sự kiện; hai complete song song chép đè khóa cuối; ảnh khiếu nại phải chụp trực tiếp (§8.8). Sửa: phân loại lỗi Redis theo nội dung, khóa cuối riêng + cột final_key (migration 0006). 163/163. |
 | 2026-11-27 | CP03 | Lát 7 SẠCH sau 3 vòng kiểm thử agent (silent-failure-hunter + code-reviewer — 20322d8). 163/163 test. Ghi nhận Thấp sang CP19 (giám sát outbox, job dọn object). Lát 7 đóng. |
 | 2026-11-27 | CP03 | Lát 8 chia 8a (API quản trị) + 8b (admin web). 8a xong code (ADR-026), 168/168 test; chờ kiểm thử agent. |
+| 2026-11-27 | CP03 | Lát 8a kiểm thử security lần 1 (f8163ef): CÒN LỖI (TB: khóa tài khoản DISABLED rồi mở khóa ⇒ hồi sinh; Thấp ×2). Đã sửa + G-a/G-c/G-d. 168/168. |

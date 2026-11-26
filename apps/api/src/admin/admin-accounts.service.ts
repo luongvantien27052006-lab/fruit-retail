@@ -100,9 +100,13 @@ export class AdminAccountsService {
   async lock(id: string, reason: string) {
     const p = this.principal();
     if (id.toLowerCase() === p.userId) throw new AppError('ACTION_FORBIDDEN', 'Không tự khóa tài khoản của chính mình');
+    // L2 (kiểm thử 8a): người không phải Master ⇒ kiểm phạm vi TRƯỚC khi lấy khóa đăng nhập của người khác (không cản
+    // đăng nhập của tài khoản ngoài phạm vi bằng cách gửi liên tục), rồi kiểm lại sau khi khóa
+    if (p.userType !== 'MASTER') await this.target(id, 'staff:write');
     await this.authLock(id);
     const u = await this.target(id, 'staff:write');
-    if (u.status === 'LOCKED') throw new AppError('INVALID_STATE_TRANSITION', 'Tài khoản đã bị khóa');
+    // L1: chỉ khóa tài khoản đang ACTIVE — DISABLED/LOCKED giữ nguyên (khóa DISABLED rồi mở khóa sẽ hồi sinh tài khoản)
+    if (u.status !== 'ACTIVE') throw new AppError('INVALID_STATE_TRANSITION', `Tài khoản đang ${u.status}`);
     if (u.type === 'MASTER') await this.assertNotLastMaster(id);
     await this.tx.user.update({ where: { id }, data: { status: 'LOCKED' }, select: { id: true } });
     const revoked = await this.revokeAll(id, 'USER_LOCKED');
@@ -212,7 +216,8 @@ export class AdminAccountsService {
     const s = await this.tx.session.findUnique({ where: { id }, select: { userId: true, revokedAt: true } });
     if (!s) throw new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy phiên');
     if (s.revokedAt) throw new AppError('INVALID_STATE_TRANSITION', 'Phiên đã bị thu hồi');
-    if (id === p.sessionId) throw new AppError('ACTION_FORBIDDEN', 'Dùng đăng xuất để kết thúc phiên hiện tại');
+    if (id.toLowerCase() === p.sessionId)
+      throw new AppError('ACTION_FORBIDDEN', 'Dùng đăng xuất để kết thúc phiên hiện tại');
     await this.tx.session.update({
       where: { id },
       data: { revokedAt: new Date(), revokeReason: 'ADMIN_REVOKED' },

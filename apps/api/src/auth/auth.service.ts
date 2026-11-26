@@ -129,6 +129,7 @@ export class AuthService {
       throw invalidCredentials();
     }
     const hash = user.passwordHash;
+    let totpEnabledNow: Date | null = user.totpEnabledAt;
     return this.attempts.run(
       {
         userId: user.id,
@@ -141,7 +142,12 @@ export class AuthService {
       async () => {
         // G4 (lát 6/8): đọc LẠI mã băm mật khẩu trong transaction đang giữ khóa `auth:<id>` — bản đọc trước khi chờ suất
         // Argon có thể đã cũ (Master vừa reset/khóa); đổi ⇒ coi như sai (cùng thời gian nhờ Argon giả)
-        const cur = await this.tx.user.findUnique({ where: { id: user.id }, select: { passwordHash: true } });
+        const cur = await this.tx.user.findUnique({
+          where: { id: user.id },
+          select: { passwordHash: true, totpEnabledAt: true },
+        });
+        // G-a: trạng thái 2FA dùng cho nhánh thành công cũng lấy từ bản đọc dưới khóa
+        totpEnabledNow = cur?.totpEnabledAt ?? null;
         if (!cur?.passwordHash || cur.passwordHash !== hash) {
           await verifySecret(await dummyHash(), password);
           return false;
@@ -150,7 +156,7 @@ export class AuthService {
       },
       async () => {
         // mật khẩu đúng KHÔNG xóa bộ đếm sai khi đã bật 2FA: chỉ đăng nhập trọn vẹn mới xóa (chặn dò mã 2FA vô hạn)
-        if (user.totpEnabledAt) {
+        if (totpEnabledNow) {
           const challenge = randomToken();
           const expiresAt = new Date(Date.now() + MFA_CHALLENGE_TTL_S * 1000);
           await this.tx.authChallenge.create({

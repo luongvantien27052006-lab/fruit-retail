@@ -28,6 +28,7 @@ export const REDACT_PATHS = [
   '*.phone',
   '*.address',
   '*.token',
+  '*.temporary_password',
   '*.otp',
   '*.pin',
   '*.password',

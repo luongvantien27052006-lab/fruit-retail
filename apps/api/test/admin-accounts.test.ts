@@ -234,6 +234,13 @@ describe('quản trị tài khoản (CP03 lát 8a)', () => {
     expect((await c.post(`/v1/admin/users/${x.userId}/lock`, { reason: 'trong phạm vi' })).status).toBe(200);
     expect((await c.post(`/v1/admin/users/${x.userId}/unlock`, { reason: 'mở' })).status).toBe(403);
     expect((await c.post(`/v1/admin/users/${masterId}/lock`, { reason: 'khóa Master' })).status).toBe(404);
+    // L1: tài khoản DISABLED (Master cho nghỉ) không khóa được ⇒ không có đường "khóa rồi mở khóa" để hồi sinh
+    const z = await staffSql([{ role: 'CASHIER', storeId: st.id }]);
+    await http().patch(`/v1/admin/staff/${z.userId}`).set('Authorization', master).send({ status: 'DISABLED' });
+    const lz = await c.post(`/v1/admin/users/${z.userId}/lock`, { reason: 'khóa người đã nghỉ' });
+    expect([lz.status, lz.body.code]).toEqual([409, 'INVALID_STATE_TRANSITION']);
+    const [zs] = await rows(`SELECT status::text FROM core.users WHERE id = $1`, [z.userId]);
+    expect(zs?.status).toBe('DISABLED');
   });
 
   it('không khóa được Master hoạt động cuối cùng: hai Master khóa nhau song song ⇒ đúng một thành công', async () => {
@@ -317,7 +324,11 @@ describe('quản trị tài khoản (CP03 lát 8a)', () => {
     const cur = (mine.body.items as { id: string; active: boolean }[]).filter((x) => x.active);
     const self = await Promise.all(
       cur.map((x) =>
-        http().post(`/v1/admin/sessions/${x.id}/revoke`).set('Authorization', master).send({ reason: 'tự làm' }),
+        // L3: id viết HOA vẫn nhận ra là phiên hiện tại
+        http()
+          .post(`/v1/admin/sessions/${x.id.toUpperCase()}/revoke`)
+          .set('Authorization', master)
+          .send({ reason: 'tự làm' }),
       ),
     );
     expect(self.some((r) => r.status === 403)).toBe(true);

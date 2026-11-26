@@ -1,6 +1,6 @@
 # ADR-028: Staff app Flutter — đăng ký máy, đăng nhập PIN, khóa màn hình (CP03 lát 9)
 
-- Trạng thái: proposed (chờ kiểm thử agent) · Ngày: 2026-11-27 · Người quyết: phiên điều phối (CP03 lát 9)
+- Trạng thái: accepted (kỹ thuật) — flutter-reviewer SẠCH lần 4 · Ngày: 2026-11-27 · Người quyết: phiên điều phối (CP03 lát 9)
 - Làm rõ: ADR-008 (một codebase ba chế độ), ADR-012 (token, PIN offline để CP09), ADR-022 (thiết bị POS, mã ghi danh),
   SEC3, SPEC §21.3.9 (khóa màn hình)
 
@@ -84,6 +84,11 @@
   connection" (1225) ⇒ phân loại sai. Sửa: theo MÃ lỗi OS (Windows 1225/10061/10065/11001…, POSIX 111/113/101…), DNS theo
   chuỗi do Dart sinh, TLS luôn là chưa gửi. Test dùng `IOClient` THẬT tới cổng đóng + bảng mã; FakeApi ném SocketException
   đúng như Windows. 38/38.
+
+## Kiểm thử lần 4 (247f953): SẠCH
+- Ghi nhận (không chặn): `beforeSend` coi mọi `TlsException` là chưa gửi — chỉ `HandshakeException` chắc chắn; lỗi TLS giữa
+  chừng sau khi gửi rất hiếm ⇒ đăng ký không lưu khóa (hướng thận trọng ngược). Thu hẹp khi đụng lại. Bảng mã macOS thiếu 60
+  (không phải nền tảng đích).
 
 ## Hệ quả
 - Gói mới (staff_app):

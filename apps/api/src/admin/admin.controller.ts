@@ -28,7 +28,8 @@ const date = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'ngày YYYY-MM-DD')
   .refine((v) => {
     const d = new Date(`${v}T00:00:00Z`);
-    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+    const y = d.getUTCFullYear();
+    return !Number.isNaN(d.getTime()) && y >= 1900 && y <= 2100 && d.toISOString().slice(0, 10) === v;
   }, 'ngày không tồn tại');
 const RoleSpec = z
   .object({

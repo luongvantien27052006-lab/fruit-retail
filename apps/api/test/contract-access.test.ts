@@ -80,6 +80,7 @@ describe('khai báo quyền của route khớp OpenAPI', () => {
       'DELETE /admin/role-assignments/{id}',
       'POST /admin/role-assignments',
       'POST /admin/staff',
+      'POST /admin/users/{id}/lock',
     ]);
   });
 });

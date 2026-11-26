@@ -115,7 +115,10 @@ export class StaffAuthService {
           where: { id: staff.userId },
           select: { pinHash: true, staff: { select: { leftAt: true } } },
         });
-        if (!cur?.pinHash || hasLeft(cur.staff?.leftAt ?? null)) return false;
+        if (!cur?.pinHash || hasLeft(cur.staff?.leftAt ?? null)) {
+          await dummy(); // G1: cùng thời gian với nhánh kiểm thật
+          return false;
+        }
         if (cur.pinHash !== pinHash) {
           await dummy(); // cùng thời gian với nhánh kiểm thật
           return false;

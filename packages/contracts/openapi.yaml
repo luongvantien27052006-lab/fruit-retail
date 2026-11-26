@@ -5915,14 +5915,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AdminAccountCreateRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AdminAccountCreateResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5950,6 +5950,7 @@ paths:
       tags: [admin]
       summary: 'Khóa tài khoản (thu hồi mọi phiên); admin cần step-up; chặn khóa Master cuối cùng'
       x-permission: 'staff:write'
+      x-scope: store # cửa hàng trưởng chỉ khóa nhân viên CASHIER/PICKER của cửa hàng mình (ADR-026)
       x-step-up: true
       x-spec-ref: '§2.4 SEC2'
       x-detail-cp: CP03
@@ -5962,14 +5963,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/ReasonRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/UserLockResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5999,6 +6000,7 @@ paths:
       tags: [admin]
       summary: 'Mở khóa tài khoản'
       x-permission: 'staff:write'
+      x-master-only: true # cửa hàng trưởng không mở khóa (không đảo quyết định khóa — ADR-024/026)
       x-step-up: true
       x-spec-ref: '§2.4 SEC2'
       x-detail-cp: CP03
@@ -6011,14 +6013,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/ReasonRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/UserUnlockResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6061,14 +6063,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/ReasonRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/TwoFactorResetResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6110,7 +6112,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AdminSessionList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6148,14 +6150,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/ReasonRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/SessionRevokeResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6767,13 +6769,53 @@ paths:
       x-detail-cp: CP03
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - name: action
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: actor_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuditLogList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -9100,6 +9142,182 @@ components:
         expires_at:
           type: string
           format: date-time
+    ReasonRequest:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    AdminAccountCreateRequest:
+      type: object
+      required: [email, role]
+      additionalProperties: false
+      description: VIEW_ONLY_ADMIN cần đúng một viewer_profile_id; MASTER_ADMIN không có hồ sơ xem.
+      properties:
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+        role:
+          type: string
+          enum: [MASTER_ADMIN, VIEW_ONLY_ADMIN]
+        viewer_profile_id:
+          type: [string, 'null']
+          format: uuid
+    AdminAccountCreateResponse:
+      type: object
+      required: [user_id, email, type, role, temporary_password, two_factor_required]
+      additionalProperties: false
+      description: Mật khẩu tạm chỉ trả MỘT lần (no-store, không lưu rõ); đăng nhập lần đầu phải đăng ký 2FA.
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        type:
+          type: string
+          enum: [MASTER, VIEWER]
+        role:
+          type: string
+          enum: [MASTER_ADMIN, VIEW_ONLY_ADMIN]
+        temporary_password:
+          type: string
+        two_factor_required:
+          type: boolean
+    UserLockResponse:
+      type: object
+      required: [user_id, status, revoked_sessions]
+      additionalProperties: false
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          const: LOCKED
+        revoked_sessions:
+          type: integer
+          minimum: 0
+    UserUnlockResponse:
+      type: object
+      required: [user_id, status]
+      additionalProperties: false
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          const: ACTIVE
+    TwoFactorResetResponse:
+      type: object
+      required: [user_id, two_factor_enabled, revoked_sessions]
+      additionalProperties: false
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        two_factor_enabled:
+          type: boolean
+          const: false
+        revoked_sessions:
+          type: integer
+          minimum: 0
+    AdminSessionList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, user_type, amr, created_at, last_used_at, expires_at, revoked_at, revoke_reason, pos_device_id, user_agent, active]
+            additionalProperties: false
+            properties:
+              id:
+                type: string
+                format: uuid
+              user_type:
+                type: string
+                enum: [MASTER, VIEWER, STAFF, CUSTOMER]
+              amr:
+                type: array
+                items:
+                  type: string
+              created_at:
+                type: string
+                format: date-time
+              last_used_at:
+                type: string
+                format: date-time
+              expires_at:
+                type: string
+                format: date-time
+              revoked_at:
+                type: [string, 'null']
+                format: date-time
+              revoke_reason:
+                type: [string, 'null']
+              pos_device_id:
+                type: [string, 'null']
+                format: uuid
+              user_agent:
+                type: [string, 'null']
+              active:
+                type: boolean
+    SessionRevokeResponse:
+      type: object
+      required: [session_id, revoked]
+      additionalProperties: false
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        revoked:
+          type: boolean
+    AuditLogList:
+      type: object
+      required: [items, next_cursor]
+      additionalProperties: false
+      properties:
+        next_cursor:
+          type: [string, 'null']
+          format: uuid
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, at, action, resource_type, resource_id, actor_id, actor_type, reason, before, after, request_id]
+            additionalProperties: false
+            properties:
+              id:
+                type: string
+                format: uuid
+              at:
+                type: string
+                format: date-time
+              action:
+                type: string
+              resource_type:
+                type: string
+              resource_id:
+                type: [string, 'null']
+              actor_id:
+                type: [string, 'null']
+                format: uuid
+              actor_type:
+                type: [string, 'null']
+              reason:
+                type: [string, 'null']
+              before: {}
+              after: {}
+              request_id:
+                type: [string, 'null']
     AuthOtpRequest:
       type: object
       required: [phone]

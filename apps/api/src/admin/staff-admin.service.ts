@@ -250,7 +250,8 @@ export class StaffAdminService {
 
   async assignRole(b: { user_id: string } & RoleSpec) {
     const p = this.principal();
-    if (b.user_id === p.userId) throw new AppError('ACTION_FORBIDDEN', 'Không tự gán vai trò cho chính mình');
+    if (b.user_id.toLowerCase() === p.userId)
+      throw new AppError('ACTION_FORBIDDEN', 'Không tự gán vai trò cho chính mình');
     const scope = await this.assertAssignable(b, 'role:assign');
     // người nhận phải là nhân viên người gọi được quản lý (cửa hàng trưởng: nhân viên chỉ có vai trò trong phạm vi mình)
     await this.managed(b.user_id, 'role:assign', true);

@@ -138,7 +138,16 @@ export class AuthService {
         failResult: 'BAD_CREDENTIALS',
         dummy: async () => void (await verifySecret(await dummyHash(), password)),
       },
-      () => verifySecret(hash, password),
+      async () => {
+        // G4 (lát 6/8): đọc LẠI mã băm mật khẩu trong transaction đang giữ khóa `auth:<id>` — bản đọc trước khi chờ suất
+        // Argon có thể đã cũ (Master vừa reset/khóa); đổi ⇒ coi như sai (cùng thời gian nhờ Argon giả)
+        const cur = await this.tx.user.findUnique({ where: { id: user.id }, select: { passwordHash: true } });
+        if (!cur?.passwordHash || cur.passwordHash !== hash) {
+          await verifySecret(await dummyHash(), password);
+          return false;
+        }
+        return verifySecret(hash, password);
+      },
       async () => {
         // mật khẩu đúng KHÔNG xóa bộ đếm sai khi đã bật 2FA: chỉ đăng nhập trọn vẹn mới xóa (chặn dò mã 2FA vô hạn)
         if (user.totpEnabledAt) {
@@ -176,9 +185,15 @@ export class AuthService {
         argon: false,
         failResult: 'BAD_TOTP',
       },
-      () => {
-        step = totpStep(this.totpSecret(user), code, user.totpLastStep);
-        return Promise.resolve(step !== undefined);
+      async () => {
+        // G4: secret 2FA đọc LẠI trong transaction giữ khóa — Master vừa reset 2FA ⇒ challenge cũ không dùng được nữa
+        const cur = (await this.tx.user.findUnique({
+          where: { id: user.id },
+          select: USER_AUTH_SELECT,
+        })) as UserAuthRow | null;
+        if (!cur?.totpEnabledAt || !cur.totpSecretEnc) return false;
+        step = totpStep(this.totpSecret(cur), code, cur.totpLastStep);
+        return step !== undefined;
       },
       async () => {
         await this.consumeChallenge(ch.id);

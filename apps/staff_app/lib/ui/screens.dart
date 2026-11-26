@@ -307,8 +307,8 @@ class _PinScreenState extends State<PinScreen> {
           onPressed: c.busy ? null : _submit,
           child: Text(c.busy ? 'Đang kiểm tra…' : 'Đăng nhập'),
         ),
-        const SizedBox(height: 8),
-        _ReRegisterButton(c: c),
+        // KHÔNG có nút đăng ký lại ở đây (review lát 9 lần 2): màn PIN là màn mặc định của quầy — ai đứng quầy cũng xóa
+        // được khóa máy. Máy chưa kích hoạt/không có trên server ⇒ /auth/pin trả DEVICE_NOT_ACTIVATED ⇒ màn chờ có nút.
       ],
     );
   }
@@ -343,7 +343,7 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() => _check = 'Kết nối tốt — $n phiên đang mở của bạn.');
       }
     } on ApiException catch (e) {
-      if (e.sessionEnded || e.deviceGone || e.code == 'CLOCK_SKEW') {
+      if (e.sessionEnded || e.deviceGone) {
         c.sessionLost(e);
         return;
       }

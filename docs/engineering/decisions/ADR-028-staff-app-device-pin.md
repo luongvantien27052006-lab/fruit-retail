@@ -65,6 +65,20 @@
   - DPAPI khóa theo TÀI KHOẢN Windows: tiến trình khác chạy cùng tài khoản đọc được seed. Máy quầy nên chạy tài khoản Windows
     riêng, không quyền admin, không cài phần mềm lạ (ghi vào hướng dẫn lắp máy CP07).
 
+## Sửa theo kiểm thử flutter-reviewer lần 2 (176605f)
+- TB (hồi quy): ngưỡng lệch đồng hồ 60 s < cửa sổ server ±120 s ⇒ MỌI 401 thành CLOCK_SKEW (không refresh, che sai PIN). Sửa:
+  mã lỗi giữ nguyên; `ApiException.skew` đo từ header Date; chỉ khi lệch > 120 s (`clockSkewed`) thông điệp mới đổi thành
+  "chỉnh ngày giờ" — luồng refresh không đổi.
+- TB: nút "Đăng ký lại máy" ở màn PIN cho phép ai đứng quầy xóa khóa ⇒ BỎ khỏi màn PIN; chỉ còn ở màn chờ kích hoạt (máy lạ /
+  chưa kích hoạt ⇒ `/auth/pin` trả DEVICE_NOT_ACTIVATED ⇒ vào màn chờ) và màn thu hồi.
+- Thấp: lỗi kết nối TRƯỚC khi gửi (từ chối kết nối, DNS, TLS) ⇒ `maybeDelivered=false` ⇒ đăng ký KHÔNG lưu khóa, mã ghi danh
+  cũ dùng lại được; chỉ timeout/mất phản hồi mới lưu khóa + mã ghép tại máy.
+- Thấp: `logout` không refresh (`refreshOnExpiry: false`); `sessionLost` chỉ logout best-effort khi lệch giờ (phiên có thể
+  còn sống) — không phát thêm REFRESH_REUSE.
+- Thấp: `resetDevice` bắt lỗi kho bảo mật và báo.
+- Ghi chú cho CP07: bàn phím ảo Android không sinh KeyEvent — ô nhập ở màn nghiệp vụ phải gọi `touch()` trong `onChanged`.
+- Test 36/36; chạy thật Windows pass.
+
 ## Hệ quả
 - Gói mới (staff_app):
   - `flutter_secure_storage` 11.2.0. Máy **build** Windows cần thành phần "C++ ATL" của VS Build Tools; máy quầy chạy

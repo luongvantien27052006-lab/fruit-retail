@@ -10,10 +10,32 @@ import 'device_proof.dart';
 
 /// Lỗi API theo envelope §13.1 `{code, message}`; lỗi mạng ⇒ code `NETWORK`.
 class ApiException implements Exception {
-  ApiException(this.status, this.code, this.message);
+  ApiException(
+    this.status,
+    this.code,
+    String message, {
+    this.skew,
+    this.maybeDelivered = true,
+  }) : _message = message;
   final int status;
   final String code;
-  final String message;
+  final String _message;
+
+  /// lệch đồng hồ máy ↔ server (theo header Date của phản hồi 401); null khi không đo được
+  final Duration? skew;
+
+  /// lỗi mạng: request CÓ THỂ đã tới server (timeout/mất phản hồi). false = chắc chắn chưa gửi được (DNS, từ chối kết
+  /// nối, TLS) — đăng ký máy thử lại an toàn với cùng mã ghi danh
+  final bool maybeDelivered;
+
+  /// lệch vượt cửa sổ chữ ký của server (±120 s) ⇒ lỗi 401 là DO đồng hồ (review lát 9 lần 2: dưới ngưỡng này chữ ký vẫn
+  /// hợp lệ, không được che lỗi thật như sai PIN / access hết hạn)
+  static const proofWindow = Duration(seconds: 120);
+  bool get clockSkewed => status == 401 && skew != null && skew! > proofWindow;
+
+  String get message => clockSkewed
+      ? 'Đồng hồ máy lệch khoảng ${(skew!.inSeconds / 60).ceil()} phút so với máy chủ — chỉnh lại ngày giờ của máy rồi thử lại'
+      : _message;
 
   bool get deviceGone => code == 'DEVICE_REVOKED';
   bool get notActivated => code == 'DEVICE_NOT_ACTIVATED';
@@ -72,8 +94,15 @@ class ApiClient {
   final Clock clock;
   final Duration timeout;
 
-  /// lệch đồng hồ máy so với server quá mức này ⇒ chữ ký thiết bị bị từ chối (server ±120 s) — báo rõ cho người dùng
-  static const clockSkewWarn = Duration(seconds: 60);
+  /// Lỗi xảy ra TRƯỚC khi gửi được request (dart:io SocketException/OSError khi kết nối, DNS).
+  static bool _beforeSend(String m) {
+    final s = m.toLowerCase();
+    return s.contains('connection refused') ||
+        s.contains('failed host lookup') ||
+        s.contains('no route to host') ||
+        s.contains('network is unreachable') ||
+        s.contains('handshake');
+  }
 
   Uri _u(String path) => base.replace(path: '${base.path}/v1$path');
 
@@ -96,16 +125,18 @@ class ApiClient {
     try {
       r = await run().timeout(timeout);
     } on TimeoutException {
+      // đã gửi, chờ quá lâu ⇒ server có thể đã xử lý
       throw ApiException(
         0,
         'NETWORK',
         'Máy chủ không phản hồi — kiểm tra mạng rồi thử lại',
       );
-    } on http.ClientException {
+    } on http.ClientException catch (e) {
       throw ApiException(
         0,
         'NETWORK',
         'Không kết nối được máy chủ — kiểm tra mạng rồi thử lại',
+        maybeDelivered: !_beforeSend(e.message),
       );
     } on IOException {
       // HandshakeException/TlsException (chứng chỉ sai, Wi-Fi có cổng đăng nhập), SocketException… — IOClient chỉ bọc
@@ -114,6 +145,7 @@ class ApiClient {
         0,
         'NETWORK',
         'Lỗi kết nối bảo mật tới máy chủ — kiểm tra mạng/Wi-Fi rồi thử lại',
+        maybeDelivered: false, // TLS/handshake: chưa gửi được thân request
       );
     }
     Map<String, dynamic> body = const {};
@@ -130,19 +162,13 @@ class ApiClient {
       }
     }
     if (r.statusCode >= 200 && r.statusCode < 300) return body;
+    Duration? skew;
     if (r.statusCode == 401) {
-      // chữ ký thiết bị bị từ chối vì đồng hồ máy lệch ⇒ nói đúng lý do (thông điệp chung của server không chỉ ra)
+      // đo lệch đồng hồ để nói đúng lý do khi chữ ký bị từ chối vì giờ máy (mã lỗi GIỮ NGUYÊN — luồng refresh không đổi)
       final date = r.headers['date'];
       if (date != null) {
         try {
-          final skew = clock().toUtc().difference(HttpDate.parse(date)).abs();
-          if (skew > clockSkewWarn) {
-            throw ApiException(
-              401,
-              'CLOCK_SKEW',
-              'Đồng hồ máy lệch ${skew.inMinutes} phút so với máy chủ — chỉnh lại ngày giờ của máy rồi thử lại',
-            );
-          }
+          skew = clock().toUtc().difference(HttpDate.parse(date)).abs();
         } on FormatException {
           // header Date lạ — bỏ qua
         }
@@ -154,6 +180,7 @@ class ApiClient {
       body['message'] is String
           ? body['message'] as String
           : 'Có lỗi xảy ra (HTTP ${r.statusCode})',
+      skew: skew,
     );
   }
 
@@ -269,6 +296,7 @@ class ApiClient {
     String method,
     String path, {
     Object? body,
+    bool refreshOnExpiry = true,
   }) async {
     final idem = method != 'GET';
     final key = idem ? const Uuid().v4() : null;
@@ -284,7 +312,8 @@ class ApiClient {
     try {
       return await once();
     } on ApiException catch (e) {
-      if (e.status != 401 || e.code != 'AUTHENTICATION_REQUIRED') rethrow;
+      final expired = e.status == 401 && e.code == 'AUTHENTICATION_REQUIRED';
+      if (!refreshOnExpiry || !expired) rethrow;
       // một lời gọi khác đã làm mới xong trong lúc request này bay ⇒ chỉ gọi lại bằng access mới, không refresh nữa
       if (s.access == sent) await _refresh(id, s);
       return once();
@@ -300,6 +329,8 @@ class ApiClient {
         'POST',
         '/auth/logout',
         body: const <String, Object>{},
+        // phiên chết thì refresh token cũng vô dụng — không refresh (tránh REFRESH_REUSE / tốn nonce)
+        refreshOnExpiry: false,
       );
     } on ApiException {
       // phiên hết hạn / mất mạng — access tự hết hạn sau 15 phút, refresh không còn trong bộ nhớ

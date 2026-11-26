@@ -91,7 +91,8 @@ class AppController extends ChangeNotifier {
       stage = Stage.pending;
     } on ApiException catch (e) {
       // server từ chối rõ ràng ⇒ không lưu khóa
-      if (e.code != 'NETWORK') rethrow;
+      // chắc chắn chưa tới server (DNS, từ chối kết nối, TLS) ⇒ không lưu, mã ghi danh cũ vẫn dùng được
+      if (e.code != 'NETWORK' || !e.maybeDelivered) rethrow;
       // Mất phản hồi: server CÓ THỂ đã nhận (mã ghi danh đã bị tiêu, gửi lại sẽ bị từ chối). Giữ khóa + mã ghép tính tại
       // máy để quản lý kích hoạt nếu máy đã vào hàng chờ; nếu không thấy, "Đăng ký lại máy" với mã mới.
       identity = id.withPairingCode(await id.localPairingCode());
@@ -164,21 +165,19 @@ class AppController extends ChangeNotifier {
   void sessionLost(ApiException e) {
     final id = identity;
     final s = session;
-    // thu hồi phía server nếu còn sống (best-effort) — vd refresh bị từ chối do lệch đồng hồ
-    if (id != null && s != null && !e.deviceGone) unawaited(api.logout(id, s));
+    // chỉ khi phiên CÓ THỂ còn sống ở server (chữ ký bị từ chối vì lệch giờ): thu hồi best-effort, không refresh
+    if (id != null && s != null && e.clockSkewed) unawaited(api.logout(id, s));
     if (e.deviceGone) {
       _idle?.cancel();
       session = null;
       stage = Stage.revoked;
       error = e.message;
       notifyListeners();
-    } else if (e.sessionEnded || e.code == 'CLOCK_SKEW') {
+    } else if (e.sessionEnded) {
       _idle?.cancel();
       session = null;
       stage = Stage.pin;
-      error = e.code == 'CLOCK_SKEW'
-          ? e.message
-          : 'Phiên đã hết — nhập PIN lại.';
+      error = e.clockSkewed ? e.message : 'Phiên đã hết — nhập PIN lại.';
       notifyListeners();
     }
   }
@@ -187,7 +186,14 @@ class AppController extends ChangeNotifier {
   Future<void> resetDevice() async {
     _idle?.cancel();
     session = null;
-    await store.clear();
+    try {
+      await store.clear();
+    } catch (_) {
+      error =
+          'Không xóa được khóa cũ trong kho bảo mật — thử lại; nếu lặp lại, báo quản trị.';
+      notifyListeners();
+      return;
+    }
     identity = null;
     error = null;
     stage = Stage.setup;

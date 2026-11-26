@@ -128,17 +128,95 @@ void main() {
     },
   );
 
-  test('đồng hồ máy lệch > 60 s ⇒ lỗi CLOCK_SKEW nói rõ lý do', () async {
-    final skewed = ApiClient(
-      base: Uri.parse('http://localhost:8080'),
-      client: fake.client(),
-      clock: () => DateTime.now().add(const Duration(minutes: 5)),
-    );
-    await expectLater(
-      skewed.register(id, 'ABCDEFGH2345', 'windows'),
-      throwsA(isA<ApiException>().having((e) => e.code, 'code', 'CLOCK_SKEW')),
-    );
-  });
+  test(
+    'lệch > 120 s ⇒ lỗi 401 mang skew, thông điệp nói rõ chỉnh giờ (mã lỗi giữ nguyên)',
+    () async {
+      final skewed = ApiClient(
+        base: Uri.parse('http://localhost:8080'),
+        client: fake.client(),
+        clock: () => DateTime.now().add(const Duration(minutes: 5)),
+      );
+      await expectLater(
+        skewed.register(id, 'ABCDEFGH2345', 'windows'),
+        throwsA(
+          isA<ApiException>()
+              .having((e) => e.clockSkewed, 'clockSkewed', true)
+              .having((e) => e.code, 'code', 'AUTHENTICATION_REQUIRED')
+              .having(
+                (e) => e.message,
+                'message',
+                contains('Đồng hồ máy lệch khoảng 5 phút'),
+              ),
+        ),
+      );
+    },
+  );
+
+  test(
+    'lệch 90 s (trong cửa sổ ±120 s): refresh vẫn chạy, sai PIN vẫn báo sai PIN (review lát 9 lần 2)',
+    () async {
+      final skewed = ApiClient(
+        base: Uri.parse('http://localhost:8080'),
+        client: fake.client(),
+        clock: () => DateTime.now().add(const Duration(seconds: 90)),
+      );
+      await skewed.register(id, 'ABCDEFGH2345', 'windows');
+      fake.deviceStatus = 'ACTIVE';
+      await expectLater(
+        skewed.pinLogin(id, 'NV01', '000000'),
+        throwsA(
+          isA<ApiException>()
+              .having((e) => e.clockSkewed, 'clockSkewed', false)
+              .having((e) => e.message, 'message', 'Sai mã nhân viên hoặc PIN'),
+        ),
+      );
+      final s = await skewed.pinLogin(id, 'NV01', '246813');
+      fake.validAccess = 'het-han';
+      await skewed.authed(id, s, 'GET', '/auth/sessions');
+      expect(fake.refreshCount, 1);
+    },
+  );
+
+  test(
+    'lỗi kết nối trước khi gửi ⇒ maybeDelivered=false; timeout/mất phản hồi ⇒ true',
+    () async {
+      fake.failConnect = true;
+      await expectLater(
+        api.register(id, 'ABCDEFGH2345', 'windows'),
+        throwsA(
+          isA<ApiException>().having(
+            (e) => e.maybeDelivered,
+            'maybeDelivered',
+            false,
+          ),
+        ),
+      );
+      fake.failConnect = false;
+      fake.failNetwork = true;
+      await expectLater(
+        api.register(id, 'ABCDEFGH2345', 'windows'),
+        throwsA(
+          isA<ApiException>().having(
+            (e) => e.maybeDelivered,
+            'maybeDelivered',
+            true,
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
+    'đăng xuất khi access hết hạn KHÔNG refresh (phiên chết — tránh REFRESH_REUSE)',
+    () async {
+      await api.register(id, 'ABCDEFGH2345', 'windows');
+      fake.deviceStatus = 'ACTIVE';
+      final s = await api.pinLogin(id, 'NV01', '246813');
+      fake.validAccess = 'het-han';
+      await api.logout(id, s);
+      expect(fake.refreshCount, 0);
+    },
+  );
 
   test(
     'nonce dùng lại / X-Device-Id lạ bị từ chối (FakeApi kiểm như server)',

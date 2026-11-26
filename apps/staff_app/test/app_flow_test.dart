@@ -309,6 +309,54 @@ void main() {
     );
     expect(find.textContaining('Cấu hình sai'), findsOneWidget);
   });
+
+  testWidgets(
+    'đăng ký bị từ chối kết nối (chưa tới server) ⇒ KHÔNG lưu khóa, báo lỗi, mã cũ dùng lại được',
+    (t) async {
+      await start(t);
+      fake.failConnect = true;
+      await register(t);
+      expect(store.value, isNull);
+      expect(find.byKey(const Key('error')), findsOneWidget);
+      fake.failConnect = false;
+      await t.tap(find.byKey(const Key('register')));
+      await t.pumpAndSettle();
+      expect(find.text('ABCDE-FGHIJ'), findsOneWidget);
+    },
+  );
+
+  testWidgets('màn PIN KHÔNG có nút đăng ký lại (ai đứng quầy cũng bấm được)', (
+    t,
+  ) async {
+    store.value = await DeviceIdentity.generate(
+      mode: StaffMode.counter,
+      name: 'Quầy 3',
+    );
+    await start(t);
+    expect(find.text('Đăng nhập nhân viên'), findsOneWidget);
+    expect(find.byKey(const Key('re_register')), findsNothing);
+  });
+
+  testWidgets(
+    'phiên bị thu hồi ⇒ về màn PIN, không phát thêm refresh khi đăng xuất',
+    (t) async {
+      await start(t);
+      await register(t);
+      fake.deviceStatus = 'ACTIVE';
+      await t.tap(find.byKey(const Key('to_pin')));
+      await t.pumpAndSettle();
+      await pin(t, 'NV01', '246813');
+      fake.validAccess = 'het';
+      fake.usedRefresh.add(fake.validRefresh);
+      await t.tap(find.byKey(const Key('ping')));
+      await t.pumpAndSettle();
+      expect(find.text('Đăng nhập nhân viên'), findsOneWidget);
+      expect(
+        fake.refreshCount,
+        1,
+      ); // chỉ lượt refresh của ping; sessionLost không gọi thêm
+    },
+  );
 }
 
 class _BrokenStore extends MemoryDeviceStore {

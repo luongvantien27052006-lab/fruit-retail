@@ -18,6 +18,9 @@ class FakeApi {
   int refreshCount = 0;
   int tokenSeq = 1;
   bool failNetwork = false;
+
+  /// lỗi kết nối TRƯỚC khi gửi (giống dart:io khi server từ chối kết nối)
+  bool failConnect = false;
   Duration refreshDelay = Duration.zero;
   final usedRefresh = <String>{};
   bool reuseDetected = false;
@@ -77,6 +80,11 @@ class FakeApi {
   }
 
   MockClient client() => MockClient((req) async {
+    if (failConnect) {
+      throw http.ClientException(
+        'SocketException: Connection refused (OS Error: errno = 1225)',
+      );
+    }
     if (failNetwork) throw http.ClientException('mất mạng');
     final path = req.url.path;
     calls.add('${req.method} $path');

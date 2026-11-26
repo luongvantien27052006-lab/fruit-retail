@@ -55,3 +55,5 @@
 | 2026-11-27 | CP03 | Lát 8a kiểm thử security lần 2 (486f31f): còn L2' (Thấp: PATCH /admin/staff lấy khóa đăng nhập trước khi kiểm phạm vi) — đã sửa. 168/168. |
 | 2026-11-27 | CP03 | Lát 8a SẠCH sau 3 vòng security-reviewer (1aedfb4). 168/168. Tiếp 8b (admin web Next.js). |
 | 2026-11-27 | CP03 | Tiến duyệt NC-22 (POST /auth/password, mật khẩu tạm phải đổi, tài khoản chưa kích hoạt hết hạn 72 giờ). Đã làm: migration 0007, route, test. 169/169. Chờ kiểm thử agent. |
+| 2026-11-27 | CP03 | NC-22 kiểm thử lần 1 CÒN LỖI (Thấp ×3) → sửa (7170240) → lần 2 SẠCH. |
+| 2026-11-27 | CP03 | Lát 8b xong code: admin web BFF + CSP nonce + màn A01/A11/A15/A15+/A17 (ADR-027). E2E Playwright 8/8, API 169/169. Chờ kiểm thử agent. |

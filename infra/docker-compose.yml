@@ -128,6 +128,12 @@ services:
     <<: *hardening
     build: { context: .., dockerfile: apps/admin-web/Dockerfile }
     image: fruit-retail/admin-web:${IMAGE_TAG:-local}
+    environment:
+      # BFF gọi API qua mạng nội bộ; ADMIN_ORIGIN dùng kiểm Origin chống CSRF (ADR-027)
+      API_INTERNAL_URL: http://api:3000
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN:-http://localhost:8080}
+    depends_on:
+      api: { condition: service_healthy }
     restart: unless-stopped
 
   caddy:

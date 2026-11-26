@@ -79,6 +79,12 @@
 - Ghi chú cho CP07: bàn phím ảo Android không sinh KeyEvent — ô nhập ở màn nghiệp vụ phải gọi `touch()` trong `onChanged`.
 - Test 36/36; chạy thật Windows pass.
 
+## Sửa theo kiểm thử flutter-reviewer lần 3 (b583b1f)
+- Thấp: `maybeDelivered` so chuỗi "connection refused" — trên Windows dart:io báo "The remote computer refused the network
+  connection" (1225) ⇒ phân loại sai. Sửa: theo MÃ lỗi OS (Windows 1225/10061/10065/11001…, POSIX 111/113/101…), DNS theo
+  chuỗi do Dart sinh, TLS luôn là chưa gửi. Test dùng `IOClient` THẬT tới cổng đóng + bảng mã; FakeApi ném SocketException
+  đúng như Windows. 38/38.
+
 ## Hệ quả
 - Gói mới (staff_app):
   - `flutter_secure_storage` 11.2.0. Máy **build** Windows cần thành phần "C++ ATL" của VS Build Tools; máy quầy chạy

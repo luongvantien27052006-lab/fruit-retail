@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show HttpDate;
+import 'dart:io' show HttpDate, OSError, SocketException;
 
 import 'package:cryptography/cryptography.dart';
 import 'package:http/http.dart' as http;
@@ -81,8 +81,13 @@ class FakeApi {
 
   MockClient client() => MockClient((req) async {
     if (failConnect) {
-      throw http.ClientException(
-        'SocketException: Connection refused (OS Error: errno = 1225)',
+      // đúng như dart:io trên Windows (thông điệp KHÔNG chứa "connection refused")
+      throw const SocketException(
+        'The remote computer refused the network connection',
+        osError: OSError(
+          'The remote computer refused the network connection',
+          1225,
+        ),
       );
     }
     if (failNetwork) throw http.ClientException('mất mạng');

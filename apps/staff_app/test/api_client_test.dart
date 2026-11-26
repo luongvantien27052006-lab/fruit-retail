@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:staff_app/core/api_client.dart';
 import 'package:staff_app/core/device_identity.dart';
@@ -234,4 +237,41 @@ void main() {
       );
     },
   );
+
+  test(
+    'IOClient THẬT tới cổng đóng ⇒ maybeDelivered=false (mã OS, không phụ thuộc chuỗi)',
+    () async {
+      final closed = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final port = closed.port;
+      await closed.close(); // cổng giờ đóng ⇒ từ chối kết nối
+      final real = ApiClient(base: Uri.parse('http://127.0.0.1:$port'));
+      await expectLater(
+        real.register(id, 'ABCDEFGH2345', 'windows'),
+        throwsA(
+          isA<ApiException>()
+              .having((e) => e.code, 'code', 'NETWORK')
+              .having((e) => e.maybeDelivered, 'maybeDelivered', false),
+        ),
+      );
+      real.close();
+    },
+  );
+
+  test('phân loại lỗi kết nối theo mã OS (Windows / POSIX) và DNS', () {
+    SocketException sx(int code) =>
+        SocketException('x', osError: OSError('bất kỳ ngôn ngữ', code));
+    for (final c in [1225, 10061, 10065, 11001, 111, 113]) {
+      expect(ApiClient.beforeSend(sx(c)), isTrue, reason: '$c');
+    }
+    expect(
+      ApiClient.beforeSend(sx(10054)),
+      isFalse,
+    ); // connection reset — có thể đã gửi
+    expect(
+      ApiClient.beforeSend(const SocketException('Failed host lookup: x.vn')),
+      isTrue,
+    );
+    expect(ApiClient.beforeSend(const HandshakeException('cert')), isTrue);
+    expect(ApiClient.beforeSend(TimeoutException('t')), isFalse);
+  });
 }

@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show HttpDate, IOException;
+import 'dart:io' show HttpDate, IOException, SocketException, TlsException;
 
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
@@ -94,14 +94,43 @@ class ApiClient {
   final Clock clock;
   final Duration timeout;
 
-  /// Lỗi xảy ra TRƯỚC khi gửi được request (dart:io SocketException/OSError khi kết nối, DNS).
-  static bool _beforeSend(String m) {
-    final s = m.toLowerCase();
-    return s.contains('connection refused') ||
-        s.contains('failed host lookup') ||
-        s.contains('no route to host') ||
-        s.contains('network is unreachable') ||
-        s.contains('handshake');
+  /// Mã lỗi hệ điều hành của lỗi KẾT NỐI (chưa gửi được request). Phân loại theo MÃ, không theo chuỗi: thông điệp của
+  /// Windows khác POSIX và có thể dịch theo ngôn ngữ máy (review lát 9 lần 3 — Windows: "The remote computer refused the
+  /// network connection", 1225).
+  static const _connectErrors = {
+    // Windows
+    1225,
+    1228,
+    1231,
+    1232,
+    10051,
+    10060,
+    10061,
+    10064,
+    10065,
+    11001,
+    11002,
+    11004,
+    // POSIX / Android: ECONNREFUSED, EHOSTUNREACH, ENETUNREACH, ETIMEDOUT(kết nối)
+    111, 113, 101, 110,
+    // macOS/iOS: ECONNREFUSED, EHOSTUNREACH, ENETUNREACH
+    61, 65, 51,
+  };
+
+  /// Lỗi xảy ra TRƯỚC khi gửi được request ⇒ server chắc chắn chưa nhận.
+  static bool beforeSend(Object e) {
+    // HandshakeException/TLS: thân request chưa đi
+    if (e is TlsException) return true;
+    if (e is SocketException) {
+      final code = e.osError?.errorCode;
+      if (code != null && _connectErrors.contains(code)) return true;
+      // DNS: chuỗi do Dart sinh (không phụ thuộc ngôn ngữ OS)
+      return e.message.contains('Failed host lookup');
+    }
+    if (e is http.ClientException) {
+      return e.message.contains('Failed host lookup');
+    }
+    return false;
   }
 
   Uri _u(String path) => base.replace(path: '${base.path}/v1$path');
@@ -132,20 +161,22 @@ class ApiClient {
         'Máy chủ không phản hồi — kiểm tra mạng rồi thử lại',
       );
     } on http.ClientException catch (e) {
+      // IOClient bọc SocketException thành lớp vừa là ClientException vừa là SocketException ⇒ beforeSend đọc được mã OS
       throw ApiException(
         0,
         'NETWORK',
         'Không kết nối được máy chủ — kiểm tra mạng rồi thử lại',
-        maybeDelivered: !_beforeSend(e.message),
+        maybeDelivered: !beforeSend(e),
       );
-    } on IOException {
-      // HandshakeException/TlsException (chứng chỉ sai, Wi-Fi có cổng đăng nhập), SocketException… — IOClient chỉ bọc
-      // một phần; mọi lỗi I/O đều là lỗi mạng với người dùng (review lát 9)
+    } on IOException catch (e) {
+      // TlsException/HandshakeException (chứng chỉ sai, Wi-Fi có cổng đăng nhập), SocketException chưa được bọc…
       throw ApiException(
         0,
         'NETWORK',
-        'Lỗi kết nối bảo mật tới máy chủ — kiểm tra mạng/Wi-Fi rồi thử lại',
-        maybeDelivered: false, // TLS/handshake: chưa gửi được thân request
+        e is TlsException
+            ? 'Lỗi kết nối bảo mật tới máy chủ — kiểm tra mạng/Wi-Fi rồi thử lại'
+            : 'Không kết nối được máy chủ — kiểm tra mạng rồi thử lại',
+        maybeDelivered: !beforeSend(e),
       );
     }
     Map<String, dynamic> body = const {};

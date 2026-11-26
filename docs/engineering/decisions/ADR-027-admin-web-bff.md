@@ -94,6 +94,11 @@
 - E2E 11/11: thêm sai mã ở /enroll (ở lại, secret giữ nguyên), sai mã step-up + Esc hủy + bấm đúp (một tài khoản, không lỗi),
   trang 404 không vi phạm CSP, 375 px không tràn trên 5 trang; e2e từ chối chạy nếu bản build cũ hơn mã nguồn.
 
+## Kiểm thử security lần 3 (9b86a1c): SẠCH
+- Rủi ro chấp nhận (Thấp): đẩy mục cũ nhất có thể đẩy cả mục refresh THÀNH CÔNG của người dùng thật nếu kẻ tấn công chèn
+  ~2000 request trong đúng khe vài ms–1 s giữa lần refresh đầu và request tới muộn (cần >2000 req/s vào admin-web). Siết sau
+  (khi cần): tách bản đồ mục thành công (bị chặn bởi số người dùng thật) hoặc đầy ⇒ 503 cho mục mới thay vì đẩy.
+
 ## Hệ quả
 - Compose: admin-web có `API_INTERNAL_URL=http://api:3000` và `ADMIN_ORIGIN`. Local mặc định là `http://localhost:8080`.
   Staging là `https://${APP_DOMAIN}`.

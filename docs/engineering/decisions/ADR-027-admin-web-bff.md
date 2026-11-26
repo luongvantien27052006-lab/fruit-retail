@@ -1,6 +1,6 @@
 # ADR-027: Trang quản lý Next.js qua BFF — cookie HttpOnly, CSRF, CSP nonce (CP03 lát 8b)
 
-- Trạng thái: proposed (chờ kiểm thử agent) · Ngày: 2026-11-27 · Người quyết: phiên điều phối (CP03 lát 8b)
+- Trạng thái: accepted (kỹ thuật) — security SẠCH lần 3, react SẠCH lần 2 · Ngày: 2026-11-27 · Người quyết: phiên điều phối (CP03 lát 8b)
 - Làm rõ: ADR-012 (token, BFF), ADR-019 (Caddy), ADR-021/026 (đăng nhập Master, NC-22), SEC1–SEC5
 
 ## Quyết định
@@ -98,6 +98,11 @@
 - Rủi ro chấp nhận (Thấp): đẩy mục cũ nhất có thể đẩy cả mục refresh THÀNH CÔNG của người dùng thật nếu kẻ tấn công chèn
   ~2000 request trong đúng khe vài ms–1 s giữa lần refresh đầu và request tới muộn (cần >2000 req/s vào admin-web). Siết sau
   (khi cần): tách bản đồ mục thành công (bị chặn bởi số người dùng thật) hoặc đầy ⇒ 503 cho mục mới thay vì đẩy.
+
+## Kiểm thử react lần 2 (9b86a1c): SẠCH
+- Còn Thấp (không chặn, làm khi đụng lại màn hình): hộp step-up hủy rồi mở lại còn giữ mã cũ trong ô (reset form khi mở);
+  `.next/server/app/_global-error.html` do Next tự sinh có style inline (chỉ dùng cho static export, `next start` không phục
+  vụ — kiểm lại khi nâng Next); e2e nên thêm kịch bản phiên bị thu hồi ⇒ về /login và menu Viewer (CP12).
 
 ## Hệ quả
 - Compose: admin-web có `API_INTERNAL_URL=http://api:3000` và `ADMIN_ORIGIN`. Local mặc định là `http://localhost:8080`.

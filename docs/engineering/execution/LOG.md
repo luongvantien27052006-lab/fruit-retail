@@ -57,3 +57,4 @@
 | 2026-11-27 | CP03 | Tiến duyệt NC-22 (POST /auth/password, mật khẩu tạm phải đổi, tài khoản chưa kích hoạt hết hạn 72 giờ). Đã làm: migration 0007, route, test. 169/169. Chờ kiểm thử agent. |
 | 2026-11-27 | CP03 | NC-22 kiểm thử lần 1 CÒN LỖI (Thấp ×3) → sửa (7170240) → lần 2 SẠCH. |
 | 2026-11-27 | CP03 | Lát 8b xong code: admin web BFF + CSP nonce + màn A01/A11/A15/A15+/A17 (ADR-027). E2E Playwright 8/8, API 169/169. Chờ kiểm thử agent. |
+| 2026-11-27 | CP03 | Lát 8b: security 3 vòng (CÒN LỖI → CÒN LỖI → SẠCH), react 2 vòng (CÒN LỖI → SẠCH). E2E 11/11. Lát 8 đóng. |

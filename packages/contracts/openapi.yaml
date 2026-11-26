@@ -8883,7 +8883,7 @@ components:
       description: |
         Chữ ký thiết bị POS (SEC3, ADR-022). Thông điệp ký (UTF-8, nối bằng "\n"):
         `fruit-device-proof/v1`, mục đích (`register` | `pin` | `refresh`), X-Device-Id (chữ thường), `ts`, `nonce`, ràng buộc.
-        Ràng buộc: register = `store_code` + "\n" + `public_key`; pin = mã NV đã chuẩn hóa (trim, chữ HOA);
+        Ràng buộc: register = mã ghi danh dạng chuẩn (chữ HOA, bỏ gạch) + "\n" + `public_key`; pin = mã NV đã chuẩn hóa (NFC, trim, chữ HOA);
         refresh = base64url(SHA-256(refresh_token)). `ts` lệch đồng hồ server quá 120 s ⇒ 401; nonce dùng lại ⇒ 401.
       required: [ts, nonce, signature]
       additionalProperties: false

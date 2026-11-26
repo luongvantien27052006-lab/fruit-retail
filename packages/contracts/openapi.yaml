@@ -527,7 +527,7 @@ paths:
       tags: [auth]
       summary: 'Đổi mật khẩu (Master/Viewer) — mật khẩu tạm phải đổi trước khi đăng ký 2FA'
       description: >-
-        Mật khẩu hiện tại sai ⇒ 401 OTP_INVALID và tính một lần sai (khóa SEC5). Mật khẩu mới 12–256 ký tự, khác mật khẩu cũ, không
+        Mật khẩu hiện tại sai ⇒ 422 CURRENT_PASSWORD_INVALID và tính một lần sai (khóa SEC5). Mật khẩu tạm quá 72 giờ ⇒ 403 ACTION_FORBIDDEN (nhờ Master cấp lại); refresh phiên đó ⇒ 401 SESSION_REVOKED. Thành công cũng vô hiệu mọi mfa_challenge còn treo. Mật khẩu mới 12–256 ký tự, khác mật khẩu cũ, không
         chứa tên email. Thành công ⇒ thu hồi mọi phiên KHÁC của tài khoản. Đi được khi phiên chưa có 2FA (ENROLLMENT_REQUIRED).
       x-permission: 'auth:*'
       x-spec-ref: '§2.4'
@@ -556,6 +556,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '503':
@@ -9698,6 +9700,7 @@ components:
         - IMPORT_VALIDATION_FAILED
         - TWO_FACTOR_ENROLLMENT_REQUIRED
         - PASSWORD_CHANGE_REQUIRED
+        - CURRENT_PASSWORD_INVALID
         - SESSION_REVOKED
         - DEVICE_REVOKED
         - LAST_MASTER_REQUIRED
@@ -9747,6 +9750,7 @@ components:
         IMPORT_VALIDATION_FAILED: 422
         TWO_FACTOR_ENROLLMENT_REQUIRED: 403
         PASSWORD_CHANGE_REQUIRED: 403
+        CURRENT_PASSWORD_INVALID: 422
         SESSION_REVOKED: 401
         DEVICE_REVOKED: 403
         LAST_MASTER_REQUIRED: 422

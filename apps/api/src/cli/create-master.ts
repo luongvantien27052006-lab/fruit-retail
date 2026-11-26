@@ -15,7 +15,8 @@ export interface CreatedMaster {
 
 /**
  * Tạo tài khoản Master (§2.1 — tối thiểu 2 tài khoản; CP03 "Việc của Tiến"). Chạy MỘT lần trên máy chủ bằng role
- * app_rw. Tài khoản mới chưa có 2FA ⇒ lần đăng nhập đầu chỉ gọi được route đăng ký 2FA (AccessGuard). Ghi audit.logs
+ * app_rw. Tài khoản mới mang mật khẩu tạm (NC-22): lần đăng nhập đầu phải đổi mật khẩu (/auth/password) rồi mới đăng ký 2FA
+ * (AccessGuard chỉ mở route đăng ký); quá 72 giờ chưa kích hoạt ⇒ mật khẩu tạm hết hạn. Ghi audit.logs
  * cùng transaction. Email đã tồn tại ⇒ lỗi (không ghi đè).
  */
 export async function createMaster(
@@ -66,10 +67,10 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   const r = await createMaster(url, email);
-  // stdout của người chạy lệnh — KHÔNG ghi log/file. Đổi qua đăng ký 2FA ngay ở lần đăng nhập đầu.
+  // stdout của người chạy lệnh — KHÔNG ghi log/file.
   console.log(`Đã tạo Master ${r.email} (id ${r.userId}).`);
   console.log(`Mật khẩu tạm (chỉ hiện một lần, lưu vào trình quản lý mật khẩu): ${r.password}`);
-  console.log('Lần đăng nhập đầu: bắt buộc đăng ký 2FA (Authenticator) và cất 10 mã khôi phục.');
+  console.log('Lần đăng nhập đầu (trong 72 giờ): đổi mật khẩu, rồi đăng ký 2FA (Authenticator) và cất 10 mã khôi phục.');
 }
 
 if (typeof require !== 'undefined' && require.main === module) {

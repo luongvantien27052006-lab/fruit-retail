@@ -60,6 +60,15 @@ chưa có test riêng "không giữ khóa `auth:`" cho L2/L2'.
 - Cờ còn bật ⇒ `/auth/2fa/setup`, `/confirm` (và bước bật 2FA) trả 403 `PASSWORD_CHANGE_REQUIRED`; `/auth/login` trả
   `password_change_required`. Cờ còn bật + chưa có 2FA + tạo quá 72 giờ ⇒ đăng nhập 401 chung (tài khoản chưa kích hoạt hết hạn).
 
+### NC-22 — sửa theo kiểm thử security lần 1 (ae8db56)
+- L1: phiên lấy bằng mật khẩu tạm không kéo dài được hạn 72 giờ — `changePassword` kiểm `tempPasswordExpired` dưới khóa (403
+  ACTION_FORBIDDEN) và `refresh` từ chối (401 SESSION_REVOKED).
+- L2: đổi mật khẩu thành công đánh dấu dùng mọi `auth_challenges` MFA còn treo của tài khoản (challenge phát bằng mật khẩu cũ chết).
+- L3: sai mật khẩu hiện tại ⇒ 422 `CURRENT_PASSWORD_INVALID` (mã lỗi mới, chỉ nhánh sai — khóa vẫn ACCOUNT_LOCKED) để client
+  không nhầm với phiên hết hạn (401).
+- Ghi nhận: chưa có route cấp lại mật khẩu tạm — tài khoản quá 72 giờ chưa kích hoạt phải được Master xử lý (hoãn, ghi STATUS).
+  Thông điệp CLI cập nhật bước đổi mật khẩu.
+
 ## Hệ quả
 - Không migration. OpenAPI: schema `AdminAccountCreate*`, `ReasonRequest`, `UserLock/UnlockResponse`,
   `TwoFactorResetResponse`, `AdminSessionList`, `SessionRevokeResponse`, `AuditLogList`; `x-scope` cho lock, `x-master-only`

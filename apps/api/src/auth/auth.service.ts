@@ -31,6 +31,11 @@ import {
 const RECOVERY_CODES = 10;
 /** NC-22: mật khẩu tạm chưa đổi — tài khoản chưa kích hoạt quá 72 giờ không đăng nhập được */
 export const TEMP_PASSWORD_TTL_S = 72 * 3600;
+
+/** NC-22: mật khẩu tạm chưa đổi (và chưa có 2FA) quá 72 giờ kể từ lúc tạo tài khoản */
+export function tempPasswordExpired(u: { mustChangePassword: boolean; totpEnabledAt: Date | null; createdAt: Date }): boolean {
+  return u.mustChangePassword && !u.totpEnabledAt && u.createdAt.getTime() < Date.now() - TEMP_PASSWORD_TTL_S * 1000;
+}
 /** mật khẩu mới: 12–256 ký tự (người dùng tự chọn; Argon2id hồ sơ PASSWORD) */
 export const PASSWORD_MIN = 12;
 const TOTP_ISSUER = 'Fruit Retail';
@@ -162,10 +167,7 @@ export class AuthService {
         totpEnabledNow = cur?.totpEnabledAt ?? null;
         mustChangeNow = cur?.mustChangePassword ?? false;
         // NC-22: mật khẩu tạm chưa đổi quá 72 giờ (tài khoản chưa kích hoạt) ⇒ không đăng nhập được (cùng lỗi 401)
-        const expired =
-          !!cur?.mustChangePassword &&
-          !cur.totpEnabledAt &&
-          cur.createdAt.getTime() < Date.now() - TEMP_PASSWORD_TTL_S * 1000;
+        const expired = !!cur && tempPasswordExpired(cur);
         if (!cur?.passwordHash || cur.passwordHash !== hash || expired) {
           await verifySecret(await dummyHash(), password);
           return false;
@@ -300,7 +302,7 @@ export class AuthService {
             expiresAt: true,
             revokedAt: true,
             posDeviceId: true,
-            user: { select: { status: true } },
+            user: { select: { status: true, mustChangePassword: true, totpEnabledAt: true, createdAt: true } },
           },
         },
       },
@@ -329,7 +331,7 @@ export class AuthService {
       throw new AppError('SESSION_REVOKED', 'Phiên đã bị thu hồi — đăng nhập lại');
     }
     const now = new Date();
-    if (s.revokedAt || s.expiresAt <= now || s.user.status !== 'ACTIVE')
+    if (s.revokedAt || s.expiresAt <= now || s.user.status !== 'ACTIVE' || tempPasswordExpired(s.user))
       throw new AppError('SESSION_REVOKED', 'Phiên đã hết hạn hoặc bị thu hồi — đăng nhập lại');
     const next = randomToken();
     let reused = false;
@@ -400,11 +402,25 @@ export class AuthService {
     const newHash = await withArgonSlot(`user:${p.userId}`, () => hashSecret(next, ARGON_PROFILES.PASSWORD));
     let hashChecked = '';
     return this.attempts.run(
-      { userId: p.userId, identifierHash: null, argon: true, failResult: 'BAD_CREDENTIALS', slot: `user:${p.userId}` },
+      {
+        userId: p.userId,
+        identifierHash: null,
+        argon: true,
+        failResult: 'BAD_CREDENTIALS',
+        slot: `user:${p.userId}`,
+        failError: () =>
+          new AppError('CURRENT_PASSWORD_INVALID', 'Mật khẩu hiện tại không đúng', { field: 'current_password' }),
+      },
       async () => {
         // đọc lại dưới khóa `auth:<id>` (Master vừa reset/khóa…)
-        const cur = await this.tx.user.findUnique({ where: { id: p.userId }, select: { passwordHash: true } });
+        const cur = await this.tx.user.findUnique({
+          where: { id: p.userId },
+          select: { passwordHash: true, mustChangePassword: true, totpEnabledAt: true, createdAt: true },
+        });
         if (!cur?.passwordHash) return false;
+        // L1 (review NC-22): phiên lấy bằng mật khẩu tạm không kéo dài được hạn kích hoạt 72 giờ
+        if (tempPasswordExpired(cur))
+          throw new AppError('ACTION_FORBIDDEN', 'Mật khẩu tạm đã hết hạn 72 giờ — nhờ Master cấp lại tài khoản');
         hashChecked = cur.passwordHash;
         return verifySecret(cur.passwordHash, current);
       },
@@ -414,6 +430,11 @@ export class AuthService {
           data: { passwordHash: newHash, mustChangePassword: false, failedLoginCount: 0 },
         });
         if (w.count !== 1) throw new AppError('INVALID_STATE_TRANSITION', 'Mật khẩu vừa được đổi ở nơi khác — thử lại');
+        // L2 (review NC-22): challenge MFA phát bằng mật khẩu cũ không còn dùng được
+        await this.tx.authChallenge.updateMany({
+          where: { userId: p.userId, kind: 'MFA', usedAt: null },
+          data: { usedAt: new Date() },
+        });
         await this.tx.$queryRaw`
           SELECT id FROM core.sessions WHERE user_id = ${p.userId}::uuid AND revoked_at IS NULL ORDER BY id FOR UPDATE`;
         const r = await this.tx.session.updateMany({

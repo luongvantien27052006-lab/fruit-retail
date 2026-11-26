@@ -28,6 +28,8 @@ export interface AttemptGuard {
    * không liệt kê được tài khoản (S3, T1). Không đặt ⇒ khóa trả ACCOUNT_LOCKED, sai trả OTP_INVALID.
    */
   publicError?: () => AppError;
+  /** chỉ cho nhánh SAI (không đổi lỗi khóa/bận) — vd đổi mật khẩu: sai mật khẩu hiện tại ≠ phiên hết hạn */
+  failError?: () => AppError;
   failResult: LoginResult;
   /** cân thời gian nhánh bị từ chối của luồng công khai */
   dummy?: () => Promise<void>;
@@ -129,7 +131,7 @@ export class AuthAttempts {
         throw g.publicError ? g.publicError() : this.lockedError(out.until);
       case 'fail':
         await this.log(g.userId, g.failResult, g.identifierHash);
-        throw g.publicError ? g.publicError() : otpInvalid();
+        throw g.publicError ? g.publicError() : g.failError ? g.failError() : otpInvalid();
     }
   }
 

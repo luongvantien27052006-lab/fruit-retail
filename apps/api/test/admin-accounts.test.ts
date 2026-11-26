@@ -356,7 +356,7 @@ describe('quản trị tài khoản (CP03 lát 8a)', () => {
     expect((await c.get(`/v1/admin/users/${t.userId}/sessions`)).status).toBe(403);
   });
 
-  it('NC-22 — mật khẩu tạm phải đổi trước khi đăng ký 2FA; sai mật khẩu hiện tại ⇒ 401; chưa kích hoạt quá 72 giờ ⇒ không đăng nhập', async () => {
+  it('NC-22 — mật khẩu tạm phải đổi trước khi đăng ký 2FA; sai mật khẩu hiện tại ⇒ 422; challenge cũ chết; chưa kích hoạt quá 72 giờ ⇒ không đăng nhập', async () => {
     const m = await createMaster(db.roleUrl('app_rw'), `nc22-${hex().toLowerCase()}@fruit.test`); // CLI thật: bắt đổi
     const l = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
     expect(l.body).toMatchObject({ status: 'ENROLLMENT_REQUIRED', password_change_required: true });
@@ -371,12 +371,18 @@ describe('quản trị tài khoản (CP03 lát 8a)', () => {
       .post('/v1/auth/password')
       .set('Authorization', b)
       .send({ current_password: 'sai-mat-khau', new_password: newPw });
-    expect(bad.status).toBe(401);
+    expect([bad.status, bad.body.code]).toEqual([422, 'CURRENT_PASSWORD_INVALID']);
     const short = await http()
       .post('/v1/auth/password')
       .set('Authorization', b)
       .send({ current_password: m.password, new_password: 'ngắn' });
     expect(short.status).toBe(400);
+    // L2: challenge MFA phát trước khi đổi (bằng mật khẩu cũ) phải chết khi đổi xong
+    await rows(
+      `INSERT INTO core.auth_challenges (id, kind, user_id, secret_hash, expires_at)
+       VALUES (gen_random_uuid(), 'MFA', $1, $2, now() + interval '5 minutes')`,
+      [m.userId, randomBytes(32)],
+    );
     const ok = await http()
       .post('/v1/auth/password')
       .set('Authorization', b)
@@ -384,6 +390,11 @@ describe('quản trị tài khoản (CP03 lát 8a)', () => {
     expect(ok.status).toBe(200);
     expect(schemaErrors('AuthPasswordResponse', ok.body)).toEqual([]);
     expect(ok.body.revoked_sessions).toBeGreaterThanOrEqual(1);
+    const [pending] = await rows(
+      `SELECT count(*)::int AS n FROM core.auth_challenges WHERE user_id = $1 AND kind = 'MFA' AND used_at IS NULL`,
+      [m.userId],
+    );
+    expect(pending?.n).toBe(0);
     expect((await http().get('/v1/auth/sessions').set('Authorization', b2)).status).toBe(401); // phiên khác chết
     expect((await http().post('/v1/auth/2fa/setup').set('Authorization', b).send({})).status).toBe(200); // giờ đăng ký được
     expect((await http().post('/v1/auth/login').send({ email: m.email, password: m.password })).status).toBe(401); // mật khẩu cũ
@@ -397,6 +408,9 @@ describe('quản trị tài khoản (CP03 lát 8a)', () => {
       .post('/v1/admin/admin-accounts')
       .set('Authorization', master)
       .send({ email: `old-${hex().toLowerCase()}@fruit.test`, role: 'MASTER_ADMIN' });
+    // L1: phiên lấy TRƯỚC hạn không kéo dài được hạn kích hoạt
+    const early = await http().post('/v1/auth/login').send({ email: r.body.email, password: r.body.temporary_password });
+    expect(early.body.status).toBe('ENROLLMENT_REQUIRED');
     await rows(`UPDATE core.users SET created_at = now() - interval '73 hours' WHERE id = $1`, [r.body.user_id]).catch(
       async () => {
         await rows(`ALTER TABLE core.users DISABLE TRIGGER USER`);
@@ -406,6 +420,13 @@ describe('quản trị tài khoản (CP03 lát 8a)', () => {
     );
     const old = await http().post('/v1/auth/login').send({ email: r.body.email, password: r.body.temporary_password });
     expect([old.status, old.body.code]).toEqual([401, 'AUTHENTICATION_REQUIRED']);
+    const pw = await http()
+      .post('/v1/auth/password')
+      .set('Authorization', `Bearer ${early.body.access_token as string}`)
+      .send({ current_password: r.body.temporary_password, new_password: newPw });
+    expect([pw.status, pw.body.code]).toEqual([403, 'ACTION_FORBIDDEN']);
+    const rf = await http().post('/v1/auth/refresh').send({ refresh_token: early.body.refresh_token });
+    expect([rf.status, rf.body.code]).toEqual([401, 'SESSION_REVOKED']);
 
     // nhân viên không dùng route này
     const st = await store();

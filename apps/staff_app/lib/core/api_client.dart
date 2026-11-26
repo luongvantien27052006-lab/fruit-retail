@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show HttpDate, IOException;
 
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
@@ -46,6 +47,9 @@ class StaffSession {
   String refresh;
   final String sessionId;
   final StaffInfo staff;
+
+  /// lượt refresh đang chạy CỦA PHIÊN NÀY (review lát 9: không dùng chung giữa hai nhân viên trên cùng client)
+  Future<void>? refreshing;
 }
 
 class RegisterResult {
@@ -68,7 +72,8 @@ class ApiClient {
   final Clock clock;
   final Duration timeout;
 
-  Future<void>? _refreshing;
+  /// lệch đồng hồ máy so với server quá mức này ⇒ chữ ký thiết bị bị từ chối (server ±120 s) — báo rõ cho người dùng
+  static const clockSkewWarn = Duration(seconds: 60);
 
   Uri _u(String path) => base.replace(path: '${base.path}/v1$path');
 
@@ -102,6 +107,14 @@ class ApiClient {
         'NETWORK',
         'Không kết nối được máy chủ — kiểm tra mạng rồi thử lại',
       );
+    } on IOException {
+      // HandshakeException/TlsException (chứng chỉ sai, Wi-Fi có cổng đăng nhập), SocketException… — IOClient chỉ bọc
+      // một phần; mọi lỗi I/O đều là lỗi mạng với người dùng (review lát 9)
+      throw ApiException(
+        0,
+        'NETWORK',
+        'Lỗi kết nối bảo mật tới máy chủ — kiểm tra mạng/Wi-Fi rồi thử lại',
+      );
     }
     Map<String, dynamic> body = const {};
     if (r.body.isNotEmpty) {
@@ -117,6 +130,24 @@ class ApiClient {
       }
     }
     if (r.statusCode >= 200 && r.statusCode < 300) return body;
+    if (r.statusCode == 401) {
+      // chữ ký thiết bị bị từ chối vì đồng hồ máy lệch ⇒ nói đúng lý do (thông điệp chung của server không chỉ ra)
+      final date = r.headers['date'];
+      if (date != null) {
+        try {
+          final skew = clock().toUtc().difference(HttpDate.parse(date)).abs();
+          if (skew > clockSkewWarn) {
+            throw ApiException(
+              401,
+              'CLOCK_SKEW',
+              'Đồng hồ máy lệch ${skew.inMinutes} phút so với máy chủ — chỉnh lại ngày giờ của máy rồi thử lại',
+            );
+          }
+        } on FormatException {
+          // header Date lạ — bỏ qua
+        }
+      }
+    }
     throw ApiException(
       r.statusCode,
       body['code'] is String ? body['code'] as String : 'INTERNAL_ERROR',
@@ -200,7 +231,7 @@ class ApiClient {
   }
 
   Future<void> _refresh(DeviceIdentity id, StaffSession s) {
-    return _refreshing ??= () async {
+    return s.refreshing ??= () async {
       try {
         final old = s.refresh;
         final proof = await makeProof(
@@ -226,7 +257,7 @@ class ApiClient {
         s.access = b['access_token'] as String;
         s.refresh = b['refresh_token'] as String;
       } finally {
-        _refreshing = null;
+        s.refreshing = null;
       }
     }();
   }

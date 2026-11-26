@@ -45,6 +45,24 @@ class DeviceIdentity {
 
   String get publicKeyB64 => b64url(publicKey);
 
+  /// Mã ghép tính tại máy — khớp `pairingCode` của server (apps/api/src/auth/device-proof.ts): 50 bit đầu của
+  /// SHA-256(khóa công khai), base32 RFC 4648, dạng XXXXX-XXXXX. Dùng khi đăng ký mất phản hồi (server có thể đã nhận).
+  Future<String> localPairingCode() async {
+    final fp = (await Sha256().hash(publicKey)).bytes;
+    var bits = BigInt.zero;
+    for (var i = 0; i < 7; i++) {
+      bits = (bits << 8) | BigInt.from(fp[i]);
+    }
+    bits = bits >> 6;
+    const b32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    final out = StringBuffer();
+    for (var i = 9; i >= 0; i--) {
+      out.write(b32[((bits >> (i * 5)) & BigInt.from(31)).toInt()]);
+    }
+    final s = out.toString();
+    return '${s.substring(0, 5)}-${s.substring(5)}';
+  }
+
   DeviceIdentity withPairingCode(String code) => DeviceIdentity(
     deviceId: deviceId,
     seed: seed,
@@ -129,15 +147,17 @@ abstract class DeviceStore {
 /// Windows: DPAPI (khóa theo tài khoản Windows của máy); Android: Keystore (AES bọc bằng khóa phần cứng khi có).
 /// Token phiên KHÔNG lưu ở đây — chỉ giữ trong bộ nhớ (mở lại app ⇒ nhập PIN lại).
 class SecureDeviceStore implements DeviceStore {
-  SecureDeviceStore([FlutterSecureStorage? storage])
+  /// [key] riêng cho test chạy thật (không đụng danh tính của app thật cài cùng tài khoản Windows)
+  SecureDeviceStore({FlutterSecureStorage? storage, this.key = defaultKey})
     : _s = storage ?? const FlutterSecureStorage();
 
   final FlutterSecureStorage _s;
-  static const _key = 'fruit.device_identity.v1';
+  final String key;
+  static const defaultKey = 'fruit.device_identity.v1';
 
   @override
   Future<DeviceIdentity?> load() async {
-    final raw = await _s.read(key: _key);
+    final raw = await _s.read(key: key);
     if (raw == null) return null;
     try {
       return DeviceIdentity.fromJson(jsonDecode(raw) as Map<String, dynamic>);
@@ -148,10 +168,10 @@ class SecureDeviceStore implements DeviceStore {
 
   @override
   Future<void> save(DeviceIdentity id) =>
-      _s.write(key: _key, value: jsonEncode(id.toJson()));
+      _s.write(key: key, value: jsonEncode(id.toJson()));
 
   @override
-  Future<void> clear() => _s.delete(key: _key);
+  Future<void> clear() => _s.delete(key: key);
 }
 
 class MemoryDeviceStore implements DeviceStore {

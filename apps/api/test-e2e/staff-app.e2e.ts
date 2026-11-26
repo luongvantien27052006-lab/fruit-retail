@@ -110,6 +110,8 @@ describe.runIf(run)('staff app Windows thật ↔ API (CP03 lát 9)', () => {
 
     const apiPort = (app.getHttpServer().address() as AddressInfo).port;
     const dir = resolve(process.cwd(), '../staff_app');
+    // shell (flutter.bat) cần quote từng tham số — không để dấu cách/ký tự đặc biệt trong đường dẫn làm hỏng dòng lệnh
+    const q = (a: string) => `"${a.replace(/"/g, '')}"`;
     const flutter = spawn(
       'flutter',
       [
@@ -122,51 +124,59 @@ describe.runIf(run)('staff app Windows thật ↔ API (CP03 lát 9)', () => {
         `--dart-define=ENROLL_CODE=${enroll}`,
         `--dart-define=STAFF_CODE=${staffCode}`,
         `--dart-define=STAFF_PIN=${pin}`,
-      ],
+      ].map(q),
       { cwd: dir, shell: true, stdio: ['ignore', 'pipe', 'pipe'] },
     );
-    let out = '';
-    flutter.stdout.on('data', (d: Buffer) => (out += d.toString()));
-    flutter.stderr.on('data', (d: Buffer) => (out += d.toString()));
-    const exited = new Promise<number>((ok) => flutter.on('exit', (c) => ok(c ?? 1)));
+    // luôn dọn cây tiến trình flutter + app Windows, kể cả khi test ném lỗi giữa chừng
+    const killTree = () => {
+      if (flutter.exitCode === null && flutter.pid) spawn('taskkill', ['/T', '/F', '/PID', String(flutter.pid)]);
+    };
+    try {
+      let out = '';
+      flutter.stdout.on('data', (d: Buffer) => (out += d.toString()));
+      flutter.stderr.on('data', (d: Buffer) => (out += d.toString()));
+      const exited = new Promise<number>((ok) => flutter.on('exit', (c) => ok(c ?? 1)));
 
-    // vai Master: chờ máy hiện mã ghép rồi kích hoạt bằng mã đó (đọc "từ màn hình" qua file điều phối)
-    const pairingFile = join(coord, 'pairing.txt');
-    const end = Date.now() + 8 * 60_000; // lần đầu build Windows có thể lâu
-    while (!existsSync(pairingFile)) {
-      if (Date.now() > end || flutter.exitCode !== null)
-        throw new Error(`app chưa tới bước mã ghép:\n${out.slice(-4000)}`);
-      await new Promise((r) => setTimeout(r, 500));
+      // vai Master: chờ máy hiện mã ghép rồi kích hoạt bằng mã đó (đọc "từ màn hình" qua file điều phối)
+      const pairingFile = join(coord, 'pairing.txt');
+      const end = Date.now() + 8 * 60_000; // lần đầu build Windows có thể lâu
+      while (!existsSync(pairingFile)) {
+        if (Date.now() > end || flutter.exitCode !== null)
+          throw new Error(`app chưa tới bước mã ghép:\n${out.slice(-4000)}`);
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      const [deviceId, pairing] = readFileSync(pairingFile, 'utf8').split('\n');
+      const [pend] = await db.q(`SELECT status, platform, store_id FROM core.pos_devices WHERE id = $1`, [deviceId]);
+      expect(pend).toMatchObject({ status: 'PENDING', platform: 'windows', store_id: storeId });
+      const a = await http()
+        .post(`/v1/admin/pos-devices/${deviceId}/activate`)
+        .set('Authorization', master)
+        .send({ pairing_code: pairing });
+      expect(a.status, JSON.stringify(a.body)).toBe(200);
+      writeFileSync(join(coord, 'activated.txt'), 'ok');
+
+      const code = await exited;
+      expect(code, out.slice(-6000)).toBe(0);
+      expect(existsSync(join(coord, 'done.txt'))).toBe(true);
+
+      const sessions = await db.q(
+        `SELECT revoked_at, revoke_reason, pos_device_id FROM core.sessions WHERE user_id = $1`,
+        [staffId],
+      );
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]?.pos_device_id).toBe(deviceId);
+      expect(sessions[0]?.revoke_reason).toBe('LOGOUT'); // khóa màn hình ⇒ thu hồi phiên ở server
+      const [rt] = await db.q(
+        `SELECT count(*)::int AS n FROM core.refresh_tokens r JOIN core.sessions s ON s.id = r.session_id WHERE s.user_id = $1`,
+        [staffId],
+      );
+      expect(rt?.n).toBe(2); // token đầu + một lần xoay (refresh có chữ ký thiết bị thành công, không dùng lại)
+      const reuse = await db.q(`SELECT 1 FROM audit.login_logs WHERE user_id = $1 AND result = 'REFRESH_REUSE'`, [
+        staffId,
+      ]);
+      expect(reuse).toHaveLength(0);
+    } finally {
+      killTree();
     }
-    const [deviceId, pairing] = readFileSync(pairingFile, 'utf8').split('\n');
-    const [pend] = await db.q(`SELECT status, platform, store_id FROM core.pos_devices WHERE id = $1`, [deviceId]);
-    expect(pend).toMatchObject({ status: 'PENDING', platform: 'windows', store_id: storeId });
-    const a = await http()
-      .post(`/v1/admin/pos-devices/${deviceId}/activate`)
-      .set('Authorization', master)
-      .send({ pairing_code: pairing });
-    expect(a.status, JSON.stringify(a.body)).toBe(200);
-    writeFileSync(join(coord, 'activated.txt'), 'ok');
-
-    const code = await exited;
-    expect(code, out.slice(-6000)).toBe(0);
-    expect(existsSync(join(coord, 'done.txt'))).toBe(true);
-
-    const sessions = await db.q(
-      `SELECT revoked_at, revoke_reason, pos_device_id FROM core.sessions WHERE user_id = $1`,
-      [staffId],
-    );
-    expect(sessions).toHaveLength(1);
-    expect(sessions[0]?.pos_device_id).toBe(deviceId);
-    expect(sessions[0]?.revoke_reason).toBe('LOGOUT'); // khóa màn hình ⇒ thu hồi phiên ở server
-    const [rt] = await db.q(
-      `SELECT count(*)::int AS n FROM core.refresh_tokens r JOIN core.sessions s ON s.id = r.session_id WHERE s.user_id = $1`,
-      [staffId],
-    );
-    expect(rt?.n).toBe(2); // token đầu + một lần xoay (refresh có chữ ký thiết bị thành công, không dùng lại)
-    const reuse = await db.q(`SELECT 1 FROM audit.login_logs WHERE user_id = $1 AND result = 'REFRESH_REUSE'`, [
-      staffId,
-    ]);
-    expect(reuse).toHaveLength(0);
   }, 600_000);
 });

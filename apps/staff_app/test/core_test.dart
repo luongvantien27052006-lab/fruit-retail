@@ -46,6 +46,14 @@ void main() {
       expect(sig, _vecSig);
     });
 
+    test(
+      'mã ghép tính tại máy trùng pairingCode của server (vector Node)',
+      () async {
+        final id = await vectorIdentity();
+        expect(await id.localPairingCode(), 'KZDVV-J2UMN');
+      },
+    );
+
     test('ràng buộc refresh = base64url(SHA-256) không đệm', () async {
       expect(await refreshBinding('abc'), _vecRefreshAbc);
     });

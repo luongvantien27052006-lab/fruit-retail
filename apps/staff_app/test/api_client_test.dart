@@ -88,4 +88,72 @@ void main() {
     fake.failNetwork = true;
     await api.logout(id, s);
   });
+
+  test(
+    '401 về SAU khi lượt refresh khác đã xong ⇒ gọi lại bằng access mới, KHÔNG refresh lần nữa',
+    () async {
+      await api.register(id, 'ABCDEFGH2345', 'windows');
+      fake.deviceStatus = 'ACTIVE';
+      final s = await api.pinLogin(id, 'NV01', '246813');
+      fake.validAccess = 'at-expired-on-server';
+      // request chậm mang access cũ; trong lúc nó bay, request nhanh làm mới xong
+      fake.sessionsDelay = const Duration(milliseconds: 120);
+      final slow = api.authed(id, s, 'GET', '/auth/sessions');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      fake.sessionsDelay = Duration.zero;
+      await api
+          .authed(id, s, 'GET', '/auth/logout-probe')
+          .catchError((_) => <String, dynamic>{});
+      await slow;
+      expect(fake.refreshCount, 1);
+      expect(fake.reuseDetected, isFalse);
+    },
+  );
+
+  test(
+    'refresh gộp THEO PHIÊN: lượt refresh của phiên A không bị phiên B dùng nhầm',
+    () async {
+      await api.register(id, 'ABCDEFGH2345', 'windows');
+      fake.deviceStatus = 'ACTIVE';
+      final a = await api.pinLogin(id, 'NV01', '246813');
+      final b = await api.pinLogin(id, 'NV01', '246813');
+      expect(identical(a.refreshing, b.refreshing), isTrue); // cả hai null
+      fake.validAccess = 'x';
+      fake.refreshDelay = const Duration(milliseconds: 50);
+      final fa = api.authed(id, a, 'GET', '/auth/sessions');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(a.refreshing, isNotNull);
+      expect(b.refreshing, isNull);
+      await fa;
+    },
+  );
+
+  test('đồng hồ máy lệch > 60 s ⇒ lỗi CLOCK_SKEW nói rõ lý do', () async {
+    final skewed = ApiClient(
+      base: Uri.parse('http://localhost:8080'),
+      client: fake.client(),
+      clock: () => DateTime.now().add(const Duration(minutes: 5)),
+    );
+    await expectLater(
+      skewed.register(id, 'ABCDEFGH2345', 'windows'),
+      throwsA(isA<ApiException>().having((e) => e.code, 'code', 'CLOCK_SKEW')),
+    );
+  });
+
+  test(
+    'nonce dùng lại / X-Device-Id lạ bị từ chối (FakeApi kiểm như server)',
+    () async {
+      await api.register(id, 'ABCDEFGH2345', 'windows');
+      fake.deviceStatus = 'ACTIVE';
+      final s = await api.pinLogin(id, 'NV01', '246813');
+      final other = await DeviceIdentity.generate(
+        mode: StaffMode.counter,
+        name: 'Khác',
+      );
+      await expectLater(
+        api.authed(other, s, 'GET', '/auth/sessions'),
+        throwsA(isA<ApiException>().having((e) => e.status, 'status', 401)),
+      );
+    },
+  );
 }

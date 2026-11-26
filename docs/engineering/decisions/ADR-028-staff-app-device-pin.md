@@ -39,6 +39,32 @@
 7. **PIN trên giao diện:** PIN bị xóa khỏi ô nhập ngay khi gửi. Ô PIN là `obscureText`, chỉ nhận số, tối đa 6 ký tự, tắt
    gợi ý và tự sửa.
 
+## Sửa theo kiểm thử flutter-reviewer lần 1 (fc98ec4)
+- Cao: bản release Android thiếu quyền INTERNET (chỉ debug/profile có) ⇒ thêm vào manifest main.
+- TB: lỗi ngoài ApiException lọt ra (HandshakeException/TlsException, PlatformException của kho bảo mật) ⇒ `_send` bắt mọi
+  `IOException` thành NETWORK; `_run` bắt lỗi còn lại và hiện thông báo; `init()` lỗi kho ⇒ màn "Không khởi động được" có nút
+  thử lại.
+- TB: máy kẹt ở màn chờ (PENDING quá 7 ngày bị server ẩn và không kích hoạt được) ⇒ nút "Đăng ký lại máy" (có xác nhận) ở màn
+  chờ và màn PIN.
+- TB: đăng ký mất phản hồi sau khi server đã nhận (mã ghi danh đã tiêu; gửi lại ⇒ 401, không phải 409 — server không có
+  idempotency cho route này) ⇒ lỗi NETWORK khi đăng ký vẫn LƯU khóa + mã ghép tính tại máy (khớp `pairingCode` server, có
+  vector Node) và báo rõ; quản lý kích hoạt nếu thấy máy, không thì đăng ký lại với mã mới. Lỗi server rõ ràng (4xx) ⇒ không lưu.
+- Thấp: lượt refresh gộp gắn vào TỪNG phiên (`StaffSession.refreshing`), không dùng chung cả client.
+- Thấp: bắt thao tác ở cấp app — `Listener` trong `MaterialApp.builder` (cả dialog/menu), `HardwareKeyboard` handler (phím mà
+  ô nhập đã xử lý), `AppLifecycleListener.onResume` so mốc thao tác cuối (Timer không chạy khi máy ngủ).
+- Thấp: bản release BẮT BUỘC `--dart-define=API_BASE_URL` và https (http máy dev chỉ ở debug/profile).
+- Thấp: 401 kèm header `Date` lệch > 60 s so với giờ máy ⇒ lỗi `CLOCK_SKEW` nói rõ "chỉnh ngày giờ"; mất phiên ⇒ logout
+  best-effort.
+- Thấp: test chạy thật dùng khóa lưu riêng (`…v1.e2e`); e2e quote tham số và `taskkill /T` cây tiến trình trong `finally`.
+- Thấp: màn Home cuộn được. FakeApi kiểm như server (±120 s, nonce một lần, X-Device-Id, chữ ký trước dùng lại); thêm test 401
+  về sau khi refresh xong, refresh theo phiên, lệch đồng hồ, mất phản hồi đăng ký, lỗi kho, phím/resume, phiên bị thu hồi,
+  màn lỗi cấu hình (30/30).
+- **Rủi ro chấp nhận:**
+  - Phản hồi refresh bị mất (server đã xoay) ⇒ lần refresh sau là dùng lại ⇒ server thu hồi phiên ⇒ nhập PIN lại. An toàn,
+    chỉ bất tiện.
+  - DPAPI khóa theo TÀI KHOẢN Windows: tiến trình khác chạy cùng tài khoản đọc được seed. Máy quầy nên chạy tài khoản Windows
+    riêng, không quyền admin, không cài phần mềm lạ (ghi vào hướng dẫn lắp máy CP07).
+
 ## Hệ quả
 - Gói mới (staff_app):
   - `flutter_secure_storage` 11.2.0. Máy **build** Windows cần thành phần "C++ ATL" của VS Build Tools; máy quầy chạy

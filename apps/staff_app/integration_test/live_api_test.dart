@@ -17,6 +17,8 @@ const _coord = String.fromEnvironment('COORD_DIR');
 const _enroll = String.fromEnvironment('ENROLL_CODE');
 const _staff = String.fromEnvironment('STAFF_CODE');
 const _pin = String.fromEnvironment('STAFF_PIN');
+// khóa lưu riêng: không đụng danh tính của staff app thật cài cùng tài khoản Windows (review lát 9)
+const _e2eKey = 'fruit.device_identity.v1.e2e';
 
 Future<void> _waitFile(File f, Duration max) async {
   final end = DateTime.now().add(max);
@@ -52,7 +54,7 @@ void main() {
         isTrue,
         reason: 'thiếu --dart-define điều phối',
       );
-      final store = SecureDeviceStore();
+      final store = SecureDeviceStore(key: _e2eKey);
       await store.clear();
       final config = AppConfig.fromEnvironment();
       final c = AppController(
@@ -74,7 +76,7 @@ void main() {
           find.byKey(const Key('pairing_code')),
         )).data!;
         // khóa đã nằm trong kho bảo mật thật của Windows
-        final saved = await SecureDeviceStore().load();
+        final saved = await SecureDeviceStore(key: _e2eKey).load();
         expect(saved?.deviceId, c.identity?.deviceId);
         expect(saved?.publicKeyB64, c.identity?.publicKeyB64);
 

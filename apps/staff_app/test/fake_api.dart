@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show HttpDate;
 
 import 'package:cryptography/cryptography.dart';
 import 'package:http/http.dart' as http;
@@ -22,16 +23,30 @@ class FakeApi {
   bool reuseDetected = false;
   Map<String, Object?>? lastRegister;
 
+  /// giờ "server" (lệch so với máy để thử báo lệch đồng hồ); header Date gửi theo giờ này
+  DateTime Function() serverNow = DateTime.now;
+  final usedNonces = <String>{};
+
+  /// Phản hồi đăng ký bị "mất" sau khi server đã nhận (giả lập timeout)
+  bool dropRegisterResponse = false;
+
+  /// access hợp lệ cũ còn chấp nhận được (giả lập request bay trước khi refresh xong)
+  final acceptedAccess = <String>{};
+
+  /// trì hoãn trả lời GET /auth/sessions (để thử nhánh 401 về sau khi lượt refresh khác đã xong)
+  Duration sessionsDelay = Duration.zero;
+
+  Map<String, String> get _h => {
+    'content-type': 'application/json; charset=utf-8',
+    'date': HttpDate.format(serverNow().toUtc()),
+  };
   http.Response _err(int status, String code, String msg) => http.Response(
     jsonEncode({'code': code, 'message': msg}),
     status,
-    headers: {'content-type': 'application/json; charset=utf-8'},
+    headers: _h,
   );
-  http.Response _ok(Object body, [int status = 200]) => http.Response(
-    jsonEncode(body),
-    status,
-    headers: {'content-type': 'application/json; charset=utf-8'},
-  );
+  http.Response _ok(Object body, [int status = 200]) =>
+      http.Response(jsonEncode(body), status, headers: _h);
 
   Future<bool> _verify(
     String deviceId,
@@ -41,6 +56,11 @@ class FakeApi {
   ) async {
     final pub = publicKeys[deviceId];
     if (pub == null) return false;
+    // như server: thời điểm ±120 s, nonce một lần
+    final ts = proof['ts'] as int;
+    final nowS = serverNow().toUtc().millisecondsSinceEpoch ~/ 1000;
+    if ((ts - nowS).abs() > 120) return false;
+    if (!usedNonces.add('$deviceId:${proof['nonce']}')) return false;
     return Ed25519().verify(
       proofMessage(
         p,
@@ -85,6 +105,7 @@ class FakeApi {
         )) {
           return _err(401, 'AUTHENTICATION_REQUIRED', 'Chữ ký sai');
         }
+        if (dropRegisterResponse) throw http.ClientException('mất phản hồi');
         return _ok({
           'device_id': dev,
           'status': 'PENDING',
@@ -140,17 +161,24 @@ class FakeApi {
         if (refreshDelay > Duration.zero) {
           await Future<void>.delayed(refreshDelay);
         }
+        // như server: chữ ký thiết bị kiểm TRƯỚC phát hiện dùng lại
+        if (!await _verify(
+          dev,
+          ProofPurpose.refresh,
+          body['device_proof'] as Map<String, dynamic>,
+          await refreshBinding(rt),
+        )) {
+          return _err(
+            401,
+            'AUTHENTICATION_REQUIRED',
+            'Thiếu/sai chữ ký thiết bị',
+          );
+        }
         if (usedRefresh.contains(rt)) {
           reuseDetected = true;
           return _err(401, 'SESSION_REVOKED', 'Phiên đã bị thu hồi');
         }
-        if (rt != validRefresh ||
-            !await _verify(
-              dev,
-              ProofPurpose.refresh,
-              body['device_proof'] as Map<String, dynamic>,
-              await refreshBinding(rt),
-            )) {
+        if (rt != validRefresh) {
           return _err(
             401,
             'AUTHENTICATION_REQUIRED',
@@ -169,8 +197,21 @@ class FakeApi {
           'amr': ['pin'],
         });
       default:
+        if (!publicKeys.containsKey(dev)) {
+          return _err(
+            401,
+            'AUTHENTICATION_REQUIRED',
+            'Token không thuộc thiết bị này',
+          );
+        }
         final auth = req.headers['authorization'];
-        if (auth != 'Bearer $validAccess') {
+        final tok = auth?.startsWith('Bearer ') == true
+            ? auth!.substring(7)
+            : '';
+        if (path == '/v1/auth/sessions' && sessionsDelay > Duration.zero) {
+          await Future<void>.delayed(sessionsDelay);
+        }
+        if (tok != validAccess && !acceptedAccess.contains(tok)) {
           return _err(401, 'AUTHENTICATION_REQUIRED', 'Cần đăng nhập');
         }
         if (path == '/v1/auth/logout') return _ok({'ok': true});

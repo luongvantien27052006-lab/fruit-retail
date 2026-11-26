@@ -193,6 +193,8 @@ class PendingScreen extends StatelessWidget {
           onPressed: c.goToPin,
           child: const Text('Đã kích hoạt — đăng nhập'),
         ),
+        const SizedBox(height: 8),
+        _ReRegisterButton(c: c),
       ],
     );
   }
@@ -305,6 +307,8 @@ class _PinScreenState extends State<PinScreen> {
           onPressed: c.busy ? null : _submit,
           child: Text(c.busy ? 'Đang kiểm tra…' : 'Đăng nhập'),
         ),
+        const SizedBox(height: 8),
+        _ReRegisterButton(c: c),
       ],
     );
   }
@@ -339,7 +343,7 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() => _check = 'Kết nối tốt — $n phiên đang mở của bạn.');
       }
     } on ApiException catch (e) {
-      if (e.sessionEnded || e.deviceGone) {
+      if (e.sessionEnded || e.deviceGone || e.code == 'CLOCK_SKEW') {
         c.sessionLost(e);
         return;
       }
@@ -353,65 +357,115 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final c = widget.c;
     final staff = c.session?.staff;
-    return Listener(
-      behavior: HitTestBehavior.translucent,
-      onPointerDown: (_) => c.touch(),
-      child: Focus(
-        autofocus: true,
-        onKeyEvent: (_, _) {
-          c.touch();
-          return KeyEventResult.ignored;
-        },
-        child: Scaffold(
-          appBar: AppBar(
-            title: Text(c.identity?.mode.label ?? ''),
-            actions: [
-              TextButton.icon(
-                key: const Key('lock'),
-                onPressed: () => c.lock(),
-                icon: const Icon(Icons.lock_outline),
-                label: const Text('Khóa màn hình'),
-              ),
-            ],
+    // chạm/phím đặt lại đồng hồ tự khóa ở cấp app (main.dart: MaterialApp.builder + HardwareKeyboard)
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(c.identity?.mode.label ?? ''),
+        actions: [
+          TextButton.icon(
+            key: const Key('lock'),
+            onPressed: () => c.lock(),
+            icon: const Icon(Icons.lock_outline),
+            label: const Text('Khóa màn hình'),
           ),
-          body: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Xin chào ${staff?.fullName ?? ''}',
-                    key: const Key('greeting'),
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  Text(
-                    'Mã NV ${staff?.staffCode ?? ''} · ${c.identity?.name ?? ''}',
-                  ),
-                  const SizedBox(height: 16),
-                  Text(switch (c.identity?.mode) {
-                    StaffMode.counter => 'Màn bán hàng có ở CP07.',
-                    StaffMode.tablet => 'Soạn đơn, kiểm kho có ở CP06/CP14.',
-                    StaffMode.shipper => 'Danh sách giao hàng có ở CP15.',
-                    null => '',
-                  }),
-                  const SizedBox(height: 16),
-                  OutlinedButton(
-                    key: const Key('ping'),
-                    onPressed: _checking ? null : _ping,
-                    child: const Text('Kiểm tra kết nối'),
-                  ),
-                  if (_check != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(_check!, key: const Key('ping_result')),
-                    ),
-                ],
+        ],
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Xin chào ${staff?.fullName ?? ''}',
+                key: const Key('greeting'),
+                style: Theme.of(context).textTheme.headlineSmall,
               ),
-            ),
+              Text(
+                'Mã NV ${staff?.staffCode ?? ''} · ${c.identity?.name ?? ''}',
+              ),
+              const SizedBox(height: 16),
+              Text(switch (c.identity?.mode) {
+                StaffMode.counter => 'Màn bán hàng có ở CP07.',
+                StaffMode.tablet => 'Soạn đơn, kiểm kho có ở CP06/CP14.',
+                StaffMode.shipper => 'Danh sách giao hàng có ở CP15.',
+                null => '',
+              }),
+              const SizedBox(height: 16),
+              OutlinedButton(
+                key: const Key('ping'),
+                onPressed: _checking ? null : _ping,
+                child: const Text('Kiểm tra kết nối'),
+              ),
+              if (_check != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(_check!, key: const Key('ping_result')),
+                ),
+            ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Đăng ký lại máy (xóa khóa hiện tại) — lối ra khi máy kẹt chờ kích hoạt quá 7 ngày hoặc đăng ký mất phản hồi.
+class _ReRegisterButton extends StatelessWidget {
+  const _ReRegisterButton({required this.c});
+  final AppController c;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      key: const Key('re_register'),
+      onPressed: c.busy
+          ? null
+          : () async {
+              final ok = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Đăng ký lại máy?'),
+                  content: const Text(
+                    'Khóa hiện tại của máy sẽ bị xóa. Cần mã ghi danh MỚI từ quản lý; nếu máy cũ đã được kích hoạt, nhờ quản lý thu hồi nó.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('Hủy'),
+                    ),
+                    FilledButton(
+                      key: const Key('re_register_confirm'),
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('Đăng ký lại'),
+                    ),
+                  ],
+                ),
+              );
+              if (ok == true) await c.resetDevice();
+            },
+      child: const Text('Đăng ký lại máy'),
+    );
+  }
+}
+
+class FailedScreen extends StatelessWidget {
+  const FailedScreen({super.key, required this.c});
+  final AppController c;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Panel(
+      title: 'Không khởi động được',
+      children: [
+        _ErrorText(c.error),
+        const SizedBox(height: 16),
+        FilledButton(
+          key: const Key('retry_init'),
+          onPressed: c.init,
+          child: const Text('Thử lại'),
+        ),
+      ],
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'app_controller.dart';
 import 'core/api_client.dart';
@@ -15,7 +16,7 @@ void main() {
   try {
     config = AppConfig.fromEnvironment();
   } on FormatException catch (e) {
-    runApp(_ConfigError(e.message));
+    runApp(ConfigErrorApp(message: e.message));
     return;
   }
   final controller = AppController(
@@ -28,12 +29,41 @@ void main() {
   controller.init();
 }
 
-class StaffApp extends StatelessWidget {
+/// Bắt MỌI thao tác ở cấp app (review lát 9): chạm cả trong dialog/menu (overlay của Navigator nằm dưới builder), phím
+/// cứng kể cả phím mà ô nhập đã xử lý (HardwareKeyboard thấy trước Shortcuts), app quay lại từ nền (so mốc thời gian).
+class StaffApp extends StatefulWidget {
   const StaffApp({super.key, required this.controller});
   final AppController controller;
 
   @override
+  State<StaffApp> createState() => _StaffAppState();
+}
+
+class _StaffAppState extends State<StaffApp> {
+  late final AppLifecycleListener _life;
+
+  bool _onKey(KeyEvent _) {
+    widget.controller.touch();
+    return false; // không nuốt phím
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_onKey);
+    _life = AppLifecycleListener(onResume: widget.controller.resumed);
+  }
+
+  @override
+  void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
+    _life.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final controller = widget.controller;
     const seed = Color(0xFF2F7D4F);
     return MaterialApp(
       title: 'Ứng dụng nhân viên',
@@ -43,12 +73,18 @@ class StaffApp extends StatelessWidget {
         colorSchemeSeed: seed,
         brightness: Brightness.dark,
       ),
+      builder: (context, child) => Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) => controller.touch(),
+        child: child,
+      ),
       home: ListenableBuilder(
         listenable: controller,
         builder: (context, _) => switch (controller.stage) {
           Stage.loading => const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           ),
+          Stage.failed => FailedScreen(c: controller),
           Stage.setup => SetupScreen(c: controller),
           Stage.pending => PendingScreen(c: controller),
           Stage.pin => PinScreen(c: controller),
@@ -60,8 +96,9 @@ class StaffApp extends StatelessWidget {
   }
 }
 
-class _ConfigError extends StatelessWidget {
-  const _ConfigError(this.message);
+/// Cấu hình build sai (thiếu/sai API_BASE_URL) ⇒ báo rõ, không chạy tiếp.
+class ConfigErrorApp extends StatelessWidget {
+  const ConfigErrorApp({super.key, required this.message});
   final String message;
 
   @override

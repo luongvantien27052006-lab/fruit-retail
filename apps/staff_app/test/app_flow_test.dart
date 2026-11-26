@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:staff_app/app_controller.dart';
 import 'package:staff_app/core/api_client.dart';
@@ -200,4 +201,121 @@ void main() {
       expect(find.textContaining('Quầy 2'), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'đăng ký mất phản hồi (server đã nhận) ⇒ vẫn giữ khóa + mã ghép tính tại máy, có lối đăng ký lại',
+    (t) async {
+      await start(t);
+      fake.dropRegisterResponse = true;
+      await register(t);
+      final saved = store.value;
+      expect(saved, isNotNull);
+      expect(saved!.pairingCode, await saved.localPairingCode());
+      expect(find.text(saved.pairingCode!), findsOneWidget);
+      expect(find.textContaining('Mất kết nối khi đăng ký'), findsOneWidget);
+      // lối ra: đăng ký lại (có xác nhận) xóa khóa
+      await t.tap(find.byKey(const Key('re_register')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const Key('re_register_confirm')));
+      await t.pumpAndSettle();
+      expect(store.value, isNull);
+      expect(find.text('Đăng ký máy'), findsWidgets);
+    },
+  );
+
+  testWidgets(
+    'kho bảo mật lỗi lúc khởi động ⇒ màn lỗi + thử lại (không kẹt vòng xoay)',
+    (t) async {
+      final broken = _BrokenStore();
+      final c = AppController(
+        api: ApiClient(
+          base: Uri.parse('http://localhost:8080'),
+          client: fake.client(),
+        ),
+        store: broken,
+        platform: 'windows',
+        idleLock: const Duration(minutes: 5),
+      );
+      await t.pumpWidget(StaffApp(controller: c));
+      await c.init();
+      await t.pumpAndSettle();
+      expect(find.text('Không khởi động được'), findsOneWidget);
+      broken.fail = false;
+      await t.tap(find.byKey(const Key('retry_init')));
+      await t.pumpAndSettle();
+      expect(find.text('Đăng ký máy'), findsWidgets);
+    },
+  );
+
+  testWidgets(
+    'phím cứng đặt lại đồng hồ tự khóa; quay lại từ nền sau quá hạn ⇒ khóa',
+    (t) async {
+      var clock = DateTime(2026, 11, 27, 8);
+      final c = AppController(
+        api: ApiClient(
+          base: Uri.parse('http://localhost:8080'),
+          client: fake.client(),
+        ),
+        store: store,
+        platform: 'windows',
+        idleLock: const Duration(seconds: 30),
+        now: () => clock,
+      );
+      await t.pumpWidget(StaffApp(controller: c));
+      await c.init();
+      await t.pumpAndSettle();
+      await register(t);
+      fake.deviceStatus = 'ACTIVE';
+      await t.tap(find.byKey(const Key('to_pin')));
+      await t.pumpAndSettle();
+      await pin(t, 'NV01', '246813');
+      await t.pump(const Duration(seconds: 20));
+      await t.sendKeyEvent(LogicalKeyboardKey.shiftLeft);
+      await t.pump(const Duration(seconds: 20));
+      expect(c.stage, Stage.home); // phím đã đặt lại
+      clock = clock.add(
+        const Duration(minutes: 10),
+      ); // máy ngủ, Timer không chạy
+      c.resumed();
+      await t.pumpAndSettle();
+      expect(c.stage, Stage.pin);
+    },
+  );
+
+  testWidgets('đang làm việc mà phiên bị thu hồi ở server ⇒ về màn PIN', (
+    t,
+  ) async {
+    await start(t);
+    await register(t);
+    fake.deviceStatus = 'ACTIVE';
+    await t.tap(find.byKey(const Key('to_pin')));
+    await t.pumpAndSettle();
+    await pin(t, 'NV01', '246813');
+    fake.validAccess = 'het';
+    fake.usedRefresh.add(
+      fake.validRefresh,
+    ); // refresh sẽ bị coi là dùng lại ⇒ SESSION_REVOKED
+    await t.tap(find.byKey(const Key('ping')));
+    await t.pumpAndSettle();
+    expect(find.text('Đăng nhập nhân viên'), findsOneWidget);
+    expect(find.textContaining('Phiên đã hết'), findsOneWidget);
+  });
+
+  testWidgets('cấu hình sai ⇒ màn báo lỗi', (t) async {
+    await t.pumpWidget(
+      const ConfigErrorApp(
+        message: 'bản release thiếu --dart-define=API_BASE_URL',
+      ),
+    );
+    expect(find.textContaining('Cấu hình sai'), findsOneWidget);
+  });
+}
+
+class _BrokenStore extends MemoryDeviceStore {
+  bool fail = true;
+  @override
+  Future<DeviceIdentity?> load() async {
+    if (fail) throw PlatformException(code: 'dpapi', message: 'hỏng');
+    return super.load();
+  }
 }

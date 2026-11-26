@@ -80,7 +80,9 @@ export async function bff<T = unknown>(path: string, method = 'GET', body?: unkn
       b = await parse(r);
     }
   }
-  if (r.status === 401 && path.startsWith('/api/')) {
+  // CHỈ phiên thật sự chết (BFF gắn x-session-ended) mới về /login — 401 OTP_INVALID (sai mã step-up / 2FA confirm) là
+  // lỗi nhập, phải hiện tại chỗ (review react 8b lần 1)
+  if (r.headers.get('x-session-ended') === '1') {
     window.location.assign('/login');
     throw new ApiFailure(toError(401, b));
   }

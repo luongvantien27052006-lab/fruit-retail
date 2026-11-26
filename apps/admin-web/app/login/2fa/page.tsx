@@ -9,6 +9,7 @@ export default function MfaPage() {
   const [recovery, setRecovery] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [ended, setEnded] = useState(false); // challenge hết / tài khoản khóa: báo lý do rồi mới quay lại đăng nhập
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -26,7 +27,8 @@ export default function MfaPage() {
       router.replace('/');
     } catch (x) {
       if (x instanceof ApiFailure && (x.error.code === 'MFA_CHALLENGE_INVALID' || x.error.code === 'ACCOUNT_LOCKED')) {
-        router.replace('/login');
+        setErr(errorText(x));
+        setEnded(true);
         return;
       }
       setErr(errorText(x));
@@ -63,9 +65,15 @@ export default function MfaPage() {
           </p>
         )}
         <div className="row">
-          <button type="submit" disabled={busy}>
-            Xác minh
-          </button>
+          {ended ? (
+            <button type="button" onClick={() => router.replace('/login')}>
+              Đăng nhập lại
+            </button>
+          ) : (
+            <button type="submit" disabled={busy}>
+              Xác minh
+            </button>
+          )}
           <button type="button" className="secondary" onClick={() => setRecovery(!recovery)}>
             {recovery ? 'Dùng mã Authenticator' : 'Dùng mã khôi phục'}
           </button>

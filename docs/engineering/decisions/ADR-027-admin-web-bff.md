@@ -76,6 +76,24 @@
 - E2E thêm 2 bài (10/10): header CSRF nhiều byte ⇒ 403; điều hướng sau refresh mang Set-Cookie + CSRF mới; mất cookie CSRF vẫn
   đăng xuất được và phiên API bị thu hồi.
 
+## Sửa theo kiểm thử react lần 1 (296e496) + security lần 2 (d560fee)
+- Cao ×2: 401 `OTP_INVALID` (sai mã step-up / sai mã ở /enroll) bị client coi là hết phiên ⇒ đá về /login, mất thao tác, secret
+  TOTP bị thay. Sửa: BFF gắn `x-session-ended: 1` CHỈ khi phiên chết thật (`loggedOut`); client chỉ chuyển trang khi thấy
+  header đó; lỗi khác hiện tại chỗ.
+- TB: hai thao tác cùng chờ step-up ⇒ promise đầu treo. Sửa: một promise dùng chung; `onClose` cũng kết thúc lời hỏi.
+- TB: bấm đúp tạo trùng (mỗi lần một Idempotency-Key) ⇒ khóa `busy` (ref + state) ở mọi nút thao tác.
+- TB: tràn ngang ở 375 px ⇒ `.main{min-width:0}`, bảng trong `.table-wrap` cuộn ngang, cột user-agent xuống dòng.
+- Thấp: `not-found.tsx` + `global-error.tsx` riêng (trang mặc định dùng style inline ⇒ vi phạm CSP); 2FA hết challenge/khóa ⇒
+  báo lý do rồi mới về đăng nhập; /enroll có nút "Thử lại" khi lỗi và ghi chú QR đổi mỗi lần mở; hồ sơ xem bắt buộc khi chọn
+  Viewer (không gửi chuỗi rỗng); "Xem thêm" nhật ký dùng bộ lọc đã áp dụng; trạng thái hiện tiếng Việt.
+- `server-only` KHÔNG thêm vào `lib/server/session.ts`/`upstream.ts`/`config.ts`: proxy.ts (không thuộc lớp react-server)
+  import chúng, gói `server-only` sẽ ném. Đã kiểm bundle `.next/static` không chứa mã server.
+- Security lần 2 — TB mới: bộ gộp refresh đầy (token rác giữ 15 s) ⇒ bỏ gộp ⇒ refresh thật bị gọi trùng ⇒ API thu hồi phiên.
+  Sửa: chỉ giữ mục đang chạy và mục THÀNH CÔNG (lỗi xóa ngay khi xong); đầy ⇒ đẩy mục cũ nhất, không bao giờ bỏ gộp.
+  `scrub` dùng object không prototype, nhánh lồng quá 32 cấp bị bỏ hẳn.
+- E2E 11/11: thêm sai mã ở /enroll (ở lại, secret giữ nguyên), sai mã step-up + Esc hủy + bấm đúp (một tài khoản, không lỗi),
+  trang 404 không vi phạm CSP, 375 px không tràn trên 5 trang; e2e từ chối chạy nếu bản build cũ hơn mã nguồn.
+
 ## Hệ quả
 - Compose: admin-web có `API_INTERNAL_URL=http://api:3000` và `ADMIN_ORIGIN`. Local mặc định là `http://localhost:8080`.
   Staging là `https://${APP_DOMAIN}`.

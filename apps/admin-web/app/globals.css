@@ -213,3 +213,26 @@ dialog::backdrop {
     padding: 16px;
   }
 }
+/* review react 8b lần 1: nội dung không đẩy cả trang tràn ngang (grid item min-width:auto) */
+.main {
+  min-width: 0;
+}
+.table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.wrap {
+  word-break: break-word;
+  max-width: 320px;
+}
+.nav .spacer {
+  flex: 1;
+}
+.nav button {
+  align-self: flex-start;
+}
+@media (max-width: 720px) {
+  .nav .spacer {
+    display: none;
+  }
+}

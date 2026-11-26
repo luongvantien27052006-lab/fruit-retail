@@ -1,5 +1,5 @@
 'use client';
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { bff, errorText } from '../../../lib/client/api';
 import { dt, UUID_RE } from '../../../lib/client/format';
 
@@ -26,14 +26,23 @@ export default function AccountsPage() {
   const [sessions, setSessions] = useState<AdminSession[] | null>(null);
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
+  const [role, setRole] = useState('VIEW_ONLY_ADMIN');
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false); // chặn bấm đúp trong cùng nhịp (state chưa kịp render)
 
   async function run(fn: () => Promise<void>) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
     setErr('');
     setMsg('');
     try {
       await fn();
     } catch (x) {
       setErr(errorText(x));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
   }
 
@@ -45,13 +54,12 @@ export default function AccountsPage() {
       setCreated(
         await bff<Created>('/api/admin/admin-accounts', 'POST', {
           email: String(f.get('email') ?? '').trim(),
-          role: String(f.get('role')),
-          ...(String(f.get('role')) === 'VIEW_ONLY_ADMIN'
-            ? { viewer_profile_id: String(f.get('viewer_profile_id') ?? '').trim() }
-            : {}),
+          role,
+          ...(role === 'VIEW_ONLY_ADMIN' ? { viewer_profile_id: String(f.get('viewer_profile_id') ?? '').trim() } : {}),
         }),
       );
       form.reset();
+      setRole('VIEW_ONLY_ADMIN');
     });
   }
 
@@ -69,16 +77,24 @@ export default function AccountsPage() {
         </label>
         <label>
           Vai trò
-          <select name="role" defaultValue="VIEW_ONLY_ADMIN">
+          <select name="role" value={role} onChange={(e) => setRole(e.target.value)}>
             <option value="VIEW_ONLY_ADMIN">Admin chỉ xem</option>
             <option value="MASTER_ADMIN">Master Admin</option>
           </select>
         </label>
         <label>
-          Hồ sơ xem (chỉ với Admin chỉ xem — mã hồ sơ)
-          <input name="viewer_profile_id" pattern="[0-9a-fA-F-]{36}" placeholder="uuid" />
+          Hồ sơ xem (bắt buộc với Admin chỉ xem — mã hồ sơ)
+          <input
+            name="viewer_profile_id"
+            pattern="[0-9a-fA-F-]{36}"
+            placeholder="uuid"
+            required={role === 'VIEW_ONLY_ADMIN'}
+            disabled={role !== 'VIEW_ONLY_ADMIN'}
+          />
         </label>
-        <button type="submit">Tạo tài khoản</button>
+        <button type="submit" disabled={busy}>
+          Tạo tài khoản
+        </button>
         {created && (
           <div className="notice">
             <p>
@@ -108,7 +124,7 @@ export default function AccountsPage() {
         <div className="row">
           <button
             type="button"
-            disabled={!valid}
+            disabled={!valid || busy}
             onClick={() =>
               void run(async () => {
                 const r = reason();
@@ -123,7 +139,7 @@ export default function AccountsPage() {
           </button>
           <button
             type="button"
-            disabled={!valid}
+            disabled={!valid || busy}
             className="secondary"
             onClick={() =>
               void run(async () => {
@@ -138,7 +154,7 @@ export default function AccountsPage() {
           </button>
           <button
             type="button"
-            disabled={!valid}
+            disabled={!valid || busy}
             className="danger"
             onClick={() =>
               void run(async () => {
@@ -153,7 +169,7 @@ export default function AccountsPage() {
           </button>
           <button
             type="button"
-            disabled={!valid}
+            disabled={!valid || busy}
             className="secondary"
             onClick={() =>
               void run(async () => {
@@ -165,45 +181,48 @@ export default function AccountsPage() {
           </button>
         </div>
         {sessions && (
-          <table>
-            <thead>
-              <tr>
-                <th>Tạo</th>
-                <th>Dùng gần nhất</th>
-                <th>Trình duyệt / thiết bị</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {sessions.map((s) => (
-                <tr key={s.id}>
-                  <td>{dt(s.created_at)}</td>
-                  <td>{dt(s.last_used_at)}</td>
-                  <td className="muted">{s.user_agent ?? '—'}</td>
-                  <td>
-                    {s.active && (
-                      <button
-                        type="button"
-                        className="danger"
-                        onClick={() =>
-                          void run(async () => {
-                            const r = reason();
-                            if (!r) return;
-                            await bff(`/api/admin/sessions/${s.id}/revoke`, 'POST', { reason: r });
-                            setSessions(
-                              (await bff<{ items: AdminSession[] }>(`/api/admin/users/${id}/sessions`)).items,
-                            );
-                          })
-                        }
-                      >
-                        Thu hồi
-                      </button>
-                    )}
-                  </td>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tạo</th>
+                  <th>Dùng gần nhất</th>
+                  <th>Trình duyệt / thiết bị</th>
+                  <th />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {sessions.map((s) => (
+                  <tr key={s.id}>
+                    <td>{dt(s.created_at)}</td>
+                    <td>{dt(s.last_used_at)}</td>
+                    <td className="muted">{s.user_agent ?? '—'}</td>
+                    <td>
+                      {s.active && (
+                        <button
+                          type="button"
+                          className="danger"
+                          disabled={busy}
+                          onClick={() =>
+                            void run(async () => {
+                              const r = reason();
+                              if (!r) return;
+                              await bff(`/api/admin/sessions/${s.id}/revoke`, 'POST', { reason: r });
+                              setSessions(
+                                (await bff<{ items: AdminSession[] }>(`/api/admin/users/${id}/sessions`)).items,
+                              );
+                            })
+                          }
+                        >
+                          Thu hồi
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </>

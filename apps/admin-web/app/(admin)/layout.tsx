@@ -31,7 +31,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             </>
           )}
           <Link href="/sessions">Phiên &amp; bảo mật</Link>
-          <p />
+          <span className="spacer" />
           <LogoutButton />
         </nav>
         <main className="main">{children}</main>

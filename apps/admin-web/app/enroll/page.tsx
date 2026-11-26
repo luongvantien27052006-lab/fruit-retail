@@ -87,8 +87,12 @@ export default function EnrollPage() {
   }
 
   async function logout() {
-    await bff('/auth/logout', 'POST', {}).catch(() => undefined);
-    router.replace('/login');
+    try {
+      await bff('/auth/logout', 'POST', {});
+      router.replace('/login');
+    } catch {
+      setErr('Đăng xuất chưa thành công — kiểm tra kết nối rồi thử lại.');
+    }
   }
 
   return (
@@ -142,6 +146,9 @@ export default function EnrollPage() {
         {step === 'scan' && (
           <form onSubmit={confirm}>
             <p>Bắt buộc bật xác minh hai bước. Quét mã bằng ứng dụng Authenticator rồi nhập mã 6 số.</p>
+            <p className="muted">
+              Mỗi lần mở lại trang này sẽ có mã QR MỚI — nếu đã quét mã cũ, xóa mục đó trong Authenticator rồi quét lại.
+            </p>
             {qr && <img className="qr" src={qr} alt="Mã QR đăng ký Authenticator" />}
             {setup && (
               <p className="muted">
@@ -168,7 +175,7 @@ export default function EnrollPage() {
               <button type="submit" disabled={busy || !setup}>
                 Xác nhận
               </button>
-              {!setup && (
+              {(!setup || err) && (
                 <button type="button" className="secondary" onClick={() => void startSetup()}>
                   Thử lại
                 </button>

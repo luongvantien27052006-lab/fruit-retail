@@ -19,6 +19,7 @@ interface Staff {
   roles: Role[];
 }
 
+const STATUS_VI: Record<string, string> = { ACTIVE: 'Đang làm', LOCKED: 'Bị khóa', DISABLED: 'Vô hiệu' };
 const ROLES = ['STORE_MANAGER', 'CASHIER', 'PICKER', 'SHIPPER', 'WAREHOUSE_STAFF'] as const;
 const ROLE_VI: Record<string, string> = {
   STORE_MANAGER: 'Cửa hàng trưởng',
@@ -93,45 +94,51 @@ export default function StaffPage() {
           </p>
         )}
         {msg && <p className="notice">{msg}</p>}
-        <table>
-          <thead>
-            <tr>
-              <th>Mã</th>
-              <th>Họ tên</th>
-              <th>Trạng thái</th>
-              <th>Vai trò</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((s) => (
-              <tr key={s.user_id}>
-                <td className="mono">{s.staff_code}</td>
-                <td>{s.full_name}</td>
-                <td>{s.left_at ? `Nghỉ từ ${s.left_at}` : s.status}</td>
-                <td>
-                  {s.roles.map((r) => (
-                    <div key={r.id} className="row">
-                      <span>
-                        {ROLE_VI[r.role] ?? r.role}{' '}
-                        <span className="muted mono">{(r.store_id ?? r.warehouse_id ?? '').slice(0, 8)}</span>
-                      </span>
-                      <button type="button" className="danger" onClick={() => void removeRole(r.id)}>
-                        Gỡ
-                      </button>
-                    </div>
-                  ))}
-                </td>
-              </tr>
-            ))}
-            {!items.length && (
+        <div className="table-wrap">
+          <table>
+            <thead>
               <tr>
-                <td colSpan={4} className="muted">
-                  Chưa có nhân viên
-                </td>
+                <th>Mã</th>
+                <th>Họ tên</th>
+                <th>Trạng thái</th>
+                <th>Vai trò</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {items.map((s) => (
+                <tr key={s.user_id}>
+                  <td className="mono">{s.staff_code}</td>
+                  <td>{s.full_name}</td>
+                  <td>
+                    {s.left_at
+                      ? `Nghỉ từ ${s.left_at.split('-').reverse().join('/')}`
+                      : (STATUS_VI[s.status] ?? s.status)}
+                  </td>
+                  <td>
+                    {s.roles.map((r) => (
+                      <div key={r.id} className="row">
+                        <span>
+                          {ROLE_VI[r.role] ?? r.role}{' '}
+                          <span className="muted mono">{(r.store_id ?? r.warehouse_id ?? '').slice(0, 8)}</span>
+                        </span>
+                        <button type="button" className="danger" onClick={() => void removeRole(r.id)}>
+                          Gỡ
+                        </button>
+                      </div>
+                    ))}
+                  </td>
+                </tr>
+              ))}
+              {!items.length && (
+                <tr>
+                  <td colSpan={4} className="muted">
+                    Chưa có nhân viên
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <form className="card" onSubmit={create}>

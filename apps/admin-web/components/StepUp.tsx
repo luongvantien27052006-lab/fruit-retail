@@ -8,26 +8,32 @@ import { bff, errorText, registerStepUp } from '../lib/client/api';
  */
 export function StepUpProvider({ children }: { children: ReactNode }) {
   const dlg = useRef<HTMLDialogElement>(null);
-  const resolver = useRef<((ok: boolean) => void) | null>(null);
+  // MỘT lời hỏi dùng chung: nhiều thao tác cùng cần step-up ⇒ cùng chờ một promise (không ghi đè resolver ⇒ không treo)
+  const pending = useRef<{ p: Promise<boolean>; resolve: (ok: boolean) => void } | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    registerStepUp(
-      () =>
-        new Promise<boolean>((resolve) => {
-          resolver.current = resolve;
-          setErr('');
-          dlg.current?.showModal();
-        }),
-    );
-    return () => registerStepUp(null);
+    registerStepUp(() => {
+      if (pending.current) return pending.current.p;
+      let resolve!: (ok: boolean) => void;
+      const p = new Promise<boolean>((r) => (resolve = r));
+      pending.current = { p, resolve };
+      setErr('');
+      dlg.current?.showModal();
+      return p;
+    });
+    return () => {
+      registerStepUp(null);
+      finish(false);
+    };
   }, []);
 
   function finish(ok: boolean) {
-    dlg.current?.close();
-    resolver.current?.(ok);
-    resolver.current = null;
+    const cur = pending.current;
+    pending.current = null;
+    if (dlg.current?.open) dlg.current.close();
+    cur?.resolve(ok);
   }
 
   async function submit(e: FormEvent<HTMLFormElement>) {
@@ -50,7 +56,7 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
   return (
     <>
       {children}
-      <dialog ref={dlg} onCancel={() => finish(false)}>
+      <dialog ref={dlg} onCancel={() => finish(false)} onClose={() => finish(false)}>
         <form onSubmit={submit}>
           <h2>Xác thực lại</h2>
           <p className="muted">Thao tác nhạy cảm — nhập mã 6 số trong Authenticator (hiệu lực 5 phút).</p>

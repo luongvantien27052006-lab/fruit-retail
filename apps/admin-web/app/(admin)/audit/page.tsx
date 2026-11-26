@@ -19,6 +19,7 @@ export default function AuditPage() {
   const [items, setItems] = useState<Log[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
+  const [applied, setApplied] = useState(''); // bộ lọc ĐÃ áp dụng — "Xem thêm" không trộn với ô đang gõ
   const [err, setErr] = useState('');
 
   const load = useCallback(async (after: string | null, q: string) => {
@@ -45,6 +46,7 @@ export default function AuditPage() {
         className="row"
         onSubmit={(e) => {
           e.preventDefault();
+          setApplied(filter.trim());
           void load(null, filter.trim());
         }}
       >
@@ -56,35 +58,37 @@ export default function AuditPage() {
           {err}
         </p>
       )}
-      <table>
-        <thead>
-          <tr>
-            <th>Lúc</th>
-            <th>Hành động</th>
-            <th>Đối tượng</th>
-            <th>Người làm</th>
-            <th>Lý do</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((l) => (
-            <tr key={l.id}>
-              <td>{dt(l.at)}</td>
-              <td className="mono">{l.action}</td>
-              <td>
-                {l.resource_type} <span className="muted mono">{l.resource_id ?? ''}</span>
-              </td>
-              <td className="muted mono">
-                {l.actor_type ?? ''} {l.actor_id ?? ''}
-              </td>
-              <td>{l.reason ?? ''}</td>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Lúc</th>
+              <th>Hành động</th>
+              <th>Đối tượng</th>
+              <th>Người làm</th>
+              <th>Lý do</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map((l) => (
+              <tr key={l.id}>
+                <td>{dt(l.at)}</td>
+                <td className="mono">{l.action}</td>
+                <td>
+                  {l.resource_type} <span className="muted mono">{l.resource_id ?? ''}</span>
+                </td>
+                <td className="muted mono">
+                  {l.actor_type ?? ''} {l.actor_id ?? ''}
+                </td>
+                <td>{l.reason ?? ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {cursor && (
         <p>
-          <button type="button" className="secondary" onClick={() => void load(cursor, filter.trim())}>
+          <button type="button" className="secondary" onClick={() => void load(cursor, applied)}>
             Xem thêm
           </button>
         </p>

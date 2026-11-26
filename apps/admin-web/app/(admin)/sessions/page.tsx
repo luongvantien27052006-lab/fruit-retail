@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { bff, errorText } from '../../../lib/client/api';
 import { dt } from '../../../lib/client/format';
 
@@ -17,6 +17,22 @@ export default function SessionsPage() {
   const [items, setItems] = useState<Session[]>([]);
   const [codes, setCodes] = useState<string[] | null>(null);
   const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  async function guard(fn: () => Promise<void>) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setErr('');
+    try {
+      await fn();
+    } catch (x) {
+      setErr(errorText(x));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -29,24 +45,18 @@ export default function SessionsPage() {
     void load();
   }, [load]);
 
-  async function revoke(id: string) {
-    setErr('');
-    try {
+  function revoke(id: string) {
+    void guard(async () => {
       await bff(`/api/auth/sessions/${id}`, 'DELETE');
       await load();
-    } catch (x) {
-      setErr(errorText(x));
-    }
+    });
   }
 
-  async function regenerate() {
+  function regenerate() {
     if (!window.confirm('Tạo bộ mã khôi phục mới? Bộ mã cũ sẽ hết hiệu lực.')) return;
-    setErr('');
-    try {
+    void guard(async () => {
       setCodes((await bff<{ recovery_codes: string[] }>('/api/auth/2fa/recovery-codes', 'POST', {})).recovery_codes);
-    } catch (x) {
-      setErr(errorText(x));
-    }
+    });
   }
 
   return (
@@ -58,38 +68,40 @@ export default function SessionsPage() {
             {err}
           </p>
         )}
-        <table>
-          <thead>
-            <tr>
-              <th>Thiết bị</th>
-              <th>Tạo</th>
-              <th>Dùng gần nhất</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((s) => (
-              <tr key={s.id}>
-                <td className="muted">{s.client_device ?? s.user_agent ?? '—'}</td>
-                <td>{dt(s.created_at)}</td>
-                <td>{dt(s.last_used_at)}</td>
-                <td>
-                  {s.current ? (
-                    <span className="muted">Phiên này</span>
-                  ) : (
-                    <button type="button" className="danger" onClick={() => void revoke(s.id)}>
-                      Thu hồi
-                    </button>
-                  )}
-                </td>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Thiết bị</th>
+                <th>Tạo</th>
+                <th>Dùng gần nhất</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {items.map((s) => (
+                <tr key={s.id}>
+                  <td className="muted wrap">{s.client_device ?? s.user_agent ?? '—'}</td>
+                  <td>{dt(s.created_at)}</td>
+                  <td>{dt(s.last_used_at)}</td>
+                  <td>
+                    {s.current ? (
+                      <span className="muted">Phiên này</span>
+                    ) : (
+                      <button type="button" className="danger" disabled={busy} onClick={() => revoke(s.id)}>
+                        Thu hồi
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
       <div className="card">
         <h2>Mã khôi phục</h2>
-        <button type="button" onClick={() => void regenerate()}>
+        <button type="button" disabled={busy} onClick={() => regenerate()}>
           Tạo bộ mã mới
         </button>
         {codes && (

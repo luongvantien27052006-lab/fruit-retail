@@ -36,8 +36,10 @@ export async function readBody(req: NextRequest): Promise<{ text: string } | { e
 /** Chuyển kết quả upstream thành phản hồi: ghi token mới vào cookie, phiên chết ⇒ xóa cookie. */
 export function fromUpstream(req: NextRequest, u: Upstream): NextResponse {
   const res = json(u.status, u.body);
-  if (u.loggedOut) clearAll(res);
-  else {
+  if (u.loggedOut) {
+    clearAll(res);
+    res.headers.set('x-session-ended', '1'); // client về /login (lỗi 401 khác — vd sai mã — không đá người dùng ra)
+  } else {
     setTokens(res, u.tokens);
     if (u.tokens.refresh_token) extendCsrf(res, req);
   }

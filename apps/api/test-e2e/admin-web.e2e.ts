@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
 import { type ChildProcess, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { readdirSync, statSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { createServer } from 'node:net';
 import { resolve } from 'node:path';
@@ -87,6 +88,16 @@ describe('trang quản lý qua BFF (CP03 lát 8b)', () => {
     const webPort = await freePort();
     origin = `http://localhost:${webPort}`;
     const dir = resolve(process.cwd(), '../admin-web');
+    // chống "xanh giả" trên bản build cũ: BUILD_ID phải mới hơn mọi file nguồn
+    const built = statSync(resolve(dir, '.next/BUILD_ID')).mtimeMs;
+    const newest = (p: string): number => {
+      const st = statSync(p);
+      if (!st.isDirectory()) return st.mtimeMs;
+      return Math.max(0, ...readdirSync(p).map((n) => newest(resolve(p, n))));
+    };
+    const src = Math.max(...['app', 'lib', 'components', 'proxy.ts'].map((n) => newest(resolve(dir, n))));
+    if (src > built)
+      throw new Error('admin-web chưa build lại sau khi sửa — chạy pnpm --filter @fruit/admin-web build');
     web = spawn(process.execPath, [resolve(dir, 'node_modules/next/dist/bin/next'), 'start', '-p', String(webPort)], {
       cwd: dir,
       env: {
@@ -142,6 +153,12 @@ describe('trang quản lý qua BFF (CP03 lát 8b)', () => {
     secret = (await secretEl.textContent())?.trim() ?? '';
     expect(secret).toMatch(/^[A-Z2-7]+=*$/);
     expect(await page.locator('img.qr').getAttribute('src')).toMatch(/^data:image\/png;base64,/);
+    // review react 8b: sai mã ở bước đăng ký ⇒ báo lỗi tại chỗ, KHÔNG bị đá về /login, secret giữ nguyên
+    await page.fill('input[name=code]', '000000');
+    await page.click('button[type=submit]');
+    await page.locator('p.error').waitFor();
+    expect(new URL(page.url()).pathname).toBe('/enroll');
+    expect((await secretEl.textContent())?.trim()).toBe(secret);
     await page.fill('input[name=code]', await totp());
     await page.click('button[type=submit]');
     await page.locator('.codes span').first().waitFor();
@@ -202,10 +219,23 @@ describe('trang quản lý qua BFF (CP03 lát 8b)', () => {
 
   it('thao tác step-up: hộp mã 2FA hiện ra, nhập đúng ⇒ thao tác chạy tiếp', async () => {
     await page.goto(`${origin}/accounts`);
-    await page.fill('form input[name=email]', `v-${randomBytes(3).toString('hex')}@fruit.test`);
-    await page.selectOption('form select[name=role]', 'MASTER_ADMIN');
-    await page.click('form button[type=submit]');
+    await page.fill('form.card input[name=email]', `v-${randomBytes(3).toString('hex')}@fruit.test`);
+    await page.selectOption('form.card select[name=role]', 'MASTER_ADMIN');
+    await page.click('form.card button[type=submit]');
     const dlg = page.locator('dialog[open]');
+    await dlg.waitFor();
+    // sai mã ⇒ lỗi trong hộp, vẫn ở /accounts, form còn nguyên
+    await dlg.locator('input[name=code]').fill('000000');
+    await dlg.locator('button[type=submit]').click();
+    await dlg.locator('p.error').waitFor();
+    expect(new URL(page.url()).pathname).toBe('/accounts');
+    // Esc ⇒ hủy: thao tác báo lỗi, hộp đóng, không treo (nút gửi bật lại)
+    await page.keyboard.press('Escape');
+    await page.locator('dialog[open]').waitFor({ state: 'detached' });
+    await page.locator('form.card button[type=submit]:not([disabled])').waitFor();
+    expect(await page.inputValue('form.card input[name=email]')).toContain('@fruit.test');
+    // bấm đúp ⇒ chỉ MỘT thao tác chạy
+    await page.dblclick('form.card button[type=submit]');
     await dlg.waitFor();
     await dlg.locator('input[name=code]').fill(await totp());
     await dlg.locator('button[type=submit]').click();
@@ -216,6 +246,25 @@ describe('trang quản lý qua BFF (CP03 lát 8b)', () => {
       [userId],
     );
     expect(a?.n).toBe(1);
+    expect(await page.locator('.card p.error').count()).toBe(0); // không có lỗi "email đã dùng" từ lần bấm thứ hai
+  });
+
+  it('review react 8b: trang 404 không vi phạm CSP; bề rộng 375 px không tràn ngang', async () => {
+    await page.goto(`${origin}/khong-co-trang-nay`);
+    await expect(page.locator('h1').textContent()).resolves.toBe('Không tìm thấy trang');
+    await page.setViewportSize({ width: 375, height: 812 });
+    for (const p of ['/sessions', '/accounts', '/staff', '/devices', '/audit']) {
+      await page.goto(`${origin}${p}`);
+      await page.locator('h1').waitFor();
+      const [sw, cw] = await page.evaluate(() => {
+        const d = (
+          globalThis as unknown as { document: { documentElement: { scrollWidth: number; clientWidth: number } } }
+        ).document.documentElement;
+        return [d.scrollWidth, d.clientWidth];
+      });
+      expect(sw, p).toBeLessThanOrEqual(cw);
+    }
+    await page.setViewportSize({ width: 1280, height: 720 });
   });
 
   it('access hết hạn (mất cookie) ⇒ proxy tự làm mới bằng refresh; request song song không làm chết phiên', async () => {

@@ -70,9 +70,11 @@ const SECRET_KEYS = new Set(['access_token', 'refresh_token', 'mfa_challenge']);
 
 /** Bỏ khóa token ở MỌI cấp (kể cả lồng trong mảng/đối tượng) — không bao giờ đưa token cho trình duyệt. */
 function scrub(v: unknown, depth = 0): unknown {
-  if (depth > 32 || !v || typeof v !== 'object') return v;
+  if (!v || typeof v !== 'object') return v;
+  if (depth > 32) return undefined; // lồng quá sâu ⇒ bỏ cả nhánh (không trả nguyên — có thể chứa token)
   if (Array.isArray(v)) return v.map((x) => scrub(x, depth + 1));
-  const out: Record<string, unknown> = {};
+  // không prototype: khóa "__proto__" là thuộc tính thường, không đổi prototype của out
+  const out = Object.create(null) as Record<string, unknown>;
   for (const [k, x] of Object.entries(v as Record<string, unknown>))
     if (!SECRET_KEYS.has(k)) out[k] = scrub(x, depth + 1);
   return out;
@@ -102,8 +104,8 @@ export function stripTokens(body: unknown, accept = true): { body: unknown; toke
 /**
  * Refresh token dùng MỘT lần; dùng lại ⇒ API thu hồi cả phiên (SEC4). Trình duyệt bắn song song nhiều request khi access
  * vừa hết hạn ⇒ tất cả mang CÙNG refresh cookie. Gộp (single-flight) theo SHA-256 của token: lần đầu gọi API, các lần sau
- * trong 15 s (đủ cho loạt request song song, ngắn để không làm yếu phát hiện dùng lại) dùng lại kết quả. Mục tự xóa bằng
- * timer; trần 2000 mục (cookie rác không làm phình bộ nhớ). Bộ nhớ trong tiến trình — admin-web chạy MỘT bản (ADR-027).
+ * trong 15 s (đủ cho loạt request song song, ngắn để không làm yếu phát hiện dùng lại) dùng lại kết quả THÀNH CÔNG; lỗi
+ * xóa ngay khi xong. Mục tự xóa bằng timer; trần 2000 mục, đầy ⇒ đẩy mục cũ nhất (không bao giờ bỏ gộp). Bộ nhớ trong tiến trình — admin-web chạy MỘT bản (ADR-027).
  */
 const REFRESH_REUSE_MS = 15_000;
 const MAX_ENTRIES = 2000;
@@ -118,12 +120,19 @@ export function refreshOnce(req: NextRequest, refreshToken: string): Promise<Ref
   const now = Date.now();
   const hit = inflight.get(token);
   if (hit && now - hit.at <= REFRESH_REUSE_MS) return hit.p;
-  if (inflight.size >= MAX_ENTRIES) {
-    for (const [k, v] of inflight) if (now - v.at > REFRESH_REUSE_MS) inflight.delete(k);
-    // vẫn đầy (bị dội cookie rác): không gộp — gọi thẳng API (chỉ rủi ro: đua refresh của chính người dùng đó)
-    if (inflight.size >= MAX_ENTRIES) return doRefresh(req, refreshToken, null);
+  if (hit) inflight.delete(token);
+  // review 8b lần 2: KHÔNG bao giờ bỏ qua bước gộp khi đầy (token rác làm đầy ⇒ refresh thật bị gọi trùng ⇒ API thu
+  // hồi phiên). Map giữ thứ tự chèn ⇒ đẩy mục cũ nhất ra.
+  while (inflight.size >= MAX_ENTRIES) {
+    const oldest = inflight.keys().next().value;
+    if (oldest === undefined) break;
+    inflight.delete(oldest);
   }
-  const p = doRefresh(req, refreshToken, token);
+  const p = doRefresh(req, refreshToken).then((r) => {
+    // chỉ giữ kết quả THÀNH CÔNG (để request song song tới muộn dùng lại); lỗi/token rác xóa ngay khi xong
+    if (!r.ok && inflight.get(token)?.p === p) inflight.delete(token);
+    return r;
+  });
   inflight.set(token, { at: now, p });
   setTimeout(() => {
     if (inflight.get(token)?.p === p) inflight.delete(token);
@@ -131,12 +140,11 @@ export function refreshOnce(req: NextRequest, refreshToken: string): Promise<Ref
   return p;
 }
 
-function doRefresh(req: NextRequest, refreshToken: string, key: string | null): Promise<Refreshed> {
+function doRefresh(req: NextRequest, refreshToken: string): Promise<Refreshed> {
   return call(req, '/auth/refresh', { method: 'POST', body: JSON.stringify({ refresh_token: refreshToken }) }).then(
     (rf): Refreshed => {
       const ok = rf.status === 200;
       const dead = rf.status === 400 || rf.status === 401 || rf.status === 403;
-      if (!ok && !dead && key) inflight.delete(key);
       return { ok, dead, status: rf.status, body: scrub(rf.body), tokens: ok ? stripTokens(rf.body).tokens : {} };
     },
   );

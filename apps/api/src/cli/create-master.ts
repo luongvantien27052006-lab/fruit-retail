@@ -70,7 +70,9 @@ async function main(): Promise<void> {
   // stdout của người chạy lệnh — KHÔNG ghi log/file.
   console.log(`Đã tạo Master ${r.email} (id ${r.userId}).`);
   console.log(`Mật khẩu tạm (chỉ hiện một lần, lưu vào trình quản lý mật khẩu): ${r.password}`);
-  console.log('Lần đăng nhập đầu (trong 72 giờ): đổi mật khẩu, rồi đăng ký 2FA (Authenticator) và cất 10 mã khôi phục.');
+  console.log(
+    'Lần đăng nhập đầu (trong 72 giờ): đổi mật khẩu, rồi đăng ký 2FA (Authenticator) và cất 10 mã khôi phục.',
+  );
 }
 
 if (typeof require !== 'undefined' && require.main === module) {

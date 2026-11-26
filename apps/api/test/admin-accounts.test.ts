@@ -409,7 +409,9 @@ describe('quản trị tài khoản (CP03 lát 8a)', () => {
       .set('Authorization', master)
       .send({ email: `old-${hex().toLowerCase()}@fruit.test`, role: 'MASTER_ADMIN' });
     // L1: phiên lấy TRƯỚC hạn không kéo dài được hạn kích hoạt
-    const early = await http().post('/v1/auth/login').send({ email: r.body.email, password: r.body.temporary_password });
+    const early = await http()
+      .post('/v1/auth/login')
+      .send({ email: r.body.email, password: r.body.temporary_password });
     expect(early.body.status).toBe('ENROLLMENT_REQUIRED');
     await rows(`UPDATE core.users SET created_at = now() - interval '73 hours' WHERE id = $1`, [r.body.user_id]).catch(
       async () => {

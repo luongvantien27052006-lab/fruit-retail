@@ -33,7 +33,11 @@ const RECOVERY_CODES = 10;
 export const TEMP_PASSWORD_TTL_S = 72 * 3600;
 
 /** NC-22: mật khẩu tạm chưa đổi (và chưa có 2FA) quá 72 giờ kể từ lúc tạo tài khoản */
-export function tempPasswordExpired(u: { mustChangePassword: boolean; totpEnabledAt: Date | null; createdAt: Date }): boolean {
+export function tempPasswordExpired(u: {
+  mustChangePassword: boolean;
+  totpEnabledAt: Date | null;
+  createdAt: Date;
+}): boolean {
   return u.mustChangePassword && !u.totpEnabledAt && u.createdAt.getTime() < Date.now() - TEMP_PASSWORD_TTL_S * 1000;
 }
 /** mật khẩu mới: 12–256 ký tự (người dùng tự chọn; Argon2id hồ sơ PASSWORD) */

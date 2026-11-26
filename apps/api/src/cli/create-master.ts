@@ -18,7 +18,12 @@ export interface CreatedMaster {
  * app_rw. Tài khoản mới chưa có 2FA ⇒ lần đăng nhập đầu chỉ gọi được route đăng ký 2FA (AccessGuard). Ghi audit.logs
  * cùng transaction. Email đã tồn tại ⇒ lỗi (không ghi đè).
  */
-export async function createMaster(databaseUrl: string, emailRaw: string): Promise<CreatedMaster> {
+export async function createMaster(
+  databaseUrl: string,
+  emailRaw: string,
+  /** chỉ test dùng false (bỏ bước đổi mật khẩu tạm để kiểm luồng khác); CLI thật luôn bắt đổi (NC-22) */
+  opts: { mustChangePassword?: boolean } = {},
+): Promise<CreatedMaster> {
   const email = normalizeEmail(emailRaw);
   if (!EMAIL_RE.test(email) || email.length > 254) throw new Error('Email không hợp lệ');
   const password = randomBytes(15).toString('base64url'); // 20 ký tự, 120 bit
@@ -28,11 +33,11 @@ export async function createMaster(databaseUrl: string, emailRaw: string): Promi
   await c.connect();
   try {
     await c.query('BEGIN');
-    await c.query(`INSERT INTO core.users (id, type, email, password_hash) VALUES ($1, 'MASTER', $2, $3)`, [
-      userId,
-      email,
-      passwordHash,
-    ]);
+    // mật khẩu tạm in ra terminal ⇒ phải đổi trước khi đăng ký 2FA (NC-22)
+    await c.query(
+      `INSERT INTO core.users (id, type, email, password_hash, must_change_password) VALUES ($1, 'MASTER', $2, $3, $4)`,
+      [userId, email, passwordHash, opts.mustChangePassword ?? true],
+    );
     await c.query(
       `INSERT INTO core.user_role_assignments (id, user_id, role, scope_type) VALUES ($1, $2, 'MASTER_ADMIN', 'ALL')`,
       [uuidv7(), userId],

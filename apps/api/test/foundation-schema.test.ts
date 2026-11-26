@@ -70,6 +70,7 @@ describe('0001_foundation', () => {
       'prisma/0004_nc19_permissions',
       'prisma/0005_nc21_grant_guard',
       'prisma/0006_files_final_key',
+      'prisma/0007_password_change',
     ]);
     await expect(
       applySqlMigrations({ url: ownerUrl, dir: SQL_DIR, prismaDir: PRISMA_DIR, env: passwords, log: () => undefined }),

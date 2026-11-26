@@ -148,36 +148,38 @@ model Register {
 // ───────────────────────────── Người dùng & quyền (M02) ─────────────────────────────
 
 model User {
-  id                String                    @id @db.Uuid
-  type              UserType
+  id                 String                    @id @db.Uuid
+  type               UserType
   /// Đăng nhập Master/Viewer; luôn chữ thường (CHECK)
-  email             String?                   @unique
+  email              String?                   @unique
   /// SĐT mã hóa AES-256-GCM (ADR-015); tra cứu bằng phone_hash (HMAC, E.164)
-  phoneEnc          Bytes?                    @map("phone_enc")
-  phoneHash         Bytes?                    @unique @map("phone_hash")
-  passwordHash      String?                   @map("password_hash")
-  pinHash           String?                   @map("pin_hash")
-  totpSecretEnc     Bytes?                    @map("totp_secret_enc")
-  totpEnabledAt     DateTime?                 @map("totp_enabled_at") @db.Timestamptz(6)
+  phoneEnc           Bytes?                    @map("phone_enc")
+  phoneHash          Bytes?                    @unique @map("phone_hash")
+  passwordHash       String?                   @map("password_hash")
+  /// mật khẩu tạm (Master tạo / CLI) — phải đổi trước khi đăng ký 2FA; chưa đổi quá 72 giờ ⇒ không đăng nhập (NC-22)
+  mustChangePassword Boolean                   @default(false) @map("must_change_password")
+  pinHash            String?                   @map("pin_hash")
+  totpSecretEnc      Bytes?                    @map("totp_secret_enc")
+  totpEnabledAt      DateTime?                 @map("totp_enabled_at") @db.Timestamptz(6)
   /// bước thời gian TOTP (30 s) đã dùng gần nhất — mã cùng bước hoặc cũ hơn bị từ chối (chống dùng lại, ADR-021)
-  totpLastStep      BigInt?                   @map("totp_last_step")
-  status            UserStatus                @default(ACTIVE)
-  failedLoginCount  Int                       @default(0) @map("failed_login_count")
-  lockedUntil       DateTime?                 @map("locked_until") @db.Timestamptz(6)
-  lockCount         Int                       @default(0) @map("lock_count")
-  lastLoginAt       DateTime?                 @map("last_login_at") @db.Timestamptz(6)
-  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  version           Int                       @default(0)
-  staff             Staff?
-  recoveryCodes     RecoveryCode[]
-  roleAssignments   UserRoleAssignment[]
-  permissionGrants  UserPermissionGrant[]
-  sessions          Session[]
-  viewerAssignments ViewerProfileAssignment[]
-  authChallenges    AuthChallenge[]
-  enrollmentCodes   PosEnrollmentCode[]
-  filesCreated      File[]
+  totpLastStep       BigInt?                   @map("totp_last_step")
+  status             UserStatus                @default(ACTIVE)
+  failedLoginCount   Int                       @default(0) @map("failed_login_count")
+  lockedUntil        DateTime?                 @map("locked_until") @db.Timestamptz(6)
+  lockCount          Int                       @default(0) @map("lock_count")
+  lastLoginAt        DateTime?                 @map("last_login_at") @db.Timestamptz(6)
+  createdAt          DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  version            Int                       @default(0)
+  staff              Staff?
+  recoveryCodes      RecoveryCode[]
+  roleAssignments    UserRoleAssignment[]
+  permissionGrants   UserPermissionGrant[]
+  sessions           Session[]
+  viewerAssignments  ViewerProfileAssignment[]
+  authChallenges     AuthChallenge[]
+  enrollmentCodes    PosEnrollmentCode[]
+  filesCreated       File[]
 
   @@map("users")
   @@schema("core")

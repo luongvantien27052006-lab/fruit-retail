@@ -156,7 +156,7 @@ describe('auth nhân viên POS + thiết bị (CP03 lát 4)', () => {
     return generateSync({ secret });
   }
   async function masterBearer(): Promise<string> {
-    const m = await createMaster(db.roleUrl('app_rw'), `m-${hex()}@fruit.test`);
+    const m = await createMaster(db.roleUrl('app_rw'), `m-${hex()}@fruit.test`, { mustChangePassword: false });
     const l = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
     const bearer = `Bearer ${l.body.access_token as string}`;
     await http().post('/v1/auth/2fa/setup').set('Authorization', bearer).send({});

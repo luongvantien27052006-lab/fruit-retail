@@ -41,7 +41,9 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     rows(`UPDATE core.users SET locked_until = NULL, failed_login_count = 0 WHERE id = $1`, [userId]);
 
   async function enrolledMaster(device = `dev-${randomBytes(6).toString('hex')}`) {
-    const m = await createMaster(db.roleUrl('app_rw'), `m-${randomBytes(4).toString('hex')}@fruit.test`);
+    const m = await createMaster(db.roleUrl('app_rw'), `m-${randomBytes(4).toString('hex')}@fruit.test`, {
+      mustChangePassword: false,
+    });
     const l = await http()
       .post('/v1/auth/login')
       .set('X-Device-Id', device)
@@ -94,7 +96,7 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
   });
 
   it('sai email/mật khẩu ⇒ 401 như nhau; login_logs ghi HMAC định danh, không có email rõ', async () => {
-    const m = await createMaster(db.roleUrl('app_rw'), 'Sai.Pass@Fruit.test');
+    const m = await createMaster(db.roleUrl('app_rw'), 'Sai.Pass@Fruit.test', { mustChangePassword: false });
     const a = await http().post('/v1/auth/login').send({ email: 'khong-co@fruit.test', password: 'x' });
     const b = await http().post('/v1/auth/login').send({ email: m.email, password: 'sai-mat-khau' });
     expect([a.status, a.body.code, b.status, b.body.code]).toEqual([
@@ -113,7 +115,7 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
   });
 
   it('SEC1 — Master chưa đăng ký 2FA chỉ gọi được route đăng ký; đăng ký xong mới vào được', async () => {
-    const m = await createMaster(db.roleUrl('app_rw'), 'enroll@fruit.test');
+    const m = await createMaster(db.roleUrl('app_rw'), 'enroll@fruit.test', { mustChangePassword: false });
     const l = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
     expect(l.status).toBe(200);
     expect(l.body.status).toBe('ENROLLMENT_REQUIRED');
@@ -287,7 +289,9 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
   });
 
   it('S1 — tài khoản chưa đăng ký 2FA: đợt song song không vượt 5 lần, phiên chỉ cấp khi chưa khóa', async () => {
-    const m = await createMaster(db.roleUrl('app_rw'), `burst-${randomBytes(3).toString('hex')}@fruit.test`);
+    const m = await createMaster(db.roleUrl('app_rw'), `burst-${randomBytes(3).toString('hex')}@fruit.test`, {
+      mustChangePassword: false,
+    });
     const res = await Promise.all([
       ...Array.from({ length: 30 }, () => http().post('/v1/auth/login').send({ email: m.email, password: 'sai' })),
       http().post('/v1/auth/login').send({ email: m.email, password: m.password }),
@@ -364,7 +368,9 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
 
   it('S2 — setup chạy đua với confirm không ghi đè secret đã bật; confirm thu hồi phiên chỉ-mật-khẩu khác', async () => {
     for (let i = 0; i < 3; i++) {
-      const m = await createMaster(db.roleUrl('app_rw'), `race-${i}-${randomBytes(3).toString('hex')}@fruit.test`);
+      const m = await createMaster(db.roleUrl('app_rw'), `race-${i}-${randomBytes(3).toString('hex')}@fruit.test`, {
+        mustChangePassword: false,
+      });
       const a = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
       const b = await http().post('/v1/auth/login').send({ email: m.email, password: m.password }); // "kẻ biết mật khẩu"
       const ba = `Bearer ${a.body.access_token as string}`;
@@ -699,7 +705,7 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     const check = (name: string, body: unknown) =>
       expect({ name, errors: schemaErrors(name, body) }).toEqual({ name, errors: [] });
     expect(schemaErrors('AuthTokenPair', {}).length).toBeGreaterThan(0); // bộ kiểm không rỗng
-    const m = await createMaster(db.roleUrl('app_rw'), 'contract@fruit.test');
+    const m = await createMaster(db.roleUrl('app_rw'), 'contract@fruit.test', { mustChangePassword: false });
     const l = await http()
       .post('/v1/auth/login')
       .set('X-Device-Id', 'dev-contract-01')

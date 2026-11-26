@@ -193,7 +193,9 @@ describe('RBAC + cô lập Viewer (CP03 lát 6)', () => {
     cipher = new PiiCipher(loadAuthKeys(env));
     app = await createApp(env, { logger: false }, { controllers: [ViewerProbe], providers: [relaxedRatePolicies] });
     await app.init();
-    const m = await createMaster(db.roleUrl('app_rw'), `m-${hex().toLowerCase()}@fruit.test`);
+    const m = await createMaster(db.roleUrl('app_rw'), `m-${hex().toLowerCase()}@fruit.test`, {
+      mustChangePassword: false,
+    });
     masterId = m.userId;
     master = await stepUp(await adminBearer(m.email, m.password, m.userId), m.userId);
   });
@@ -346,7 +348,9 @@ describe('RBAC + cô lập Viewer (CP03 lát 6)', () => {
 
     const body = { user_id: s.userId, role: 'PICKER', store_id: a.id };
     // Master khác chưa step-up: gán vai trò và tạo nhân viên kèm vai trò đều bị chặn (L3)
-    const m2 = await createMaster(db.roleUrl('app_rw'), `m2-${hex().toLowerCase()}@fruit.test`);
+    const m2 = await createMaster(db.roleUrl('app_rw'), `m2-${hex().toLowerCase()}@fruit.test`, {
+      mustChangePassword: false,
+    });
     const plain = await adminBearer(m2.email, m2.password, m2.userId);
     const no = await http().post('/v1/admin/role-assignments').set('Authorization', plain).send(body);
     expect([no.status, no.body.code]).toEqual([403, 'STEP_UP_REQUIRED']);

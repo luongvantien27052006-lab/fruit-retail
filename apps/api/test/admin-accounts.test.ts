@@ -148,7 +148,9 @@ describe('quản trị tài khoản (CP03 lát 8a)', () => {
     cipher = new PiiCipher(loadAuthKeys(env));
     app = await createApp(env, { logger: false }, { providers: [relaxedRatePolicies] });
     await app.init();
-    const m = await createMaster(db.roleUrl('app_rw'), `m-${hex().toLowerCase()}@fruit.test`);
+    const m = await createMaster(db.roleUrl('app_rw'), `m-${hex().toLowerCase()}@fruit.test`, {
+      mustChangePassword: false,
+    });
     masterId = m.userId;
     master = await stepUp(await adminBearer(m.email, m.password, m.userId), m.userId);
   });
@@ -160,7 +162,9 @@ describe('quản trị tài khoản (CP03 lát 8a)', () => {
   // ───────── lát 8a: tài khoản admin, khóa, 2FA, phiên, nhật ký ─────────
 
   async function plainMaster() {
-    const m = await createMaster(db.roleUrl('app_rw'), `pm-${hex().toLowerCase()}@fruit.test`);
+    const m = await createMaster(db.roleUrl('app_rw'), `pm-${hex().toLowerCase()}@fruit.test`, {
+      mustChangePassword: false,
+    });
     return { ...m, bearer: await adminBearer(m.email, m.password, m.userId) };
   }
 
@@ -350,5 +354,63 @@ describe('quản trị tài khoản (CP03 lát 8a)', () => {
     const c = await staffClient(await activeDevice(st.id), sm);
     expect((await c.get('/v1/admin/audit-logs')).status).toBe(403);
     expect((await c.get(`/v1/admin/users/${t.userId}/sessions`)).status).toBe(403);
+  });
+
+  it('NC-22 — mật khẩu tạm phải đổi trước khi đăng ký 2FA; sai mật khẩu hiện tại ⇒ 401; chưa kích hoạt quá 72 giờ ⇒ không đăng nhập', async () => {
+    const m = await createMaster(db.roleUrl('app_rw'), `nc22-${hex().toLowerCase()}@fruit.test`); // CLI thật: bắt đổi
+    const l = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+    expect(l.body).toMatchObject({ status: 'ENROLLMENT_REQUIRED', password_change_required: true });
+    const b = `Bearer ${l.body.access_token as string}`;
+    const s0 = await http().post('/v1/auth/2fa/setup').set('Authorization', b).send({});
+    expect([s0.status, s0.body.code]).toEqual([403, 'PASSWORD_CHANGE_REQUIRED']);
+    // phiên thứ hai để kiểm "thu hồi phiên khác"
+    const l2 = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
+    const b2 = `Bearer ${l2.body.access_token as string}`;
+    const newPw = `Mới-${randomBytes(9).toString('base64url')}`;
+    const bad = await http()
+      .post('/v1/auth/password')
+      .set('Authorization', b)
+      .send({ current_password: 'sai-mat-khau', new_password: newPw });
+    expect(bad.status).toBe(401);
+    const short = await http()
+      .post('/v1/auth/password')
+      .set('Authorization', b)
+      .send({ current_password: m.password, new_password: 'ngắn' });
+    expect(short.status).toBe(400);
+    const ok = await http()
+      .post('/v1/auth/password')
+      .set('Authorization', b)
+      .send({ current_password: m.password, new_password: newPw });
+    expect(ok.status).toBe(200);
+    expect(schemaErrors('AuthPasswordResponse', ok.body)).toEqual([]);
+    expect(ok.body.revoked_sessions).toBeGreaterThanOrEqual(1);
+    expect((await http().get('/v1/auth/sessions').set('Authorization', b2)).status).toBe(401); // phiên khác chết
+    expect((await http().post('/v1/auth/2fa/setup').set('Authorization', b).send({})).status).toBe(200); // giờ đăng ký được
+    expect((await http().post('/v1/auth/login').send({ email: m.email, password: m.password })).status).toBe(401); // mật khẩu cũ
+    const [a] = await rows(`SELECT 1 FROM audit.logs WHERE resource_id = $1 AND action = 'auth.password_change'`, [
+      m.userId,
+    ]);
+    expect(a).toBeTruthy();
+
+    // tài khoản admin mới chưa kích hoạt quá 72 giờ ⇒ đăng nhập 401 chung
+    const r = await http()
+      .post('/v1/admin/admin-accounts')
+      .set('Authorization', master)
+      .send({ email: `old-${hex().toLowerCase()}@fruit.test`, role: 'MASTER_ADMIN' });
+    await rows(`UPDATE core.users SET created_at = now() - interval '73 hours' WHERE id = $1`, [r.body.user_id]).catch(
+      async () => {
+        await rows(`ALTER TABLE core.users DISABLE TRIGGER USER`);
+        await rows(`UPDATE core.users SET created_at = now() - interval '73 hours' WHERE id = $1`, [r.body.user_id]);
+        await rows(`ALTER TABLE core.users ENABLE TRIGGER USER`);
+      },
+    );
+    const old = await http().post('/v1/auth/login').send({ email: r.body.email, password: r.body.temporary_password });
+    expect([old.status, old.body.code]).toEqual([401, 'AUTHENTICATION_REQUIRED']);
+
+    // nhân viên không dùng route này
+    const st = await store();
+    const sm = await staffSql([{ role: 'STORE_MANAGER', storeId: st.id }]);
+    const c = await staffClient(await activeDevice(st.id), sm);
+    expect((await c.post('/v1/auth/password', { current_password: 'x', new_password: newPw })).status).toBe(403);
   });
 });

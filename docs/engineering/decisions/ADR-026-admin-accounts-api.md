@@ -50,6 +50,16 @@ Ghi nhận Thấp: `assignRole` khóa dòng users trước khi kiểm phạm vi 
 sửa tiếp); người có `staff:write` phạm vi ALL (không phải Master) vẫn lấy được khóa `auth:` thoáng qua (cần Master ủy quyền);
 chưa có test riêng "không giữ khóa `auth:`" cho L2/L2'.
 
+## NC-22 — đổi mật khẩu (Tiến duyệt 2026-11-27, làm đầu lát 8b)
+- Migration `0007_password_change`: `users.must_change_password` (CHECK chỉ Master/Viewer, quyền cột). Tài khoản do Master tạo và do
+  CLI tạo đều bật cờ.
+- `POST /auth/password` (`auth:*`, đi được khi chưa 2FA, `@OwnTransaction`, giới hạn 30/phút/IP): mật khẩu hiện tại kiểm qua
+  `AuthAttempts.run` (sai ⇒ đếm sai SEC5, đọc lại mã băm dưới khóa `auth:<id>`); mật khẩu mới 12–256 ký tự, khác cũ, không chứa
+  phần trước @ của email, băm TRƯỚC transaction; ghi có điều kiện `password_hash = mã đã kiểm` (đổi song song ⇒ 409); bỏ cờ,
+  thu hồi mọi phiên KHÁC; audit `auth.password_change`.
+- Cờ còn bật ⇒ `/auth/2fa/setup`, `/confirm` (và bước bật 2FA) trả 403 `PASSWORD_CHANGE_REQUIRED`; `/auth/login` trả
+  `password_change_required`. Cờ còn bật + chưa có 2FA + tạo quá 72 giờ ⇒ đăng nhập 401 chung (tài khoản chưa kích hoạt hết hạn).
+
 ## Hệ quả
 - Không migration. OpenAPI: schema `AdminAccountCreate*`, `ReasonRequest`, `UserLock/UnlockResponse`,
   `TwoFactorResetResponse`, `AdminSessionList`, `SessionRevokeResponse`, `AuditLogList`; `x-scope` cho lock, `x-master-only`

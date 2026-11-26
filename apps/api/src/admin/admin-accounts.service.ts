@@ -69,7 +69,10 @@ export class AdminAccountsService {
       const id = uuidv7();
       const type = b.role === 'MASTER_ADMIN' ? 'MASTER' : 'VIEWER';
       try {
-        await this.tx.user.create({ data: { id, type, email, passwordHash: hash }, select: { id: true } });
+        await this.tx.user.create({
+          data: { id, type, email, passwordHash: hash, mustChangePassword: true },
+          select: { id: true },
+        });
       } catch (e) {
         if (findSqlState(e) === '23505' || (e as { code?: unknown }).code === 'P2002')
           throw new AppError('INVALID_STATE_TRANSITION', 'Email đã được dùng', { field: 'email' });

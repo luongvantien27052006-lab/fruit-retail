@@ -27,6 +27,7 @@ export const DEFAULT_RATE_POLICIES: RatePolicies = {
   ],
   'auth.mfa': [{ by: 'ip', max: 30, windowS: 60 }],
   'auth.step_up': [{ by: 'ip', max: 30, windowS: 60 }],
+  'auth.password': [{ by: 'ip', max: 30, windowS: 60 }],
   'auth.pin': [
     { by: 'ip', max: 120, windowS: 60 },
     { by: 'device', max: 30, windowS: 60 },

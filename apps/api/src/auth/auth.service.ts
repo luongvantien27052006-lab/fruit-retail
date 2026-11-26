@@ -13,7 +13,7 @@ import { AuthAttempts, challengeInvalid, otpInvalid } from './auth-attempts';
 import { type DeviceProof, refreshBinding } from './device-proof';
 import { PosDeviceService } from './pos-device.service';
 import { hasLeft, staffAllowedOnStore } from './staff-auth.service';
-import { ARGON_PROFILES, dummyHash, hashSecret, verifySecret, withArgonSlot } from './password';
+import { ARGON_PROFILES, dummyHash, hashSecret, MAX_SECRET_LEN, verifySecret, withArgonSlot } from './password';
 import { PiiCipher, totpAad } from './pii-cipher';
 import {
   AccessTokens,
@@ -29,6 +29,10 @@ import {
 } from './tokens';
 
 const RECOVERY_CODES = 10;
+/** NC-22: mật khẩu tạm chưa đổi — tài khoản chưa kích hoạt quá 72 giờ không đăng nhập được */
+export const TEMP_PASSWORD_TTL_S = 72 * 3600;
+/** mật khẩu mới: 12–256 ký tự (người dùng tự chọn; Argon2id hồ sơ PASSWORD) */
+export const PASSWORD_MIN = 12;
 const TOTP_ISSUER = 'Fruit Retail';
 /** ±1 bước 30 s cho lệch đồng hồ điện thoại */
 const TOTP_TOLERANCE_S = 30;
@@ -46,9 +50,12 @@ export interface TokenPair {
 
 export type LoginResponse =
   | { status: 'MFA_REQUIRED'; mfa_challenge: string; mfa_challenge_expires_at: string }
-  | ({ status: 'ENROLLMENT_REQUIRED' } & TokenPair);
+  | ({ status: 'ENROLLMENT_REQUIRED'; password_change_required: boolean } & TokenPair);
 
 // /auth/login trả CÙNG một lỗi cho sai email, sai mật khẩu, tài khoản khóa/vô hiệu (không liệt kê được email — S3)
+const passwordChangeRequired = () =>
+  new AppError('PASSWORD_CHANGE_REQUIRED', 'Đổi mật khẩu tạm trước khi đăng ký xác thực 2 lớp');
+
 const invalidCredentials = () =>
   new AppError('AUTHENTICATION_REQUIRED', 'Email hoặc mật khẩu không đúng, hoặc tài khoản đang tạm khóa');
 
@@ -74,6 +81,8 @@ interface UserAuthRow {
   totpLastStep: bigint | null;
   status: string;
   lockedUntil: Date | null;
+  mustChangePassword: boolean;
+  createdAt: Date;
 }
 const USER_AUTH_SELECT = {
   id: true,
@@ -85,6 +94,8 @@ const USER_AUTH_SELECT = {
   totpLastStep: true,
   status: true,
   lockedUntil: true,
+  mustChangePassword: true,
+  createdAt: true,
 } as const;
 
 /**
@@ -130,6 +141,7 @@ export class AuthService {
     }
     const hash = user.passwordHash;
     let totpEnabledNow: Date | null = user.totpEnabledAt;
+    let mustChangeNow = user.mustChangePassword;
     return this.attempts.run(
       {
         userId: user.id,
@@ -144,11 +156,17 @@ export class AuthService {
         // Argon có thể đã cũ (Master vừa reset/khóa); đổi ⇒ coi như sai (cùng thời gian nhờ Argon giả)
         const cur = await this.tx.user.findUnique({
           where: { id: user.id },
-          select: { passwordHash: true, totpEnabledAt: true },
+          select: { passwordHash: true, totpEnabledAt: true, mustChangePassword: true, createdAt: true },
         });
         // G-a: trạng thái 2FA dùng cho nhánh thành công cũng lấy từ bản đọc dưới khóa
         totpEnabledNow = cur?.totpEnabledAt ?? null;
-        if (!cur?.passwordHash || cur.passwordHash !== hash) {
+        mustChangeNow = cur?.mustChangePassword ?? false;
+        // NC-22: mật khẩu tạm chưa đổi quá 72 giờ (tài khoản chưa kích hoạt) ⇒ không đăng nhập được (cùng lỗi 401)
+        const expired =
+          !!cur?.mustChangePassword &&
+          !cur.totpEnabledAt &&
+          cur.createdAt.getTime() < Date.now() - TEMP_PASSWORD_TTL_S * 1000;
+        if (!cur?.passwordHash || cur.passwordHash !== hash || expired) {
           await verifySecret(await dummyHash(), password);
           return false;
         }
@@ -175,7 +193,7 @@ export class AuthService {
         await this.attempts.clearFailures(user.id, false);
         const p = await this.createSession(user, ['pwd']);
         await this.attempts.log(user.id, 'ENROLLMENT_REQUIRED', identifierHash);
-        return { status: 'ENROLLMENT_REQUIRED' as const, ...p };
+        return { status: 'ENROLLMENT_REQUIRED' as const, password_change_required: mustChangeNow, ...p };
       },
     );
   }
@@ -360,6 +378,59 @@ export class AuthService {
     }
   }
 
+  /**
+   * NC-22: đổi mật khẩu (Master/Viewer). Mật khẩu hiện tại sai ⇒ tính một lần sai (khóa SEC5 dùng chung); mật khẩu mới
+   * băm TRƯỚC khi mở transaction. Thành công ⇒ bỏ cờ mật khẩu tạm, thu hồi mọi phiên KHÁC (phiên hiện tại giữ lại).
+   * @OwnTransaction ở controller.
+   */
+  async changePassword(p: Principal, current: string, next: string): Promise<{ revoked_sessions: number }> {
+    if (p.userType !== 'MASTER' && p.userType !== 'VIEWER')
+      throw new AppError('ACTION_FORBIDDEN', 'Chỉ tài khoản Master/Viewer đổi mật khẩu ở đây');
+    if (next.length < PASSWORD_MIN || next.length > MAX_SECRET_LEN)
+      throw new AppError('INVALID_REQUEST', `Mật khẩu mới ${PASSWORD_MIN}–${MAX_SECRET_LEN} ký tự`, {
+        field: 'new_password',
+      });
+    if (next === current)
+      throw new AppError('INVALID_REQUEST', 'Mật khẩu mới phải khác mật khẩu hiện tại', { field: 'new_password' });
+    const me = await this.tx.user.findUnique({ where: { id: p.userId }, select: { email: true, passwordHash: true } });
+    if (!me?.passwordHash) throw new AppError('ACTION_FORBIDDEN', 'Tài khoản không đăng nhập bằng mật khẩu');
+    const local = (me.email ?? '').split('@')[0]?.toLowerCase() ?? '';
+    if (local.length >= 4 && next.toLowerCase().includes(local))
+      throw new AppError('INVALID_REQUEST', 'Mật khẩu mới không được chứa tên email', { field: 'new_password' });
+    const newHash = await withArgonSlot(`user:${p.userId}`, () => hashSecret(next, ARGON_PROFILES.PASSWORD));
+    let hashChecked = '';
+    return this.attempts.run(
+      { userId: p.userId, identifierHash: null, argon: true, failResult: 'BAD_CREDENTIALS', slot: `user:${p.userId}` },
+      async () => {
+        // đọc lại dưới khóa `auth:<id>` (Master vừa reset/khóa…)
+        const cur = await this.tx.user.findUnique({ where: { id: p.userId }, select: { passwordHash: true } });
+        if (!cur?.passwordHash) return false;
+        hashChecked = cur.passwordHash;
+        return verifySecret(cur.passwordHash, current);
+      },
+      async () => {
+        const w = await this.tx.user.updateMany({
+          where: { id: p.userId, passwordHash: hashChecked },
+          data: { passwordHash: newHash, mustChangePassword: false, failedLoginCount: 0 },
+        });
+        if (w.count !== 1) throw new AppError('INVALID_STATE_TRANSITION', 'Mật khẩu vừa được đổi ở nơi khác — thử lại');
+        await this.tx.$queryRaw`
+          SELECT id FROM core.sessions WHERE user_id = ${p.userId}::uuid AND revoked_at IS NULL ORDER BY id FOR UPDATE`;
+        const r = await this.tx.session.updateMany({
+          where: { userId: p.userId, revokedAt: null, id: { not: p.sessionId } },
+          data: { revokedAt: new Date(), revokeReason: 'PASSWORD_CHANGED' },
+        });
+        await this.ao.recordAudit({
+          action: 'auth.password_change',
+          resourceType: 'user',
+          resourceId: p.userId,
+          after: { revoked_sessions: r.count },
+        });
+        return { revoked_sessions: r.count };
+      },
+    );
+  }
+
   async logout(p: Principal): Promise<void> {
     await this.tx.session.updateMany({
       where: { id: p.sessionId, revokedAt: null },
@@ -411,6 +482,7 @@ export class AuthService {
 
   async setupTotp(p: Principal): Promise<{ secret: string; otpauth_uri: string; issuer: string }> {
     const u = await this.adminUser(p, true);
+    if (u.mustChangePassword) throw passwordChangeRequired();
     if (u.totpEnabledAt)
       throw new AppError('INVALID_STATE_TRANSITION', '2FA đã bật — cần Master reset trước khi đăng ký lại');
     const secret = generateSecret(); // 20 byte, base32
@@ -453,6 +525,7 @@ export class AuthService {
   ): Promise<{ recovery_codes: string[] } & Omit<TokenPair, 'refresh_token'>> {
     // khóa dòng user đến hết transaction: setup song song phải chờ, rồi thấy 2FA đã bật (S2)
     const u = await this.adminUser(p, true);
+    if (u.mustChangePassword) throw passwordChangeRequired();
     if (u.totpEnabledAt || !u.totpSecretEnc || !checkedSecret.equals(Buffer.from(u.totpSecretEnc)))
       throw new AppError('INVALID_STATE_TRANSITION', 'Đăng ký 2FA vừa thay đổi — quét lại mã QR mới nhất');
     const enabled = await this.tx.user.updateMany({

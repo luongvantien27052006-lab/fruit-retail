@@ -55,6 +55,12 @@ const PhoneField = z
   .regex(/^[+\d .-]+$/, 'số điện thoại');
 const OtpRequestBody = z.object({ phone: PhoneField }).strict();
 const OtpVerifyBody = z.object({ phone: PhoneField, code: z.string().regex(/^\d{6}$/, 'mã 6 chữ số') }).strict();
+const PasswordBody = z
+  .object({
+    current_password: z.string().min(1).max(MAX_SECRET_LEN),
+    new_password: z.string().min(1).max(MAX_SECRET_LEN),
+  })
+  .strict();
 const EmptyBody = z.object({}).strict().default({});
 
 const OWN_TX = 'luồng xác thực: lần sai phải được ghi (đếm sai/khóa/thu hồi) dù request trả lỗi';
@@ -188,6 +194,17 @@ export class AuthController {
   @HttpCode(200)
   otpVerify(@Body(new ZodPipe(OtpVerifyBody)) b: z.infer<typeof OtpVerifyBody>) {
     return this.customerAuth.verify(b.phone, b.code);
+  }
+
+  /** NC-22: đổi mật khẩu — đi được khi chưa có 2FA (mật khẩu tạm phải đổi trước khi đăng ký 2FA) */
+  @Authenticated()
+  @AllowWithoutMfa()
+  @OwnTransaction(OWN_TX)
+  @RateLimit('auth.password')
+  @Post('password')
+  @HttpCode(200)
+  password(@Body(new ZodPipe(PasswordBody)) b: z.infer<typeof PasswordBody>) {
+    return this.auth.changePassword(this.principal(), b.current_password, b.new_password);
   }
 
   @Authenticated()

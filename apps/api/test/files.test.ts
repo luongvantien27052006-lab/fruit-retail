@@ -47,7 +47,9 @@ describe('file presign / complete / download (CP03 lát 7)', () => {
     return `Bearer ${v.body.access_token as string}`;
   }
   async function master(): Promise<string> {
-    const m = await createMaster(db.roleUrl('app_rw'), `m-${randomBytes(3).toString('hex')}@fruit.test`);
+    const m = await createMaster(db.roleUrl('app_rw'), `m-${randomBytes(3).toString('hex')}@fruit.test`, {
+      mustChangePassword: false,
+    });
     const l = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
     const b = `Bearer ${l.body.access_token as string}`;
     await http().post('/v1/auth/2fa/setup').set('Authorization', b).send({});

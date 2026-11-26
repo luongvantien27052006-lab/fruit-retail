@@ -521,6 +521,45 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /auth/password:
+    post:
+      operationId: postAuthPassword
+      tags: [auth]
+      summary: 'Đổi mật khẩu (Master/Viewer) — mật khẩu tạm phải đổi trước khi đăng ký 2FA'
+      description: >-
+        Mật khẩu hiện tại sai ⇒ 401 OTP_INVALID và tính một lần sai (khóa SEC5). Mật khẩu mới 12–256 ký tự, khác mật khẩu cũ, không
+        chứa tên email. Thành công ⇒ thu hồi mọi phiên KHÁC của tài khoản. Đi được khi phiên chưa có 2FA (ENROLLMENT_REQUIRED).
+      x-permission: 'auth:*'
+      x-spec-ref: '§2.4'
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true # Tiến duyệt NC-22 (2026-11-27)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthPasswordRequest'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthPasswordResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /auth/logout:
     post:
       operationId: postAuthLogout
@@ -8652,11 +8691,34 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AuthAmr'
+    AuthPasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      additionalProperties: false
+      properties:
+        current_password:
+          type: string
+          minLength: 1
+          maxLength: 256
+        new_password:
+          type: string
+          minLength: 12
+          maxLength: 256
+    AuthPasswordResponse:
+      type: object
+      required: [revoked_sessions]
+      additionalProperties: false
+      properties:
+        revoked_sessions:
+          type: integer
+          minimum: 0
     AuthLoginResponse:
       description: |
         MFA_REQUIRED — đã bật 2FA: gọi /auth/2fa/verify hoặc /auth/2fa/recover với `Authorization: Bearer <mfa_challenge>`
         (5 phút, 1 lần, tối đa 5 lần thử). ENROLLMENT_REQUIRED — chưa đăng ký 2FA: phiên chỉ gọi được /auth/2fa/setup,
-        /auth/2fa/confirm, /auth/logout (route khác ⇒ 403 TWO_FACTOR_ENROLLMENT_REQUIRED).
+        /auth/2fa/confirm, /auth/password, /auth/logout (route khác ⇒ 403 TWO_FACTOR_ENROLLMENT_REQUIRED).
+        password_change_required = true (mật khẩu tạm — NC-22) ⇒ phải đổi mật khẩu qua /auth/password trước, 2FA setup/confirm
+        trả 403 PASSWORD_CHANGE_REQUIRED. Mật khẩu tạm chưa đổi quá 72 giờ ⇒ đăng nhập 401 chung.
       oneOf:
         - type: object
           required: [status, mfa_challenge, mfa_challenge_expires_at]
@@ -8671,12 +8733,14 @@ components:
               type: string
               format: date-time
         - type: object
-          required: [status, access_token, access_token_expires_at, refresh_token, session_id, amr]
+          required: [status, password_change_required, access_token, access_token_expires_at, refresh_token, session_id, amr]
           additionalProperties: false
           properties:
             status:
               type: string
               const: ENROLLMENT_REQUIRED
+            password_change_required:
+              type: boolean
             access_token:
               type: string
             access_token_expires_at:
@@ -9633,6 +9697,7 @@ components:
         - PAYMENT_NOT_CONFIRMED
         - IMPORT_VALIDATION_FAILED
         - TWO_FACTOR_ENROLLMENT_REQUIRED
+        - PASSWORD_CHANGE_REQUIRED
         - SESSION_REVOKED
         - DEVICE_REVOKED
         - LAST_MASTER_REQUIRED
@@ -9681,6 +9746,7 @@ components:
         PAYMENT_NOT_CONFIRMED: 422
         IMPORT_VALIDATION_FAILED: 422
         TWO_FACTOR_ENROLLMENT_REQUIRED: 403
+        PASSWORD_CHANGE_REQUIRED: 403
         SESSION_REVOKED: 401
         DEVICE_REVOKED: 403
         LAST_MASTER_REQUIRED: 422

@@ -7,8 +7,12 @@ export function LogoutButton() {
       type="button"
       className="secondary"
       onClick={async () => {
-        await bff('/auth/logout', 'POST', {}).catch(() => undefined);
-        window.location.assign('/login');
+        try {
+          await bff('/auth/logout', 'POST', {});
+          window.location.assign('/login');
+        } catch {
+          window.alert('Đăng xuất chưa thành công — kiểm tra kết nối rồi thử lại.');
+        }
       }}
     >
       Đăng xuất

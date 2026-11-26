@@ -41,12 +41,16 @@ export function clearMfa(res: NextResponse): void {
 }
 
 /** CSRF mới mỗi lần có phiên — đọc được bởi JS (double-submit), vẫn Secure + SameSite=Strict */
-export function issueCsrf(res: NextResponse): void {
-  res.cookies.set(COOKIE.csrf, randomBytes(32).toString('base64url'), {
-    ...base,
-    httpOnly: false,
-    maxAge: REFRESH_MAX_AGE_S,
-  });
+export function issueCsrf(res: NextResponse, value = randomBytes(32).toString('base64url')): void {
+  res.cookies.set(COOKIE.csrf, value, { ...base, httpOnly: false, maxAge: REFRESH_MAX_AGE_S });
+}
+
+/**
+ * Review 8b lần 1 (TB): refresh trượt tới 7 ngày ⇒ cookie CSRF phải được gia hạn CÙNG cookie refresh, nếu không sau 12
+ * giờ mọi thao tác ghi (kể cả đăng xuất) bị 403. Giữ NGUYÊN giá trị (request song song đã đọc giá trị cũ); thiếu ⇒ cấp mới.
+ */
+export function extendCsrf(res: NextResponse, req: NextRequest): void {
+  issueCsrf(res, req.cookies.get(COOKIE.csrf)?.value || undefined);
 }
 
 export function clearAll(res: NextResponse): void {
@@ -69,10 +73,11 @@ export function originOk(req: NextRequest): boolean {
 /** Request ghi có phiên: Origin + header X-CSRF-Token trùng cookie CSRF (so hằng thời gian). */
 export function csrfOk(req: NextRequest): boolean {
   if (!originOk(req)) return false;
-  const header = req.headers.get('x-csrf-token') ?? '';
-  const cookie = req.cookies.get(COOKIE.csrf)?.value ?? '';
-  if (!header || !cookie || header.length !== cookie.length) return false;
-  return timingSafeEqual(Buffer.from(header), Buffer.from(cookie));
+  const header = Buffer.from(req.headers.get('x-csrf-token') ?? '', 'utf8');
+  const cookie = Buffer.from(req.cookies.get(COOKIE.csrf)?.value ?? '', 'utf8');
+  // so độ dài theo BYTE (ký tự nhiều byte làm timingSafeEqual ném RangeError ⇒ 500)
+  if (!header.length || !cookie.length || header.length !== cookie.length) return false;
+  return timingSafeEqual(header, cookie);
 }
 
 export interface SessionHint {

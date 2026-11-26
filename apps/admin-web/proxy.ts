@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { publicOrigin } from './lib/server/config';
-import { COOKIE, clearAll, decodeHint, setTokens } from './lib/server/session';
+import { COOKIE, clearAll, decodeHint, extendCsrf, setTokens } from './lib/server/session';
 import { refreshOnce } from './lib/server/upstream';
 
 /**
@@ -38,19 +38,24 @@ export async function proxy(req: NextRequest) {
   const policy = csp(nonce);
   const path = req.nextUrl.pathname;
 
+  let fresh: { access_token?: string; refresh_token?: string } | null = null;
   const redirect = (to: string, clear = false) => {
     const url = req.nextUrl.clone();
     url.pathname = to;
     url.search = '';
     const r = NextResponse.redirect(url, 303);
     if (clear) clearAll(r);
+    // review 8b: refresh cũ đã bị API tiêu ⇒ token mới PHẢI về trình duyệt cả khi điều hướng
+    else if (fresh) {
+      setTokens(r, fresh);
+      extendCsrf(r, req);
+    }
     r.headers.set('Content-Security-Policy', policy);
     return r;
   };
 
   let access = req.cookies.get(COOKIE.access)?.value;
   const refresh = req.cookies.get(COOKIE.refresh)?.value;
-  let fresh: { access_token?: string; refresh_token?: string } | null = null;
 
   if (!access && refresh) {
     const rf = await refreshOnce(req, refresh);
@@ -78,7 +83,10 @@ export async function proxy(req: NextRequest) {
   const res = NextResponse.next({ request: { headers } });
   res.headers.set('Content-Security-Policy', policy);
   res.headers.set('Cache-Control', 'no-store');
-  if (fresh) setTokens(res, fresh);
+  if (fresh) {
+    setTokens(res, fresh);
+    extendCsrf(res, req);
+  }
   return res;
 }
 

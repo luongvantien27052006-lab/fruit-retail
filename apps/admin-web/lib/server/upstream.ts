@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { NextRequest } from 'next/server';
 import { apiBase } from './config';
 import { COOKIE, type TokenSet } from './session';
@@ -65,15 +66,30 @@ async function call(req: NextRequest, path: string, init: CallInit): Promise<{ s
   }
 }
 
-/** Tách token khỏi body (không bao giờ đưa token cho trình duyệt). */
-export function stripTokens(body: unknown): { body: unknown; tokens: TokenSet } {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return { body, tokens: {} };
-  const rest = { ...(body as Record<string, unknown>) };
-  const access = rest['access_token'];
-  const refresh = rest['refresh_token'];
-  delete rest['access_token'];
-  delete rest['refresh_token'];
-  delete rest['mfa_challenge'];
+const SECRET_KEYS = new Set(['access_token', 'refresh_token', 'mfa_challenge']);
+
+/** Bỏ khóa token ở MỌI cấp (kể cả lồng trong mảng/đối tượng) — không bao giờ đưa token cho trình duyệt. */
+function scrub(v: unknown, depth = 0): unknown {
+  if (depth > 32 || !v || typeof v !== 'object') return v;
+  if (Array.isArray(v)) return v.map((x) => scrub(x, depth + 1));
+  const out: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(v as Record<string, unknown>))
+    if (!SECRET_KEYS.has(k)) out[k] = scrub(x, depth + 1);
+  return out;
+}
+
+/**
+ * Tách token khỏi body. CHỈ các route xác thực đã biết mới được đặt token phiên (review 8b: một endpoint admin vô tình trả
+ * trường `access_token` không được thay phiên của trình duyệt); route khác ⇒ token bị bỏ, không dùng.
+ */
+export const TOKEN_ISSUERS = new Set(['/auth/refresh', '/auth/step-up', '/auth/2fa/confirm']);
+
+export function stripTokens(body: unknown, accept = true): { body: unknown; tokens: TokenSet } {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return { body: scrub(body), tokens: {} };
+  const top = body as Record<string, unknown>;
+  const access = accept ? top['access_token'] : undefined;
+  const refresh = accept ? top['refresh_token'] : undefined;
+  const rest = scrub(top);
   return {
     body: rest,
     tokens: {
@@ -85,32 +101,45 @@ export function stripTokens(body: unknown): { body: unknown; tokens: TokenSet } 
 
 /**
  * Refresh token dùng MỘT lần; dùng lại ⇒ API thu hồi cả phiên (SEC4). Trình duyệt bắn song song nhiều request khi access
- * vừa hết hạn ⇒ tất cả mang CÙNG refresh cookie. Gộp (single-flight) theo token: lần đầu gọi API, các lần sau (kể cả
- * tới muộn ≤ 60 s, trước khi trình duyệt kịp nhận cookie mới) dùng lại kết quả. Bộ nhớ trong tiến trình — admin-web chạy
- * MỘT bản (ADR-027); nhân bản ⇒ phải chuyển sang Redis.
+ * vừa hết hạn ⇒ tất cả mang CÙNG refresh cookie. Gộp (single-flight) theo SHA-256 của token: lần đầu gọi API, các lần sau
+ * trong 15 s (đủ cho loạt request song song, ngắn để không làm yếu phát hiện dùng lại) dùng lại kết quả. Mục tự xóa bằng
+ * timer; trần 2000 mục (cookie rác không làm phình bộ nhớ). Bộ nhớ trong tiến trình — admin-web chạy MỘT bản (ADR-027).
  */
-const REFRESH_REUSE_MS = 60_000;
+const REFRESH_REUSE_MS = 15_000;
+const MAX_ENTRIES = 2000;
 /** dead = API từ chối hẳn (401) ⇒ đăng xuất; lỗi tạm (429/5xx) KHÔNG giữ trong bộ đệm và không đăng xuất */
 type Refreshed = { ok: boolean; dead: boolean; status: number; body: unknown; tokens: TokenSet };
 // globalThis: proxy.ts và route handler là hai bundle khác nhau trong CÙNG tiến trình — phải dùng chung một bản đồ
 const g = globalThis as typeof globalThis & { __faRefresh?: Map<string, { at: number; p: Promise<Refreshed> }> };
 const inflight = (g.__faRefresh ??= new Map());
 
-export function refreshOnce(req: NextRequest, token: string): Promise<Refreshed> {
+export function refreshOnce(req: NextRequest, refreshToken: string): Promise<Refreshed> {
+  const token = createHash('sha256').update(refreshToken).digest('base64url');
   const now = Date.now();
-  for (const [k, v] of inflight) if (now - v.at > REFRESH_REUSE_MS) inflight.delete(k);
   const hit = inflight.get(token);
-  if (hit) return hit.p;
-  const p = call(req, '/auth/refresh', { method: 'POST', body: JSON.stringify({ refresh_token: token }) }).then(
+  if (hit && now - hit.at <= REFRESH_REUSE_MS) return hit.p;
+  if (inflight.size >= MAX_ENTRIES) {
+    for (const [k, v] of inflight) if (now - v.at > REFRESH_REUSE_MS) inflight.delete(k);
+    // vẫn đầy (bị dội cookie rác): không gộp — gọi thẳng API (chỉ rủi ro: đua refresh của chính người dùng đó)
+    if (inflight.size >= MAX_ENTRIES) return doRefresh(req, refreshToken, null);
+  }
+  const p = doRefresh(req, refreshToken, token);
+  inflight.set(token, { at: now, p });
+  setTimeout(() => {
+    if (inflight.get(token)?.p === p) inflight.delete(token);
+  }, REFRESH_REUSE_MS).unref();
+  return p;
+}
+
+function doRefresh(req: NextRequest, refreshToken: string, key: string | null): Promise<Refreshed> {
+  return call(req, '/auth/refresh', { method: 'POST', body: JSON.stringify({ refresh_token: refreshToken }) }).then(
     (rf): Refreshed => {
       const ok = rf.status === 200;
       const dead = rf.status === 400 || rf.status === 401 || rf.status === 403;
-      if (!ok && !dead) inflight.delete(token);
-      return { ok, dead, status: rf.status, body: rf.body, tokens: ok ? stripTokens(rf.body).tokens : {} };
+      if (!ok && !dead && key) inflight.delete(key);
+      return { ok, dead, status: rf.status, body: scrub(rf.body), tokens: ok ? stripTokens(rf.body).tokens : {} };
     },
   );
-  inflight.set(token, { at: now, p });
-  return p;
 }
 
 const codeOf = (b: unknown) => (b && typeof b === 'object' ? (b as { code?: unknown }).code : undefined);
@@ -146,7 +175,7 @@ export async function upstream(
     r = await call(req, path, { ...base, bearer: tokens.access_token });
   }
   if (!r) throw new Error('unreachable');
-  const s = stripTokens(r.body);
+  const s = stripTokens(r.body, TOKEN_ISSUERS.has(path.split('?')[0] ?? ''));
   const loggedOut = r.status === 401 && codeOf(r.body) === 'SESSION_REVOKED';
   return { status: r.status, body: s.body, tokens: { ...tokens, ...s.tokens }, loggedOut };
 }

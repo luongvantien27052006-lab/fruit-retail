@@ -61,6 +61,21 @@
      Idempotency-Key.
    - Ô cửa hàng và hồ sơ xem tạm nhập uuid, vì danh sách cửa hàng (CP04) và hồ sơ xem (CP12) chưa có API.
 
+## Sửa theo kiểm thử security lần 1 (296e496)
+- TB: cookie CSRF không được gia hạn khi refresh ⇒ sau 12 giờ mọi thao tác ghi 403 và **đăng xuất im lặng thất bại** (phiên
+  Master còn sống trên máy dùng chung). Sửa: `extendCsrf` gia hạn (giữ nguyên giá trị, thiếu thì cấp mới) mỗi khi ghi refresh
+  mới (route handler + proxy); `/bff/auth/logout` chỉ kiểm Origin (không đòi double-submit) và luôn xóa cookie; nút đăng xuất
+  báo lỗi thay vì im lặng.
+- Thấp: `csrfOk` so độ dài theo byte (header nhiều byte làm `timingSafeEqual` ném ⇒ 500).
+- Thấp: proxy làm mới token rồi điều hướng (303) ⇒ phản hồi điều hướng cũng mang Set-Cookie (trước đây mất token mới).
+- Thấp: bộ gộp refresh dùng SHA-256 của token làm khóa, cửa sổ 15 s (thay 60 s), tự xóa bằng timer `unref`, trần 2000 mục.
+- Thấp: chỉ `/auth/refresh`, `/auth/step-up`, `/auth/2fa/confirm` (và login/mfa) được đặt token phiên; mọi khóa
+  `access_token`/`refresh_token`/`mfa_challenge` ở MỌI cấp bị bỏ khỏi body trả trình duyệt.
+- Ràng buộc ghi nhận: admin-web chuyển tiếp X-Forwarded-For nguyên văn — chỉ an toàn vì cổng admin-web KHÔNG mở ra ngoài
+  (chỉ Caddy tới được, Caddy ghi đè XFF). Mở cổng admin-web ⇒ phải bỏ XFF hoặc chỉ nhận từ Caddy.
+- E2E thêm 2 bài (10/10): header CSRF nhiều byte ⇒ 403; điều hướng sau refresh mang Set-Cookie + CSRF mới; mất cookie CSRF vẫn
+  đăng xuất được và phiên API bị thu hồi.
+
 ## Hệ quả
 - Compose: admin-web có `API_INTERNAL_URL=http://api:3000` và `ADMIN_ORIGIN`. Local mặc định là `http://localhost:8080`.
   Staging là `https://${APP_DOMAIN}`.

@@ -1,7 +1,7 @@
 import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
 import { MAX_BODY_BYTES } from './config';
-import { clearAll, setTokens } from './session';
+import { clearAll, extendCsrf, setTokens } from './session';
 import type { Upstream } from './upstream';
 
 const NO_STORE = { 'cache-control': 'no-store' };
@@ -34,9 +34,12 @@ export async function readBody(req: NextRequest): Promise<{ text: string } | { e
 }
 
 /** Chuyển kết quả upstream thành phản hồi: ghi token mới vào cookie, phiên chết ⇒ xóa cookie. */
-export function fromUpstream(u: Upstream): NextResponse {
+export function fromUpstream(req: NextRequest, u: Upstream): NextResponse {
   const res = json(u.status, u.body);
   if (u.loggedOut) clearAll(res);
-  else setTokens(res, u.tokens);
+  else {
+    setTokens(res, u.tokens);
+    if (u.tokens.refresh_token) extendCsrf(res, req);
+  }
   return res;
 }

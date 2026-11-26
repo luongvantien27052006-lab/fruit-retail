@@ -237,6 +237,75 @@ describe('trang quản lý qua BFF (CP03 lát 8b)', () => {
     expect(s?.n).toBe(0);
   });
 
+  it('review 8b: header CSRF nhiều byte ⇒ 403 (không 500); refresh qua điều hướng vẫn ghi cookie; mất cookie CSRF ⇒ cấp lại', async () => {
+    const multi = await page.evaluate(async () => {
+      const r = await fetch('/bff/api/admin/staff', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-csrf-token': 'é'.repeat(43) },
+        body: '{}',
+      });
+      return r.status;
+    });
+    expect(multi).toBe(403);
+    // /login khi phiên đủ ⇒ 303 về '/', proxy đã làm mới (mất access) ⇒ Set-Cookie phải có trên chính phản hồi điều hướng
+    const before = (await cookieMap()).get('__Host-fa_rt')?.value;
+    await ctx.clearCookies({ name: '__Host-fa_at' });
+    await ctx.clearCookies({ name: '__Host-fa_csrf' });
+    const c0 = await cookieMap();
+    const cookie = [...c0.values()].map((k) => `${k.name}=${k.value}`).join('; ');
+    const r = await fetch(`${origin}/login`, { headers: { cookie }, redirect: 'manual' });
+    expect(r.status).toBe(303);
+    const set = r.headers.getSetCookie().join(' | ');
+    expect(set).toContain('__Host-fa_at=');
+    expect(set).toMatch(/__Host-fa_rt=[^;]+/);
+    expect(set).toContain('__Host-fa_csrf=');
+    const rt = /__Host-fa_rt=([^;]+)/.exec(set)?.[1];
+    expect(rt).not.toBe(before);
+    // trình duyệt đi cùng đường (trong 15 s bộ gộp trả CÙNG cặp token, refresh cũ không bị dùng lại ở API)
+    await page.goto(`${origin}/login`);
+    expect(new URL(page.url()).pathname).toBe('/');
+    const c1 = await cookieMap();
+    expect(c1.get('__Host-fa_rt')?.value).toBe(rt);
+    expect(c1.get('__Host-fa_csrf')).toBeTruthy();
+    // trang vẫn dùng được với token mới, thao tác ghi qua CSRF mới
+    await page.goto(`${origin}/sessions`);
+    expect(new URL(page.url()).pathname).toBe('/sessions');
+    const write = await page.evaluate(async () => {
+      const m = (globalThis as unknown as { document: { cookie: string } }).document.cookie
+        .split('; ')
+        .find((c: string) => c.startsWith('__Host-fa_csrf='));
+      const r2 = await fetch('/bff/api/admin/pos-devices/enrollment-codes', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-csrf-token': m?.slice('__Host-fa_csrf='.length) ?? '' },
+        body: JSON.stringify({ store_id: '00000000-0000-4000-8000-000000000000' }),
+      });
+      return r2.status;
+    });
+    expect(write).not.toBe(403); // qua CSRF (API trả 404/422 vì cửa hàng không có)
+  });
+
+  it('review 8b: mất cookie CSRF vẫn đăng xuất được (phiên ở API bị thu hồi)', async () => {
+    await ctx.clearCookies({ name: '__Host-fa_csrf' });
+    await page.goto(`${origin}/`);
+    // proxy không làm mới (access còn) ⇒ CSRF vẫn thiếu; nút đăng xuất phải chạy
+    await ctx.clearCookies({ name: '__Host-fa_csrf' });
+    await page.click('text=Đăng xuất');
+    await page.waitForURL(`${origin}/login`);
+    const [s] = await db.q(
+      `SELECT count(*)::int AS n FROM core.sessions WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()`,
+      [userId],
+    );
+    expect(s?.n).toBe(0);
+    // đăng nhập lại cho các bước sau
+    await page.fill('input[name=email]', email);
+    await page.fill('input[name=password]', newPassword);
+    await page.click('button[type=submit]');
+    await page.waitForURL(`${origin}/login/2fa`);
+    await page.fill('input[name=code]', await totp());
+    await page.click('button[type=submit]');
+    await page.waitForURL(`${origin}/`);
+  });
+
   it('đăng xuất ⇒ xóa cookie, phiên ở API bị thu hồi; đăng nhập lại qua 2FA', async () => {
     await page.click('text=Đăng xuất');
     await page.waitForURL(`${origin}/login`);

@@ -43,7 +43,7 @@ async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] 
     body = b.text;
   }
   const key = req.headers.get('idempotency-key') ?? undefined;
-  return fromUpstream(await upstream(req, `${p}${search}`, method, body, key));
+  return fromUpstream(req, await upstream(req, `${p}${search}`, method, body, key));
 }
 
 export const GET = handle;

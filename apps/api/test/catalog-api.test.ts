@@ -715,4 +715,17 @@ describe('API danh mục (CP04 lát 2)', () => {
     ).toEqual([under.body.id]);
     expect((await get('/admin/products?q=_')).body.items).toEqual([]);
   });
+
+  it('song song: tạo con dưới P cùng lúc đổi cha của P ⇒ không deadlock (khóa cây trước khóa dòng)', async () => {
+    for (let round = 0; round < 8; round++) {
+      const x = await category();
+      const p = await category();
+      const rs = await Promise.all([
+        post('/admin/categories', { parent_id: p, name: `A ${hex()}` }),
+        patch(`/admin/categories/${p}`, { parent_id: x }),
+        post('/admin/categories', { parent_id: p, name: `B ${hex()}` }),
+      ]);
+      expect(rs.map((r) => r.status)).toEqual([201, 200, 201]);
+    }
+  });
 });

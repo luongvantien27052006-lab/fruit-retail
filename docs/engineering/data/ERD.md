@@ -338,8 +338,8 @@ trước khi khóa dòng giá. Đổi cây danh mục: advisory `catalog:categor
 Sửa danh mục (CP04 lát 2): dòng đang sửa/lưu trữ khóa `FOR NO KEY UPDATE` (không chặn FK `FOR KEY SHARE` của dòng
 bán/tồn), dòng cha khóa `FOR SHARE` khi gắn con (danh mục con, sản phẩm, SKU) ⇒ "lưu trữ cha" và "gắn con" song song không
 lọt. Hướng khóa cha–con: `skus` trước `products` (sửa SKU) hoặc chỉ `products` (tạo SKU) — luồng sau này (lưu trữ sản phẩm kéo
-theo SKU, nhập file) **không** được khóa `products` rồi mới khóa `skus` đã có. Đổi cha danh mục lấy advisory
-`catalog:category_tree` TRƯỚC khóa dòng.
+theo SKU, nhập file) **không** được khóa `products` rồi mới khóa `skus` đã có. Mọi INSERT có cha / đổi cha danh mục (kể cả
+nhập file sau này) lấy advisory `catalog:category_tree` TRƯỚC mọi khóa dòng `categories`.
 
 ### 6.3. Khóa ngoại tham chiếu nhóm sau — đã xử lý
 `pos_sale_lines.markdown_id` (markdowns chuyển lên M07) · `sessions.device_id`, `files.device_id` (FK thêm ở M03) ·

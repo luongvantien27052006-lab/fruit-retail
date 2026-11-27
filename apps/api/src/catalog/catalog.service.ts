@@ -131,6 +131,11 @@ export class CatalogService {
     return categoryWire(c);
   }
 
+  /** Khóa cây danh mục (cùng khóa với trigger categories_tree_guard) — lấy TRƯỚC mọi khóa dòng categories. */
+  private async lockTree(): Promise<void> {
+    await this.tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('catalog:category_tree', 0))`;
+  }
+
   /** Khóa chia sẻ một danh mục đang dùng (làm cha / chứa sản phẩm) — chặn lưu trữ song song. */
   private async shareActiveCategory(id: string, field: string, requireActive = true): Promise<void> {
     const r = await this.tx.$queryRaw<{ archived: boolean }[]>`
@@ -140,7 +145,12 @@ export class CatalogService {
   }
 
   async createCategory(b: CategoryCreate) {
-    if (b.parent_id) await this.shareActiveCategory(b.parent_id, 'parent_id');
+    if (b.parent_id) {
+      // mọi luồng ghi cây: advisory `catalog:category_tree` TRƯỚC khóa dòng categories (trigger lấy lại — reentrant);
+      // ngược thứ tự với updateCategory ⇒ deadlock (review DB lát 2 vòng 2)
+      await this.lockTree();
+      await this.shareActiveCategory(b.parent_id, 'parent_id');
+    }
     const c = await catalogWrite(() =>
       this.tx.category.create({
         data: { id: uuidv7(), parentId: b.parent_id ?? null, name: b.name, sort: b.sort ?? 0 },
@@ -158,8 +168,7 @@ export class CatalogService {
   async updateCategory(id: string, b: CategoryUpdate) {
     // đổi cha: lấy khóa cây TRƯỚC mọi khóa dòng (trigger categories_tree_guard cũng lấy khóa này) ⇒ hai lần đổi cha chéo
     // nhau chạy nối tiếp, bên sau nhận 422 "tạo vòng" thay vì deadlock 40P01 (review DB lát 2, ghi chú 4)
-    if (b.parent_id !== undefined)
-      await this.tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('catalog:category_tree', 0))`;
+    if (b.parent_id !== undefined) await this.lockTree();
     const locked = await this.tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM core.categories WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
     if (!locked.length) throw new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy danh mục');

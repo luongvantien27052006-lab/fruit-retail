@@ -103,22 +103,28 @@ const ALLOWED_REL = new Set([
   'revisionHeaders',
   'revisionLog',
   'feature',
+  'FeaturePropertyBag',
+  'classificationlabels',
 ]);
 const ALLOWED_CT = [
   /^application\/xml$/,
   /^text\/xml$/,
   /^image\/[a-z0-9.+-]+$/,
   /^application\/vnd\.openxmlformats-package\.(relationships|core-properties)\+xml$/,
-  /^application\/vnd\.openxmlformats-officedocument\.(spreadsheetml|drawingml|theme|themeOverride|extended-properties|custom-properties|customXmlProperties|vmlDrawing)[a-zA-Z0-9.+-]*$/,
-  /^application\/vnd\.ms-excel\.(person|threadedcomments|sheetMetadata|rdrichvalue[a-z]*|rdarray|rdsupportingpropertybag[a-z]*|namedsheetview|slicer|slicerCache|timeline|timelineCache|webimage|feature)\+xml$/i,
-  /^application\/vnd\.ms-office\.(chartstyle|chartcolorstyle)\+xml$/,
+  /^application\/vnd\.openxmlformats-officedocument\.(spreadsheetml|drawingml|drawing|theme|themeOverride|extended-properties|custom-properties|customXmlProperties|vmlDrawing)[a-zA-Z0-9.+-]*$/,
+  /^application\/vnd\.ms-excel\.(person|threadedcomments|sheetMetadata|rdrichvalue[a-z]*|rdarray|rdsupportingpropertybag[a-z]*|namedsheetview|slicer|slicerCache|timeline|timelineCache|webimage|feature|featurepropertybag|richvaluerel)\+xml$/i,
+  /^application\/vnd\.ms-office\.(chartstyle|chartcolorstyle|classificationlabels)\+xml$/,
 ];
 /** loại spreadsheetml chủ động (khớp được mẫu officedocument ở trên) ⇒ chặn */
 const DENY_CT = /externalLink|connections|queryTable|ctrlProp|activeX|oleObject|macro|vba|template|binary/i;
 const relKind = (type: string) => type.slice(type.lastIndexOf('/') + 1);
 
 /** thuộc tính trong NHÁY KÉP (nháy đơn / thực thể đã bị chặn trước); thẻ có '>' trong giá trị vẫn đọc đúng */
-const attrs = (tag: string) => new Map([...tag.matchAll(/([\w:]+)\s*=\s*"([^"]*)"/g)].map((m) => [m[1], m[2] ?? '']));
+/** 5 thực thể có sẵn của XML (Excel ghi `&amp;` trong URL hyperlink) — thực thể khác đã bị assertPlain chặn */
+const ENT: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+const decode = (v: string) => v.replace(/&(amp|lt|gt|quot|apos);/g, (_, k: string) => ENT[k] ?? '');
+const attrs = (tag: string) =>
+  new Map([...tag.matchAll(/([\w:]+)\s*=\s*"([^"]*)"/g)].map((m) => [m[1], decode(m[2] ?? '')]));
 const tagRe = (name: string) => new RegExp(String.raw`<${name}\b(?:[^>"]|"[^"]*")*>`, 'g');
 const tags = (xml: string, name: string) => [...xml.matchAll(tagRe(name))].map((m) => attrs(m[0]));
 
@@ -127,7 +133,13 @@ const tags = (xml: string, name: string) => [...xml.matchAll(tagRe(name))].map((
  * tiền tố namespace, số thẻ thô = số thẻ đọc được. Khác ⇒ từ chối (không đoán).
  */
 function assertPlain(xml: string, names: string[]): void {
-  if (xml.includes('&') || xml.includes("'") || /<\/?[A-Za-z_][\w.-]*:/.test(xml) || /<!/.test(xml))
+  // chỉ 5 thực thể có sẵn (không &#…; / thực thể tự đặt); không thuộc tính nháy đơn (nháy đơn TRONG giá trị nháy kép được)
+  if (
+    /&(?!(amp|lt|gt|quot|apos);)/.test(xml) ||
+    /=\s*'/.test(xml) ||
+    /<\/?[A-Za-z_][\w.-]*:/.test(xml) ||
+    /<!/.test(xml)
+  )
     throw new XlsxRejected('ACTIVE_CONTENT', 'Cấu trúc file Excel bất thường');
   for (const n of names) {
     const raw = xml.match(new RegExp(String.raw`<${n}\b`, 'g'))?.length ?? 0;
@@ -187,6 +199,8 @@ export async function inspectXlsx(buf: Buffer): Promise<void> {
     throw new XlsxRejected('NOT_XLSX', 'File không phải .xlsx hợp lệ');
   }
   let entries = 0;
+  /** tên mục đã gặp (không phân biệt hoa thường — tên phần OPC không phân biệt) */
+  const names = new Set<string>();
   let total = 0;
   let contentTypes = '';
   let sheets = 0;
@@ -199,6 +213,17 @@ export async function inspectXlsx(buf: Buffer): Promise<void> {
         void (async () => {
           entries++;
           const name = entry.fileName;
+          const lower = name.toLowerCase();
+          // hai mục trùng tên (kể cả khác hoa thường) ⇒ bộ đọc khác nhau thấy phần khác nhau (review bảo mật vòng 3 N4)
+          if (names.has(lower)) throw new XlsxRejected('ACTIVE_CONTENT', 'File có hai thành phần trùng tên');
+          names.add(lower);
+          if (/(^|\/)_rels\//.test(lower) && !lower.endsWith('/') && !lower.endsWith('.rels'))
+            throw new XlsxRejected('ACTIVE_CONTENT', 'Cấu trúc file Excel bất thường');
+          if (
+            (lower.endsWith('.rels') && !name.endsWith('.rels')) ||
+            (lower === '[content_types].xml' && name !== '[Content_Types].xml')
+          )
+            throw new XlsxRejected('ACTIVE_CONTENT', 'Cấu trúc file Excel bất thường');
           if (entries > XLSX_LIMITS.maxEntries)
             throw new XlsxRejected('TOO_MANY_ENTRIES', 'File có quá nhiều thành phần');
           if (entry.isEncrypted()) throw new XlsxRejected('ENCRYPTED', 'File được mã hóa / có mật khẩu');

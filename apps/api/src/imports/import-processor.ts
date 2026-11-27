@@ -112,6 +112,7 @@ export class ImportProcessor {
     // báo cáo các lô ĐÃ commit (chạy thật) — lỗi hệ thống giữa chừng vẫn lưu được (review TS lát 5 vòng 2 N-b)
     const committed: ReportRow[] = [];
     let lastRow: number | undefined;
+    let lastFileRow: number | undefined;
     let total = 0;
     let mode: DupMode = 'SKIP';
     try {
@@ -133,6 +134,7 @@ export class ImportProcessor {
           );
         rows = sheet.rows;
         total = rows.length;
+        lastFileRow = rows.at(-1)?.row;
       } catch (e) {
         if (e instanceof XlsxRejected) return await this.fail(jobId, `File bị từ chối: ${e.message}`, e.reason);
         if (e instanceof AppError) return await this.fail(jobId, e.message);
@@ -189,7 +191,9 @@ export class ImportProcessor {
               false,
               mode,
               undefined,
-              `Lỗi hệ thống khi nhập — các dòng đến dòng Excel ${lastRow} ĐÃ ghi (xem báo cáo); kiểm tra rồi nhập lại phần còn lại`,
+              lastRow === lastFileRow
+                ? 'Lỗi hệ thống ở bước tổng kết — MỌI dòng đã xử lý (xem báo cáo), không cần nhập lại'
+                : `Lỗi hệ thống khi nhập — các dòng đến dòng Excel ${lastRow} ĐÃ ghi (xem báo cáo); kiểm tra rồi nhập lại phần còn lại`,
             ),
           )
         : this.fail(jobId, 'Lỗi hệ thống khi nhập — chưa ghi dòng nào; tạo lượt nhập mới để thử lại');

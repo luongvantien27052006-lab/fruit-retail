@@ -636,8 +636,31 @@ describe('Nhập / xuất Excel (CP04 lát 5)', () => {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('a');
     ws.addRow(['x']);
-    ws.getCell('B1').value = { text: 'web', hyperlink: 'https://example.com' };
+    // hyperlink có & và ' trong URL (Excel ghi &amp;) + ảnh (drawing+xml) vẫn qua (review bảo mật vòng 3 N5)
+    ws.getCell('B1').value = { text: 'web', hyperlink: "https://example.com/?a=1&b=2&c=o'k" };
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    ws.addImage(wb.addImage({ buffer: png as unknown as ExcelJS.Buffer, extension: 'png' }), 'C3:D5');
     expect(await reason(Buffer.from(await wb.xlsx.writeBuffer()))).toBe('OK');
+    // .RELS viết hoa (không được đọc nếu so phân biệt hoa thường) và mục trùng tên ⇒ chặn (N4)
+    const ole = `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r9" Type="${REL}/oleObject" Target="x.bin"/></Relationships>`;
+    expect(await reason(pkg('', [{ name: 'xl/worksheets/_rels/sheet1.xml.RELS', data: Buffer.from(ole) }]))).toBe(
+      'ACTIVE_CONTENT',
+    );
+    const dup = buildZip([
+      { name: '[Content_Types].xml', data: CONTENT_TYPES_XLSX },
+      { name: '_rels/.rels', data: root },
+      { name: 'xl/_rels/workbook.xml.rels', data: Buffer.from(ole) },
+      {
+        name: 'xl/_rels/workbook.xml.rels',
+        data: Buffer.from(
+          '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>',
+        ),
+      },
+    ]);
+    expect(await reason(dup)).toBe('ACTIVE_CONTENT');
   }, 60_000);
 
   it('chia lô: nhiều lô dùng chung danh mục mới; chạy thử không ghi; lỗi hệ thống ở lô 2 ⇒ FAILED + báo cáo lô 1', async () => {
@@ -681,6 +704,25 @@ describe('Nhập / xuất Excel (CP04 lát 5)', () => {
         expect(await countSkus(`${t2}-`)).toBe(3);
       } finally {
         spy.mockRestore();
+      }
+
+      // chỉ bước tổng kết lỗi (mọi lô đã commit) ⇒ FAILED kèm đủ báo cáo, thông điệp "không cần nhập lại"
+      const t3 = `LZ${e.hex(2)}`;
+      const anyFin = proc as unknown as { finish: (...a: unknown[]) => Promise<unknown> };
+      const fin = anyFin.finish.bind(proc);
+      let fcalls = 0;
+      const fspy = vi.spyOn(anyFin, 'finish').mockImplementation(async (...a: unknown[]) => {
+        if (++fcalls === 1) throw new Error('giả lập lỗi tổng kết');
+        return fin(...a);
+      });
+      try {
+        const z = await runImport(await mk(t3), { mode: 'SKIP', dry_run: false });
+        expect(z.status).toBe('FAILED');
+        expect(z.error).toMatch(/không cần nhập lại/);
+        expect(z).toMatchObject({ ok_rows: 7, total_rows: 7 });
+        expect(await countSkus(`${t3}-`)).toBe(7);
+      } finally {
+        fspy.mockRestore();
       }
     } finally {
       proc.batchSize = 500;

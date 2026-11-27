@@ -125,3 +125,5 @@ export function toStockQuantity(conv: UnitConversion, qty: number): StockQuantit
   if (amount > BigInt(GRAMS_MAX)) throw new MoneyWeightError('OUT_OF_RANGE', `Số lượng quy đổi vượt int32: ${amount}`);
   return { base: conv.factorG !== null ? 'GRAM' : 'COUNT', amount: Number(amount) };
 }
+
+export * from './barcode.js';

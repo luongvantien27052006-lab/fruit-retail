@@ -9,7 +9,7 @@ const kinds = Object.keys(FILE_KINDS) as [string, ...string[]];
 const PresignBody = z
   .object({
     kind: z.enum(kinds),
-    mime: z.enum(['image/jpeg', 'image/webp', XLSX_MIME]),
+    mime: z.enum(['image/jpeg', 'image/webp', 'image/png', XLSX_MIME]),
     bytes: z
       .number()
       .int()

@@ -4,6 +4,8 @@
 /// Khối lượng: `int` gram. Phép nhân dùng BigInt để không tràn âm thầm.
 library;
 
+export 'src/barcode.dart';
+
 enum MoneyWeightErrorCode {
   negative('NEGATIVE'),
   notInteger('NOT_INTEGER'),

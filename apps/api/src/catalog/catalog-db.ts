@@ -4,6 +4,9 @@ import { rule } from './catalog-rules';
 
 /** Ràng buộc unique của danh mục ⇒ tên trường báo cho client (409). */
 const UNIQUE_FIELDS: [RegExp, string][] = [
+  // quy tắc mã vạch (lát 6) — TRƯỚC /barcode/ (tên index barcode_rules_* chứa 'barcode')
+  [/barcode_rules_priority/, 'priority'],
+  [/barcode_rules_code/, 'code'],
   [/sku_code/, 'sku_code'],
   [/scale_plu/, 'scale_plu'],
   [/barcode/, 'barcode'],

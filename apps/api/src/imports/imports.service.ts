@@ -154,22 +154,50 @@ export class ImportsService {
     for (const r of rows) ws.addRow(Object.fromEntries(Object.entries(r).map(([k, v]) => [k, safeCell(v)])));
     for (const h of headers) if (h.text) ws.getColumn(h.key).numFmt = '@';
     const buf = Buffer.from(await wb.xlsx.writeBuffer());
+    const saved = await this.saveExport({
+      buf,
+      mime: XLSX_MIME,
+      kind: EXPORT_XLSX_KIND,
+      ext: 'xlsx',
+      fileName: list,
+      exportType: `CATALOG_${list.toUpperCase()}`,
+      filters: { list },
+      rows: rows.length,
+    });
+    return { file_id: saved.file_id, list, rows: rows.length, url: saved.url, expires_at: saved.expires_at };
+  }
+
+  /**
+   * Lưu file xuất do SERVER tạo (S3, file READY) + `audit.export_logs` (SPEC §12.3 — ai xuất gì, bộ lọc, số dòng) + audit
+   * `export.create` cùng transaction; trả URL tải 60 giây. Dùng chung cho xuất danh sách (lát 5) và file PLU (lát 6).
+   */
+  async saveExport(e: {
+    buf: Buffer;
+    mime: string;
+    kind: string;
+    ext: string;
+    fileName: string;
+    exportType: string;
+    filters: Record<string, string | number | boolean | null>;
+    rows: number;
+  }) {
+    const p = this.principal();
     if (!this.storage.configured) throw new AppError('CONFIGURATION_NOT_READY', 'Chưa cấu hình lưu trữ file');
     const id = uuidv7();
     const now = new Date();
-    const key = `exports/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${id}.xlsx`;
-    await this.storage.put(key, buf, XLSX_MIME);
-    const sha = new Uint8Array(createHash('sha256').update(buf).digest());
+    const key = `exports/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${id}.${e.ext}`;
+    await this.storage.put(key, e.buf, e.mime);
+    const sha = new Uint8Array(createHash('sha256').update(e.buf).digest());
     await this.tx.file.create({
       data: {
         id,
-        kind: EXPORT_XLSX_KIND,
-        mime: XLSX_MIME,
+        kind: e.kind,
+        mime: e.mime,
         storageKey: key,
         finalKey: key,
-        declaredBytes: buf.length,
+        declaredBytes: e.buf.length,
         declaredSha256: sha,
-        bytes: buf.length,
+        bytes: e.buf.length,
         sha256: sha,
         status: 'READY',
         completedAt: now,
@@ -177,20 +205,22 @@ export class ImportsService {
       },
       select: { id: true },
     });
+    await this.tx.exportLog.create({
+      data: { id: uuidv7(), userId: p.userId, exportType: e.exportType, filters: e.filters, rows: e.rows, fileId: id },
+      select: { id: true },
+    });
     await this.ao.recordAudit({
       action: 'export.create',
       resourceType: 'file',
       resourceId: id,
-      after: { list, rows: rows.length },
+      after: { export_type: e.exportType, ...e.filters, rows: e.rows },
     });
-    const url = await this.storage.presignGet(key, `${list}-${now.toISOString().slice(0, 10)}.xlsx`, DOWNLOAD_TTL_S);
-    return {
-      file_id: id,
-      list,
-      rows: rows.length,
-      url,
-      expires_at: new Date(Date.now() + DOWNLOAD_TTL_S * 1000).toISOString(),
-    };
+    const url = await this.storage.presignGet(
+      key,
+      `${e.fileName}-${now.toISOString().slice(0, 10)}.${e.ext}`,
+      DOWNLOAD_TTL_S,
+    );
+    return { file_id: id, url, expires_at: new Date(Date.now() + DOWNLOAD_TTL_S * 1000).toISOString() };
   }
 
   private async rowsOf(

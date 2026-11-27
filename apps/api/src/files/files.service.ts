@@ -11,7 +11,7 @@ import { ObjectStorage } from '../infra/object-storage.service';
 
 const MB = 1024 * 1024;
 export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-type Mime = 'image/jpeg' | 'image/webp' | typeof XLSX_MIME;
+type Mime = 'image/jpeg' | 'image/webp' | 'image/png' | typeof XLSX_MIME;
 interface KindRule {
   maxBytes: number;
   mimes: readonly Mime[];
@@ -36,6 +36,8 @@ export const FILE_KINDS: Readonly<Record<string, KindRule>> = {
   PHOTO_PRODUCT: { maxBytes: 5 * MB, mimes: ['image/jpeg', 'image/webp'], cameraOnly: false, userTypes: STAFF_ADMIN },
   // file Excel để nhập danh mục / NCC (CP04 lát 5, ADR-031) — chỉ Master (quyền import:run); nội dung kiểm lại ở worker
   IMPORT_XLSX: { maxBytes: 5 * MB, mimes: [XLSX_MIME], cameraOnly: false, userTypes: ['MASTER'] },
+  // logo thương hiệu (CP04 lát 6): bản đen trắng cho phiếu in nhiệt + bản màu — chỉ Master; ≤ 1 MB
+  BRAND_LOGO: { maxBytes: 1 * MB, mimes: ['image/png', 'image/jpeg'], cameraOnly: false, userTypes: ['MASTER'] },
 };
 /** loại file do SERVER tạo (không qua presign) — xuất Excel danh sách (CP04 lát 5) */
 export const EXPORT_XLSX_KIND = 'EXPORT_XLSX';
@@ -53,6 +55,8 @@ export const MAX_FILES_PER_DAY = 100;
 /** Định dạng thật theo byte đầu (không tin Content-Type client khai) */
 export function sniffImage(head: Buffer): Mime | null {
   if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return 'image/jpeg';
+  if (head.length >= 8 && head.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])))
+    return 'image/png';
   if (head.length >= 12 && head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WEBP')
     return 'image/webp';
   // xlsx = zip (local file header PK\x03\x04); cấu trúc bên trong kiểm ở worker (xlsx-safe)
@@ -62,7 +66,16 @@ export function sniffImage(head: Buffer): Mime | null {
 }
 
 /** đuôi file khi tải về */
-export const extOf = (mime: string) => (mime === 'image/webp' ? 'webp' : mime === XLSX_MIME ? 'xlsx' : 'jpg');
+export const extOf = (mime: string) =>
+  mime === 'image/webp'
+    ? 'webp'
+    : mime === 'image/png'
+      ? 'png'
+      : mime === XLSX_MIME
+        ? 'xlsx'
+        : mime === 'text/csv'
+          ? 'csv'
+          : 'jpg';
 
 const notFound = () => new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy file');
 /** khóa lưu cuối của file READY — `files/…` (khóa tải lên, có URL PUT ký) ⇒ `final/…` (chỉ server ghi) */

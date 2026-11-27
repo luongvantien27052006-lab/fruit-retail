@@ -1,0 +1,87 @@
+{
+  "$comment": "Vector DÙNG CHUNG TS/Dart cho mã vạch theo quy tắc (SPEC §6.5, §21.3.8, Phụ lục B — CP04 lát 6). B1 lấy nguyên từ Phụ lục B; số kiểm các mã khác tính tay theo công thức Phụ lục B.",
+  "rules": {
+    "W1": { "code": "W1", "type": "WEIGHT", "pattern": "20{PLU:5}{W:5}{C}", "valueScale": 1, "ean13Checksum": true },
+    "W2": { "code": "W2", "type": "PRICE", "pattern": "21{PLU:5}{P:5}{C}", "valueScale": 1, "ean13Checksum": true },
+    "W3": { "code": "W3", "type": "WEIGHT", "pattern": "22{PLU:4}{W:6}{C}", "valueScale": 1, "ean13Checksum": true },
+    "W10": { "code": "W10", "type": "WEIGHT", "pattern": "23{PLU:5}{W:5}{C}", "valueScale": 10, "ean13Checksum": true },
+    "P100": {
+      "code": "P100",
+      "type": "PRICE",
+      "pattern": "24{PLU:5}{P:5}{C}",
+      "valueScale": 100,
+      "ean13Checksum": true
+    },
+    "STAFF": { "code": "STAFF", "type": "STAFF", "pattern": "NV-{ID}", "valueScale": 1, "ean13Checksum": false },
+    "PRODUCT": { "code": "PRODUCT", "type": "PRODUCT", "pattern": "{CODE}", "valueScale": 1, "ean13Checksum": false }
+  },
+  "ean13": [
+    { "code": "2000123008455", "valid": true },
+    { "code": "2000123008454", "valid": false },
+    { "code": "8938505970011", "valid": true },
+    { "code": "8938505970012", "valid": false },
+    { "code": "200012300845", "valid": false },
+    { "code": "20001230084A5", "valid": false }
+  ],
+  "decode": [
+    { "id": "B1", "rule": "W1", "barcode": "2000123008455", "ok": true, "expected": { "plu": "00123", "grams": 845 } },
+    { "id": "B2", "rule": "W1", "barcode": "2000123008454", "ok": false, "reason": "CHECKSUM" },
+    { "id": "B3", "rule": "W1", "barcode": "200012300845", "ok": false, "reason": "NO_MATCH" },
+    { "id": "B4", "rule": "W1", "barcode": "2100456450003", "ok": false, "reason": "NO_MATCH" },
+    {
+      "id": "B5",
+      "rule": "W2",
+      "barcode": "2100456450003",
+      "ok": true,
+      "expected": { "plu": "00456", "amount": "45000" }
+    },
+    { "id": "B6", "rule": "W3", "barcode": "2212340012508", "ok": true, "expected": { "plu": "1234", "grams": 1250 } },
+    {
+      "id": "B7",
+      "rule": "W10",
+      "barcode": "2300007001252",
+      "ok": true,
+      "expected": { "plu": "00007", "grams": 1250 }
+    },
+    {
+      "id": "B8",
+      "rule": "P100",
+      "barcode": "2400009004500",
+      "ok": true,
+      "expected": { "plu": "00009", "amount": "45000" }
+    },
+    { "id": "B9", "rule": "STAFF", "barcode": "NV-0012", "ok": true, "expected": { "value": "0012" } },
+    { "id": "B10", "rule": "STAFF", "barcode": "NV-", "ok": false, "reason": "NO_MATCH" },
+    { "id": "B11", "rule": "PRODUCT", "barcode": "8938505970011", "ok": true, "expected": { "value": "8938505970011" } }
+  ],
+  "decodeFirst": [
+    { "id": "D1", "rules": ["W1", "W2", "PRODUCT"], "barcode": "2000123008455", "ok": true, "rule": "W1" },
+    { "id": "D2", "rules": ["W1", "W2", "PRODUCT"], "barcode": "2000123008454", "ok": false, "reason": "CHECKSUM" },
+    { "id": "D3", "rules": ["W1", "W2", "PRODUCT"], "barcode": "8938505970011", "ok": true, "rule": "PRODUCT" },
+    { "id": "D4", "rules": ["W1", "W2"], "barcode": "8938505970011", "ok": false, "reason": "NO_MATCH" }
+  ],
+  "encode": [
+    { "id": "E1", "rule": "W1", "input": { "plu": "123", "grams": 845 }, "expected": "2000123008455" },
+    { "id": "E2", "rule": "W2", "input": { "plu": "456", "amount": "45000" }, "expected": "2100456450003" },
+    { "id": "E3", "rule": "W10", "input": { "plu": "7", "grams": 1250 }, "expected": "2300007001252" },
+    { "id": "E4", "rule": "STAFF", "input": { "value": "0012" }, "expected": "NV-0012" }
+  ],
+  "encodeRejects": [
+    { "id": "R1", "rule": "W10", "input": { "plu": "7", "grams": 1255 }, "error": "INVALID_VALUE" },
+    { "id": "R2", "rule": "W1", "input": { "plu": "123", "grams": 123456 }, "error": "INVALID_VALUE" },
+    { "id": "R3", "rule": "W1", "input": { "plu": "123456", "grams": 10 }, "error": "INVALID_VALUE" },
+    { "id": "R4", "rule": "W1", "input": { "plu": "123", "grams": -1 }, "error": "INVALID_VALUE" }
+  ],
+  "patternRejects": [
+    { "id": "P1", "pattern": "20{PLU:5}{W:5}", "type": "WEIGHT", "ean13Checksum": true },
+    { "id": "P2", "pattern": "{C}20{PLU:5}{W:5}", "type": "WEIGHT", "ean13Checksum": false },
+    { "id": "P3", "pattern": "{ID}{CODE}", "type": "PRODUCT", "ean13Checksum": false },
+    { "id": "P4", "pattern": "ab{CODE}", "type": "PRODUCT", "ean13Checksum": false },
+    { "id": "P5", "pattern": "20{PLU:5}{W:5}{P:5}{C}", "type": "WEIGHT", "ean13Checksum": false },
+    { "id": "P6", "pattern": "20{PLU:5}{P:5}{C}", "type": "WEIGHT", "ean13Checksum": true },
+    { "id": "P7", "pattern": "2{PLU:5}{W:5}{C}", "type": "WEIGHT", "ean13Checksum": true },
+    { "id": "P8", "pattern": "AB{PLU:4}{W:6}{C}", "type": "WEIGHT", "ean13Checksum": true },
+    { "id": "P9", "pattern": "{ID}{C}", "type": "STAFF", "ean13Checksum": false },
+    { "id": "P10", "pattern": "", "type": "PRODUCT", "ean13Checksum": false }
+  ]
+}

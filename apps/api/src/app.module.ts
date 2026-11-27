@@ -10,6 +10,7 @@ import { AuthModule } from './auth/auth.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { OrgModule } from './org/org.module';
 import { ImportsModule } from './imports/imports.module';
+import { LabelsModule } from './labels/labels.module';
 import { FilesModule } from './files/files.controller';
 import { AccessGuard } from './common/access.guard';
 import { AuditOutboxService } from './common/audit-outbox.service';
@@ -113,6 +114,7 @@ export class AppModule {
         OrgModule,
         FilesModule,
         ImportsModule,
+        LabelsModule,
         ...(extras.imports ?? []),
       ],
       controllers: [HealthController, ...(extras.controllers ?? [])],

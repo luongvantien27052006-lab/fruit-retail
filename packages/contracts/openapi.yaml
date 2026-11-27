@@ -6006,10 +6006,10 @@ paths:
     get:
       operationId: getAdminBarcodeRules
       tags: [admin]
-      summary: 'Danh sách quy tắc mã vạch'
+      summary: 'Danh sách quy tắc mã vạch (theo priority)'
       x-permission: 'catalog:read'
       x-spec-ref: '§21.3.8'
-      x-detail-cp: CP07
+      x-detail-cp: CP04
       parameters:
         - $ref: '#/components/parameters/RequestId'
       responses:
@@ -6018,7 +6018,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/BarcodeRuleList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6035,7 +6035,9 @@ paths:
       summary: 'Tạo quy tắc mã vạch'
       x-permission: 'barcode_rule:write'
       x-spec-ref: '§21.3.8'
-      x-detail-cp: CP07
+      x-detail-cp: CP04
+      description: >-
+        Mẫu: hằng (số / chữ HOA / -) và token {PLU:n} {W:n} {P:n} {C} {ID} {CODE}; WEIGHT cần {PLU}+{W}, PRICE cần {PLU}+{P}; ean13_checksum ⇒ dài đúng 13 chữ số, {C} cuối. Sai ⇒ 422 field pattern. Trùng code / priority ⇒ 409.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/RequestId'
@@ -6044,14 +6046,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/BarcodeRuleCreateRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/BarcodeRule'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6062,6 +6064,40 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/barcode-rules/decode:
+    get:
+      operationId: getAdminBarcodeRulesDecode
+      tags: [admin]
+      summary: 'Thử giải mã một mã vạch theo các quy tắc đang bật + tra SKU'
+      x-permission: 'catalog:read'
+      x-spec-ref: '§6.5'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9A-Z-]{1,64}$'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BarcodeDecodeResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '503':
@@ -6080,7 +6116,7 @@ paths:
       summary: 'Chi tiết quy tắc mã vạch'
       x-permission: 'catalog:read'
       x-spec-ref: '§21.3.8'
-      x-detail-cp: CP07
+      x-detail-cp: CP04
       parameters:
         - $ref: '#/components/parameters/RequestId'
       responses:
@@ -6089,7 +6125,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/BarcodeRule'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6105,10 +6141,10 @@ paths:
     patch:
       operationId: patchAdminBarcodeRulesId
       tags: [admin]
-      summary: 'Sửa quy tắc mã vạch'
+      summary: 'Sửa quy tắc mã vạch (code, type bất biến)'
       x-permission: 'barcode_rule:write'
       x-spec-ref: '§21.3.8'
-      x-detail-cp: CP07
+      x-detail-cp: CP04
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/RequestId'
@@ -6117,14 +6153,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/BarcodeRuleUpdateRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/BarcodeRule'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7898,10 +7934,13 @@ paths:
     post:
       operationId: postAdminPluExport
       tags: [admin]
-      summary: 'Xuất file PLU cho cân'
+      summary: 'Xuất file PLU cho cân in tem (URL tải 60 giây)'
       x-permission: 'plu:export'
-      x-spec-ref: '§21.3.17'
-      x-detail-cp: CP07
+      x-scope: store
+      x-spec-ref: '§6.5'
+      x-detail-cp: CP04
+      description: >-
+        Chỉ SKU đang dùng, bán qua cân (sold_by_scale) có PLU; giá/kg của cửa hàng (giá riêng nếu có, không thì giá chung). Không chọn store_id ⇒ giá chung, cần phạm vi toàn chuỗi. SKU chưa có giá không xuất (skipped_no_price). Ghi audit.export_logs. CSV UTF-8 có BOM.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/RequestId'
@@ -7910,24 +7949,154 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/PluExportRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/PluExport'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/brand:
+    get:
+      operationId: getAdminBrand
+      tags: [admin]
+      summary: 'Thông tin thương hiệu (tên, hotline, logo, chân phiếu)'
+      x-permission: 'catalog:read'
+      x-spec-ref: '§18.5'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandSettings'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    put:
+      operationId: putAdminBrand
+      tags: [admin]
+      summary: 'Sửa thông tin thương hiệu'
+      x-permission: 'settings:write'
+      x-master-only: true
+      x-spec-ref: '§18.5'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      description: >-
+        Logo: file BRAND_LOGO (PNG / JPEG ≤ 1 MB, chỉ Master) đã READY qua /files; null = bỏ logo.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrandUpdateRequest'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandSettings'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/shelf-labels:
+    get:
+      operationId: getAdminShelfLabels
+      tags: [admin]
+      summary: 'Trang HTML in tem giá kệ hàng loạt (A4)'
+      x-permission: 'price:read'
+      x-scope: store
+      x-spec-ref: '§21.3.17'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      description: >-
+        Đúng một trong sku_ids (UUID cách nhau bằng dấu phẩy, ≤ 500) / category_id; store_id ⇒ giá riêng cửa hàng (nếu có). Trả text/html in được (không script, CSP chặn); mã vạch EAN-13 vẽ SVG. Header X-Label-Count = số tem.
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: sku_ids
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: category_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: store_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: layout
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [A4_24, A4_10]
+            default: A4_24
+      responses:
+        '200':
+          description: Thành công
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '503':
@@ -11620,6 +11789,253 @@ components:
         expires_at:
           type: string
           format: date-time
+    BarcodeRuleType:
+      type: string
+      enum: [WEIGHT, PRICE, PRODUCT, BATCH, ORDER, STAFF]
+    BarcodeRule:
+      type: object
+      required: [id, code, name, priority, type, pattern, value_scale, ean13_checksum, enabled, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        type:
+          $ref: '#/components/schemas/BarcodeRuleType'
+        pattern:
+          type: string
+        value_scale:
+          type: integer
+          enum: [1, 10, 100]
+        ean13_checksum:
+          type: boolean
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    BarcodeRuleList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BarcodeRule'
+    BarcodeRuleCreateRequest:
+      type: object
+      required: [code, name, priority, type, pattern, ean13_checksum]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,15}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        type:
+          $ref: '#/components/schemas/BarcodeRuleType'
+        pattern:
+          type: string
+          minLength: 1
+          maxLength: 64
+        value_scale:
+          type: integer
+          enum: [1, 10, 100]
+          default: 1
+        ean13_checksum:
+          type: boolean
+        enabled:
+          type: boolean
+          default: false
+    BarcodeRuleUpdateRequest:
+      type: object
+      description: Ít nhất một trường.
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        pattern:
+          type: string
+          minLength: 1
+          maxLength: 64
+        value_scale:
+          type: integer
+          enum: [1, 10, 100]
+        ean13_checksum:
+          type: boolean
+        enabled:
+          type: boolean
+    BarcodeDecodeResult:
+      type: object
+      description: ok false ⇒ reason NO_MATCH (không quy tắc nào khớp) | CHECKSUM (khớp cấu trúc, sai số kiểm — rule nêu quy tắc). sku null = không tìm thấy SKU đang dùng.
+      required: [ok, sku]
+      additionalProperties: false
+      properties:
+        ok:
+          type: boolean
+        reason:
+          type: string
+          enum: [NO_MATCH, CHECKSUM]
+        rule:
+          type: [string, 'null']
+        type:
+          $ref: '#/components/schemas/BarcodeRuleType'
+        plu:
+          type: [string, 'null']
+        grams:
+          type: [integer, 'null']
+        amount:
+          type: [string, 'null']
+          pattern: '^-?[0-9]{1,18}$'
+          format: vnd
+        value:
+          type: [string, 'null']
+        sku:
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [id, sku_code, name]
+              additionalProperties: false
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                sku_code:
+                  type: string
+                name:
+                  type: string
+    PluExportRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        store_id:
+          type: string
+          format: uuid
+        format:
+          type: string
+          enum: [CSV, XLSX]
+          default: CSV
+    PluExport:
+      type: object
+      required: [file_id, url, expires_at, format, rows, skipped_no_price]
+      additionalProperties: false
+      properties:
+        file_id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+        format:
+          type: string
+          enum: [CSV, XLSX]
+        rows:
+          type: integer
+          minimum: 0
+        skipped_no_price:
+          type: array
+          description: mã SKU bán qua cân chưa có giá (không xuất)
+          items:
+            type: string
+    BrandSettings:
+      type: object
+      required:
+        [
+          brand_name,
+          hotline,
+          display_address,
+          receipt_footer,
+          primary_color,
+          privacy_url,
+          logo_mono_file_id,
+          logo_color_file_id,
+          updated_at,
+          updated_by,
+        ]
+      additionalProperties: false
+      properties:
+        brand_name:
+          type: string
+        hotline:
+          type: [string, 'null']
+        display_address:
+          type: [string, 'null']
+        receipt_footer:
+          type: [string, 'null']
+        primary_color:
+          type: [string, 'null']
+          pattern: '^#[0-9A-Fa-f]{6}$'
+        privacy_url:
+          type: [string, 'null']
+        logo_mono_file_id:
+          type: [string, 'null']
+          format: uuid
+        logo_color_file_id:
+          type: [string, 'null']
+          format: uuid
+        updated_at:
+          type: string
+          format: date-time
+        updated_by:
+          type: [string, 'null']
+          format: uuid
+    BrandUpdateRequest:
+      type: object
+      description: Ít nhất một trường; null = xóa giá trị.
+      additionalProperties: false
+      properties:
+        brand_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        hotline:
+          type: [string, 'null']
+          maxLength: 30
+        display_address:
+          type: [string, 'null']
+          maxLength: 300
+        receipt_footer:
+          type: [string, 'null']
+          maxLength: 300
+        primary_color:
+          type: [string, 'null']
+          pattern: '^#[0-9A-Fa-f]{6}$'
+        privacy_url:
+          type: [string, 'null']
+          maxLength: 500
+        logo_mono_file_id:
+          type: [string, 'null']
+          format: uuid
+        logo_color_file_id:
+          type: [string, 'null']
+          format: uuid
     VndAmount:
       type: string
       pattern: '^-?[0-9]{1,18}$'
@@ -12179,10 +12595,10 @@ components:
       properties:
         kind:
           type: string
-          enum: [PHOTO_SPOILAGE, PHOTO_WEIGHT, PHOTO_COMPLAINT, PHOTO_RECEIPT, PHOTO_PRODUCT, IMPORT_XLSX]
+          enum: [PHOTO_SPOILAGE, PHOTO_WEIGHT, PHOTO_COMPLAINT, PHOTO_RECEIPT, PHOTO_PRODUCT, IMPORT_XLSX, BRAND_LOGO]
         mime:
           type: string
-          enum: [image/jpeg, image/webp, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet]
+          enum: [image/jpeg, image/webp, image/png, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet]
         bytes:
           type: integer
           minimum: 1

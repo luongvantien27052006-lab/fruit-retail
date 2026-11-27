@@ -5,15 +5,17 @@
 - Làm rõ / thay thế một phần: ADR-012, ADR-021 (SEC5: khóa sau 5 lần sai, tăng dần), ADR-022 (PIN)
 
 ## Bối cảnh
+
 SEC5 cũ đếm sai trên `core.users`, dùng chung cho mọi luồng. Kẻ ẩn danh biết email Master gửi 5 mật khẩu sai mỗi ngày là
 giữ Master bị khóa vô thời hạn, vì mức khóa không bao giờ giảm. Trong lúc khóa, `/auth/step-up` của Master đang đăng nhập
 cũng bị chặn, nên mọi thao tác quản trị cần step-up tê liệt. Route `unlock` chỉ gỡ được trạng thái LOCKED, không gỡ được khóa
 tạm.
 
 ## Quyết định
+
 1. **Khóa theo cặp (tài khoản, nguồn)**, lưu ở bảng `core.auth_lockouts` (migration 0008). Nguồn là:
    - `ip:<sha256(bucket)>` cho `/auth/login`, `/auth/2fa/verify` và `/auth/2fa/recover`. Bucket là IPv4 nguyên địa chỉ, IPv6
-     gộp theo /64, giống ADR-023. Bảng không lưu IP thô.
+     gộp theo /48 (sửa lần 2; ADR-023 dùng /64 cho giới hạn tần suất). Bảng không lưu IP thô.
    - `dev:<uuid>` cho `/auth/pin`: khóa theo (nhân viên, máy POS).
 
    Luật khóa:
@@ -23,6 +25,7 @@ tạm.
 
    Kết quả: kẻ ẩn danh chỉ khóa được chính nguồn của mình, người dùng thật ở mạng hoặc máy khác vẫn vào được. Brute-force
    vẫn bị chặn: mỗi nguồn chỉ thử được 5 lần cho mỗi đợt khóa, và mức khóa tăng dần.
+
 2. **Tấn công phân tán:** từ 10 nguồn trở lên cùng đang bị khóa thì khóa toàn tài khoản 1 giờ (`users.locked_until`) và ghi
    log `LOCKED_GLOBAL`.
 3. **Xác thực lại trong phiên đã đăng nhập** (step-up, mật khẩu hiện tại khi đổi mật khẩu) đếm theo phiên, ở cột
@@ -36,6 +39,7 @@ tạm.
    sẽ bỏ ở một migration dọn dẹp sau.
 
 ## Sửa theo review cổng lần 2 (NC-25 — Tiến duyệt 2026-11-27)
+
 - **TB-3 (dò mật khẩu/TOTP bằng xoay mạng):** trước đây kẻ tấn công giữ < 10 nguồn bị khóa cùng lúc thì thử được ~4.300 lần
   mỗi ngày. Sửa:
   - Bước 2FA (`/2fa/verify`, `/2fa/recover`) đếm theo **tài khoản** (nguồn `mfa`, khóa tăng dần như trên). Chỉ người biết
@@ -54,9 +58,19 @@ tạm.
 - **Thấp:** 24 giờ yên lặng để reset mức khóa giờ tính từ `GREATEST(updated_at, locked_until)`, nên khóa trần 24 giờ không
   tự reset ngay khi hết.
 
+## Sửa theo review cổng lần 3
+
+- TB-1: khóa bước 2FA theo tài khoản (nguồn `mfa`) từng chặn cả trình duyệt quen — kẻ có mật khẩu lộ nhập sai mã 5 lần là
+  Master không vào được dù dùng máy quen. Sửa: trình duyệt quen đếm bước 2FA trên nguồn `cli:` của chính nó
+  (`mfaScope()`); chỉ trình duyệt lạ đếm chung nguồn `mfa`. Có test.
+- Thấp: `verifyMfa` xóa khóa (`auth_lockouts`) TRƯỚC khi cập nhật `users` — cùng thứ tự khóa với nhánh sai, tránh 40P01.
+- Ghi nhận (chấp nhận): `sessions.client_device` / `login_logs.device` lưu định danh trình duyệt dạng rõ. Chỉ role DB của ứng
+  dụng đọc được; người đọc được DB đã vượt xa rủi ro này. Băm khi làm dọn dẹp (cùng lúc bỏ `users.failed_login_count`).
+
 ## Hệ quả
+
 - Test:
-  - `auth.test.ts`: khóa theo nguồn; mạng khác vẫn vào; phiên đang mở vẫn step-up; IPv6 cùng /64 là một nguồn; tăng dần
+  - `auth.test.ts`: khóa theo nguồn; mạng khác vẫn vào; phiên đang mở vẫn step-up; IPv6 cùng /48 là một nguồn; tăng dần
     rồi tự giảm sau 24 giờ; 10 nguồn thì khóa toàn tài khoản; step-up sai 5 lần thì thu hồi phiên.
   - `pos-auth.test.ts`: máy khác vẫn đăng nhập PIN được.
   - `admin-accounts.test.ts`: Master gỡ được khóa tạm.

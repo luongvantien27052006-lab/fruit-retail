@@ -292,6 +292,15 @@ export class AuthAttempts {
    * duyệt quen: nguồn riêng `cli:` + trusted (không bị khóa toàn tài khoản, không chung khóa với IP của kẻ khác). Còn lại
    * ⇒ nguồn IP.
    */
+  /**
+   * Phạm vi bước 2FA (verify / recover): trình duyệt QUEN ⇒ nguồn riêng của nó (kẻ lộ mật khẩu khóa bước 2FA của tài
+   * khoản không chặn được trình duyệt quen — review cổng lần 3 TB-1); còn lại ⇒ đếm theo TÀI KHOẢN (nguồn `mfa`).
+   */
+  async mfaScope(userId: string): Promise<{ source: string; trusted: boolean }> {
+    const l = await this.loginSource(userId);
+    return l.trusted ? l : { source: MFA_SOURCE, trusted: false };
+  }
+
   async loginSource(userId: string): Promise<{ source: string; trusted: boolean }> {
     const dev = this.cls.get('deviceId');
     if (dev) {

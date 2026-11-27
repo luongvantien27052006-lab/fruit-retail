@@ -218,7 +218,7 @@ export class AuthService {
         challengeId: ch.id,
         argon: false,
         // review cổng lần 2 (TB-3): bước 2FA đếm theo TÀI KHOẢN, không theo nguồn (xoay mạng không mở thêm lượt dò TOTP)
-        scope: { source: MFA_SOURCE, trusted: (await this.attempts.loginSource(user.id)).trusted },
+        scope: await this.attempts.mfaScope(user.id),
         failResult: 'BAD_TOTP',
       },
       async () => {
@@ -233,8 +233,9 @@ export class AuthService {
       },
       async () => {
         await this.consumeChallenge(ch.id);
+        // thứ tự khóa: auth_lockouts trước users (như nhánh sai) — tránh 40P01 với lần thử song song (review cổng lần 3)
+        await this.attempts.clearFailures(user.id, true, await this.attempts.mfaScope(user.id));
         await this.useTotpStep(user.id, step ?? -1);
-        await this.attempts.clearFailures(user.id, true);
         const pair = await this.createSession(user, ['pwd', 'otp']);
         await this.maybeNewDevice(user.id, pair.session_id);
         await this.attempts.log(user.id, 'SUCCESS', null); // bước cuối trước commit (ghi lỗi ⇒ không ra phiên)
@@ -255,7 +256,7 @@ export class AuthService {
         challengeId: ch.id,
         argon: true,
         // review cổng lần 2 (TB-3): bước 2FA đếm theo TÀI KHOẢN, không theo nguồn (xoay mạng không mở thêm lượt dò TOTP)
-        scope: { source: MFA_SOURCE, trusted: (await this.attempts.loginSource(user.id)).trusted },
+        scope: await this.attempts.mfaScope(user.id),
         failResult: 'BAD_RECOVERY',
       },
       async () => {

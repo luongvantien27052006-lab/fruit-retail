@@ -442,6 +442,32 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     expect([v6.status, v6.body.code]).toEqual([403, 'ACCOUNT_LOCKED']);
   });
 
+  it('review cổng lần 3 (TB-1) — nguồn mfa đang khóa (kẻ lộ mật khẩu) mà trình duyệt quen vẫn qua bước 2FA', async () => {
+    const dev = `dev-${randomBytes(8).toString('hex')}`;
+    const m = await enrolledMaster(dev);
+    // kẻ có mật khẩu (trình duyệt lạ) nhập sai mã 2FA 5 lần ⇒ khóa nguồn mfa
+    for (let i = 0; i < 5; i++) {
+      const l = await http()
+        .post('/v1/auth/login')
+        .set('X-Forwarded-For', '203.0.113.66')
+        .send({ email: m.email, password: m.password });
+      await http()
+        .post('/v1/auth/2fa/verify')
+        .set('X-Forwarded-For', '203.0.113.66')
+        .set('Authorization', `Bearer ${l.body.mfa_challenge as string}`)
+        .send({ code: '000000' });
+    }
+    const [lk] = await rows(
+      `SELECT (locked_until > now()) IS TRUE AS locked FROM core.auth_lockouts WHERE user_id = $1 AND source = 'mfa'`,
+      [m.userId],
+    );
+    expect(lk?.locked).toBe(true);
+    // Master trên trình duyệt quen vẫn vào trọn vẹn
+    await forgetStep(m.userId);
+    const t = await fullLogin(m, dev);
+    expect(t.access_token).toBeTruthy();
+  });
+
   it('NC-25 — trình duyệt quen (X-Device-Id của phiên đã qua 2FA) không bị khóa toàn tài khoản; ngân sách 50 lần sai/ngày khóa người lạ', async () => {
     const dev = `dev-${randomBytes(8).toString('hex')}`;
     const m = await enrolledMaster(dev); // phiên đầu đã qua 2FA với X-Device-Id = dev

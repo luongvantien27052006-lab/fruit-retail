@@ -34,7 +34,9 @@ export class ViewerDb implements OnModuleDestroy {
     let c: PoolClient;
     try {
       c = await this.pool.connect();
-    } catch {
+    } catch (e) {
+      const err = e as { code?: unknown; name?: string };
+      this.log.error(`Pool viewer_ro lỗi kết nối: ${err?.name ?? 'Error'}${err?.code ? ` (${String(err.code)})` : ''}`);
       throw new AppError('DEPENDENCY_UNAVAILABLE', 'Không kết nối được dữ liệu báo cáo');
     }
     let broken = false;

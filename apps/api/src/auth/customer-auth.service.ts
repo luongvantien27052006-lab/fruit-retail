@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { TransactionHost } from '@nestjs-cls/transactional';
 import { ClsService } from 'nestjs-cls';
 import { randomInt, timingSafeEqual } from 'node:crypto';
@@ -75,6 +75,7 @@ export const phoneAad = (userId: string) => `users:phone_enc:${userId}`;
  */
 @Injectable()
 export class CustomerAuthService {
+  private readonly log = new Logger('CustomerAuth');
   constructor(
     @Inject(TransactionHost) private readonly txHost: Tx,
     @Inject(OTP_PROVIDER) private readonly provider: OtpProvider | null,
@@ -133,7 +134,10 @@ export class CustomerAuthService {
     });
     try {
       await this.provider.send(phone, code);
-    } catch {
+    } catch (e) {
+      // review cổng CP03: giữ nguyên nhân để vận hành (chỉ loại/mã lỗi — không SĐT, không mã OTP)
+      const err = e as { name?: string; code?: unknown };
+      this.log.error(`Nhà cung cấp OTP lỗi: ${err?.name ?? 'Error'}${err?.code ? ` (${String(err.code)})` : ''}`);
       throw new AppError('DEPENDENCY_UNAVAILABLE', 'Không gửi được mã xác minh — thử lại sau');
     }
     await this.attempts.log(null, 'OTP_SENT', ph);

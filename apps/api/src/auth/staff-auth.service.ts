@@ -82,8 +82,11 @@ export class StaffAuthService {
     } catch (e) {
       // L1: thu hồi thiết bị commit giữa bước kiểm chữ ký và tạo phiên ⇒ trigger sessions_guard (23514)
       if (findSqlState(e) === '23514') {
-        await this.attempts.log(staff.userId, 'DEVICE_REVOKED', identifierHash);
-        throw new AppError('DEVICE_REVOKED', 'Thiết bị vừa bị thu hồi');
+        const now = await this.tx.posDevice.findUnique({ where: { id: device.id }, select: { status: true } });
+        if (now?.status !== 'ACTIVE') {
+          await this.attempts.log(staff.userId, 'DEVICE_REVOKED', identifierHash);
+          throw new AppError('DEVICE_REVOKED', 'Thiết bị vừa bị thu hồi');
+        }
       }
       throw e;
     }

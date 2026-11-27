@@ -97,7 +97,8 @@ export class PrincipalResolver implements PrincipalResolverPort {
     ]);
     if (s.userType === 'STAFF' && roles.length === 0)
       throw new AppError('SESSION_REVOKED', 'Không còn vai trò tại cửa hàng của thiết bị — đăng nhập lại');
-    const roleList = [...new Set(roles.map((r) => r.role))];
+    // sắp xếp ⇒ audit.logs.role ổn định giữa các request của tài khoản nhiều vai trò (review cổng CP03)
+    const roleList = [...new Set(roles.map((r) => r.role))].sort();
     const fromRoles = roleList.length
       ? await tx.rolePermission.findMany({ where: { role: { in: roleList } }, select: { permissionCode: true } })
       : [];

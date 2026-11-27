@@ -69,7 +69,11 @@ async function call(req: NextRequest, path: string, init: CallInit): Promise<{ s
   }
 }
 
-const SECRET_KEYS = new Set(['access_token', 'refresh_token', 'mfa_challenge']);
+/**
+ * Bỏ khỏi body trả trình duyệt: token, và `client_device` (= giá trị cookie HttpOnly `__Host-fa_dev` — không đưa ra JS;
+ * review cổng CP03 lần 2).
+ */
+const SECRET_KEYS = new Set(['access_token', 'refresh_token', 'mfa_challenge', 'client_device']);
 
 /** Bỏ khóa token ở MỌI cấp (kể cả lồng trong mảng/đối tượng) — không bao giờ đưa token cho trình duyệt. */
 function scrub(v: unknown, depth = 0): unknown {

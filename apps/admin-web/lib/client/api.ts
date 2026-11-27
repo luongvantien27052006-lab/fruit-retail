@@ -111,10 +111,8 @@ export function errorText(e: unknown): string {
   if (!(e instanceof ApiFailure)) return 'Không kết nối được — thử lại';
   const d = e.error.details as { field?: unknown; issues?: { path?: unknown }[] } | undefined;
   if (e.error.code === 'INVALID_REQUEST' && d) {
-    const fields = [
-      ...(typeof d.field === 'string' ? [d.field] : []),
-      ...(Array.isArray(d.issues) ? d.issues.map((i) => String(i.path ?? '')) : []),
-    ]
+    // details.field đi kèm thông điệp đã cụ thể (vd "Mật khẩu mới phải khác…") ⇒ chỉ nối tên trường cho câu chung (issues)
+    const fields = (Array.isArray(d.issues) ? d.issues.map((i) => String(i.path ?? '')) : [])
       .map((f) => f.split('.').pop() ?? f)
       .filter((f, i, a) => f && a.indexOf(f) === i);
     if (fields.length) return `${e.error.message}: ${fields.map((f) => FIELD_VI[f] ?? f).join(', ')}`;

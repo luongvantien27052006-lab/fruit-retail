@@ -141,6 +141,7 @@ paths:
       x-detail-cp: CP03
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/ClientDeviceId'
       requestBody:
         required: true
         content:
@@ -180,6 +181,7 @@ paths:
       x-detail-cp: CP03
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/ClientDeviceId'
       requestBody:
         required: true
         content:
@@ -220,6 +222,7 @@ paths:
       x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/ClientDeviceId'
       requestBody:
         required: true
         content:
@@ -8526,6 +8529,16 @@ components:
       required: false
       schema:
         type: string
+    ClientDeviceId:
+      name: X-Device-Id
+      in: header
+      required: false
+      description: >-
+        Định danh trình duyệt / app (không phải thiết bị POS): admin-web gửi cookie `__Host-fa_dev` (ngẫu nhiên, base64url 32 ký
+        tự). Ghi vào `sessions.client_device`; dùng nhận ra đăng nhập từ thiết bị đã thấy (không phát `auth.new_device_login`).
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9._:-]{8,128}$'
     DeviceId:
       name: X-Device-Id
       in: header
@@ -8867,6 +8880,7 @@ components:
           format: date-time
         client_device:
           type: [string, 'null']
+          description: X-Device-Id lúc tạo phiên (định danh trình duyệt / app khách); admin-web không đưa giá trị này ra trình duyệt
         user_agent:
           type: [string, 'null']
         amr:

@@ -83,7 +83,7 @@ export default function SessionsPage() {
             <tbody>
               {items.map((s) => (
                 <tr key={s.id}>
-                  <td className="muted wrap">{s.client_device ?? s.user_agent ?? '—'}</td>
+                  <td className="muted wrap">{s.user_agent ?? '—'}</td>
                   <td>{dt(s.created_at)}</td>
                   <td>{dt(s.last_used_at)}</td>
                   <td>

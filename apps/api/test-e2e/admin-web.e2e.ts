@@ -403,6 +403,10 @@ describe('trang quản lý qua BFF (CP03 lát 8b)', () => {
       userId,
     ]);
     expect(s?.client_device).toBe(dev?.value);
+    // giá trị cookie HttpOnly không đi ra JS qua JSON của BFF
+    const body = await page.evaluate(async () => (await fetch('/bff/api/auth/sessions')).text());
+    expect(body).not.toContain(dev?.value ?? '__none__');
+    expect(body).not.toContain('client_device');
     // Master khác thu hồi phiên (giả lập ở DB) ⇒ thao tác tiếp theo đưa về /login, cookie bị xóa
     await db.q(
       `UPDATE core.sessions SET revoked_at = now(), revoke_reason = 'TEST' WHERE user_id = $1 AND revoked_at IS NULL`,

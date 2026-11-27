@@ -40,7 +40,7 @@ Tiến cần nạp danh mục thật (≥ 20 SKU, cổng CP04) và danh bạ NCC
    workbook .xlsx thường; đích External chỉ cho hyperlink. Các phần này phải ở dạng Excel tự tạo — có thực thể (`&…;`), nháy
    đơn, tiền tố namespace, `<!…`, số thẻ thô khác số thẻ đọc được, hoặc > 1 MB ⇒ từ chối (không đoán); chỉ nhận 5 thực thể có sẵn (`&amp;` trong URL hyperlink…), nháy đơn được TRONG giá trị nháy
    kép. Hai mục zip trùng tên (không phân biệt hoa thường), `.RELS` / `[content_types].xml` sai hoa thường, mục trong `_rels/` không
-   phải `.rels` ⇒ từ chối. exceljs đọc (saxes không nhận
+   phải `.rels` ⇒ từ chối. Các phần này phải là UTF-8 hợp lệ (BOM UTF-16, byte NUL, khai encoding khác ⇒ từ chối). exceljs đọc (saxes không nhận
    DOCTYPE ⇒ chặn XXE / billion laughs); **ô công thức ở bất kỳ sheet nào ⇒ từ chối cả file**; sheet đầu bị ẩn ⇒ từ chối.
    ≤ 5.000 dòng, ≤ 60 cột, ô ≤ 2.000 ký tự. Từ chối ⇒ FAILED + `report.reason`.
 6b. **Đọc ô:** cột vắng = trống; ô kiểu SỐ phải là số nguyên an toàn (45000.5 / số > 2^53 ⇒ lỗi dòng — không tự bỏ dấu

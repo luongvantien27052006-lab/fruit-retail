@@ -661,6 +661,27 @@ describe('Nhập / xuất Excel (CP04 lát 5)', () => {
       },
     ]);
     expect(await reason(dup)).toBe('ACTIVE_CONTENT');
+    // .rels UTF-16 (BOM FF FE) mang oleObject, không có & ⇒ chặn (N6); khai encoding khác UTF-8 ⇒ chặn
+    const u16 = Buffer.concat([
+      Buffer.from([0xff, 0xfe]),
+      Buffer.from(ole.replace('version="1.0"', 'version="1.0" encoding="UTF-16"'), 'utf16le'),
+    ]);
+    expect(await reason(pkg('', [{ name: 'xl/theme/_rels/theme1.xml.rels', data: u16 }]))).toBe('ACTIVE_CONTENT');
+    expect(
+      await reason(
+        pkg('', [
+          {
+            name: 'xl/theme/_rels/theme1.xml.rels',
+            data: Buffer.from(ole.replace('version="1.0"', 'version="1.0" encoding="ISO-8859-1"')),
+          },
+        ]),
+      ),
+    ).toBe('ACTIVE_CONTENT');
+    // ='…' TRONG giá trị nháy kép (URL hyperlink) không bị chặn nhầm
+    const wb2 = new ExcelJS.Workbook();
+    const ws2 = wb2.addWorksheet('a');
+    ws2.getCell('A1').value = { text: 'q', hyperlink: "https://example.com/?q='x'" };
+    expect(await reason(Buffer.from(await wb2.xlsx.writeBuffer()))).toBe('OK');
   }, 60_000);
 
   it('chia lô: nhiều lô dùng chung danh mục mới; chạy thử không ghi; lỗi hệ thống ở lô 2 ⇒ FAILED + báo cáo lô 1', async () => {

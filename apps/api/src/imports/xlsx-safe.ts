@@ -132,11 +132,30 @@ const tags = (xml: string, name: string) => [...xml.matchAll(tagRe(name))].map((
  * Chỉ đọc phần quan hệ / loại nội dung khi viết ở dạng "chuẩn" Excel tạo: không thực thể (&…;), không nháy đơn, không
  * tiền tố namespace, số thẻ thô = số thẻ đọc được. Khác ⇒ từ chối (không đoán).
  */
+/**
+ * Phần quan hệ / loại nội dung phải là UTF-8 hợp lệ (review bảo mật lát 5 vòng 4 N6): BOM UTF-16, byte NUL, khai encoding
+ * khác UTF-8, hoặc UTF-8 sai ⇒ từ chối (UTF-16 giải như UTF-8 sẽ không khớp thẻ nào ⇒ trước đây lọt bộ lọc).
+ */
+function utf8Part(buf: Buffer): string {
+  const bad = () => new XlsxRejected('ACTIVE_CONTENT', 'Cấu trúc file Excel bất thường');
+  if (buf.length >= 2 && ((buf[0] === 0xff && buf[1] === 0xfe) || (buf[0] === 0xfe && buf[1] === 0xff))) throw bad();
+  if (buf.includes(0)) throw bad();
+  let s: string;
+  try {
+    s = new TextDecoder('utf-8', { fatal: true }).decode(buf);
+  } catch {
+    throw bad();
+  }
+  const enc = /^\s*<\?xml[^>]*\bencoding\s*=\s*["']([^"']+)["']/i.exec(s)?.[1];
+  if (enc && !/^utf-?8$/i.test(enc)) throw bad();
+  return s;
+}
+
 function assertPlain(xml: string, names: string[]): void {
   // chỉ 5 thực thể có sẵn (không &#…; / thực thể tự đặt); không thuộc tính nháy đơn (nháy đơn TRONG giá trị nháy kép được)
   if (
     /&(?!(amp|lt|gt|quot|apos);)/.test(xml) ||
-    /=\s*'/.test(xml) ||
+    /\s[\w:]+\s*=\s*'/.test(xml) ||
     /<\/?[A-Za-z_][\w.-]*:/.test(xml) ||
     /<!/.test(xml)
   )
@@ -265,8 +284,8 @@ export async function inspectXlsx(buf: Buffer): Promise<void> {
               s.on('end', () => ok());
             });
           });
-          if (keep && name === '[Content_Types].xml') contentTypes = Buffer.concat(chunks).toString('utf8');
-          else if (keep) rels.set(name, Buffer.concat(chunks).toString('utf8'));
+          if (keep && name === '[Content_Types].xml') contentTypes = utf8Part(Buffer.concat(chunks));
+          else if (keep) rels.set(name, utf8Part(Buffer.concat(chunks)));
           zip.readEntry();
         })().catch(reject);
       });

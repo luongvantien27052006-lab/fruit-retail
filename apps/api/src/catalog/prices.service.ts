@@ -184,6 +184,9 @@ export class PricesService {
   private async effectiveTx(skuId: string, q: { store_id?: string; sku_unit_id?: string; at?: string }) {
     const s = await this.tx.sku.findUnique({ where: { id: skuId }, select: { saleUnitType: true } });
     if (!s) throw notFound();
+    // nhân viên trên máy POS: mặc định cửa hàng của thiết bị (quên store_id không được ra giá chung — review bảo mật G8)
+    const pos = this.cls.get('principal')?.posStoreId;
+    if (!q.store_id && pos) q = { ...q, store_id: pos };
     if (q.store_id) {
       // cửa hàng ngoài phạm vi / không tồn tại ⇒ 404 (không lộ giá riêng cửa hàng khác — ADR-024)
       await this.scope.assertStore('price:read', q.store_id);

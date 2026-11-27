@@ -365,22 +365,27 @@ describe('API giá (CP04 lát 3)', () => {
       price: '24000',
     });
     expect(err(await sm.get(`/admin/prices/${s.id}/effective?store_id=${other}`))).toEqual([404, 'RESOURCE_NOT_FOUND']);
-    expect((await sm.get(`/admin/prices/${s.id}/effective`)).body).toMatchObject({ source: 'GLOBAL', price: '25000' });
+    // máy POS không gửi store_id ⇒ mặc định cửa hàng của thiết bị (không ra nhầm giá chung)
+    expect((await sm.get(`/admin/prices/${s.id}/effective`)).body).toMatchObject({ source: 'STORE', price: '24000' });
     expect((await sm.get(`/admin/prices/${s.id}/history`)).status).toBe(403);
     expect((await sm.put(`/admin/prices/${s.id}`, { version: 1, reason: 'x', global: '1' })).status).toBe(403);
     // Master thấy mọi cửa hàng
     expect((await e.master.get(`/admin/prices/${s.id}`)).body.stores).toHaveLength(2);
     expect((await e.http().get(`/v1/admin/prices/${s.id}`)).status).toBe(401);
-    // lý do có ký tự điều khiển (NUL) ⇒ 400, không 500
+    // lý do có ký tự điều khiển (NUL ⇒ 400 không 500), đảo chiều chữ, ngắt dòng Unicode, C1 ⇒ 400
+    for (const code of [0x00, 0x202e, 0x2066, 0x2028, 0x85])
+      expect(
+        err(
+          await e.master.put(`/admin/prices/${s.id}`, {
+            version: 1,
+            reason: `a${String.fromCharCode(code)}b`,
+            global: '26000',
+          }),
+        ),
+      ).toEqual([400, 'INVALID_REQUEST']);
     expect(
-      err(
-        await e.master.put(`/admin/prices/${s.id}`, {
-          version: 1,
-          reason: `a${String.fromCharCode(0)}b`,
-          global: '26000',
-        }),
-      ),
-    ).toEqual([400, 'INVALID_REQUEST']);
+      (await e.master.put(`/admin/prices/${s.id}`, { version: 1, reason: 'Dòng 1\nDòng 2', global: '26000' })).status,
+    ).toBe(200);
   });
 
   it('lịch sử: phân trang không mất bản ghi khi nhiều mốc cùng mili-giây; lọc theo cửa hàng / loại giá; biên at = changed_at', async () => {
@@ -421,6 +426,12 @@ describe('API giá (CP04 lát 3)', () => {
       400,
       'INVALID_REQUEST',
     ]);
+    // năm 0 (PostgreSQL không có) / trước 2000 / ngày không tồn tại ⇒ 400, không 500
+    for (const bad of ['0000-01-01T00:00:00Z', '1999-12-31T23:59:59Z', '2026-02-30T00:00:00Z'])
+      expect(err(await e.master.get(`/admin/prices/${s.id}/effective?at=${encodeURIComponent(bad)}`))).toEqual([
+        400,
+        'INVALID_REQUEST',
+      ]);
   });
 
   it('ưu tiên đơn vị → cửa hàng → chung; giá đơn vị hàng đếm; giá 0 / âm ở cửa hàng, đơn vị ⇒ 422; null = không đặt', async () => {

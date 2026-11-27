@@ -9,10 +9,17 @@ const vnd = z
   .string()
   .regex(/^-?[0-9]{1,18}$/, 'tiền: chuỗi số nguyên đồng')
   .transform((v) => BigInt(v));
-/** ký tự điều khiển trừ tab / xuống dòng */
+/** ký tự điều khiển (C0 trừ tab / xuống dòng, DEL, C1), ký tự đảo chiều chữ, ngắt dòng/đoạn Unicode */
 const isControl = (c: string) => {
   const n = c.charCodeAt(0);
-  return (n < 32 && n !== 9 && n !== 10 && n !== 13) || n === 127;
+  return (
+    (n < 32 && n !== 9 && n !== 10 && n !== 13) ||
+    (n >= 0x7f && n <= 0x9f) || // DEL + C1
+    (n >= 0x202a && n <= 0x202e) || // điều khiển chiều chữ (bidi) — review bảo mật G7
+    (n >= 0x2066 && n <= 0x2069) ||
+    n === 0x2028 ||
+    n === 0x2029
+  );
 };
 /** chữ tự do: cấm ký tự điều khiển (NUL ⇒ PostgreSQL lỗi 500 — review bảo mật lát 3 G1) */
 const reason = z
@@ -71,7 +78,11 @@ const Effective = z
   .object({
     store_id: uuid.optional(),
     sku_unit_id: uuid.optional(),
-    at: z.iso.datetime({ offset: true }).optional(),
+    // năm 2000–9999: PostgreSQL không có năm 0 (22008 ⇒ 500 — review TS lát 3 vòng 2)
+    at: z.iso
+      .datetime({ offset: true })
+      .refine((v) => /^[2-9]\d{3}-/.test(v), 'năm từ 2000 đến 9999')
+      .optional(),
   })
   .strict();
 

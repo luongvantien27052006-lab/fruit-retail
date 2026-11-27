@@ -72,6 +72,7 @@ describe('0001_foundation', () => {
       'prisma/0006_files_final_key',
       'prisma/0007_password_change',
       'prisma/0008_auth_lockouts',
+      'prisma/0009_catalog',
     ]);
     await expect(
       applySqlMigrations({ url: ownerUrl, dir: SQL_DIR, prismaDir: PRISMA_DIR, env: passwords, log: () => undefined }),
@@ -419,7 +420,7 @@ describe('0001_foundation', () => {
     const cols = await q(
       `SELECT column_name FROM information_schema.columns
        WHERE table_schema = 'core' AND column_name ~ '(phone|address)' AND data_type <> 'bytea'
-         AND table_name NOT IN ('stores', 'warehouses')`, // địa chỉ cửa hàng/kho là thông tin công khai
+         AND table_name NOT IN ('stores', 'warehouses', 'brand_settings')`, // địa chỉ cửa hàng/kho/thương hiệu: công khai
     );
     expect(cols).toEqual([]); // không có cột SĐT/địa chỉ dạng rõ (ADR-015)
   });

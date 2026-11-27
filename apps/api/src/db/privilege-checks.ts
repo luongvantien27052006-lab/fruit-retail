@@ -28,7 +28,9 @@ export async function checkAppendOnlyPrivileges(client: Client): Promise<Privile
      FROM t
      CROSS JOIN unnest($1::text[]) AS r(role)
      CROSS JOIN unnest(ARRAY['UPDATE', 'DELETE', 'TRUNCATE']) AS pr(privilege)
-     WHERE has_table_privilege(r.role, t.tbl, pr.privilege)
+     -- UPDATE: cả quyền theo cột (has_table_privilege không thấy GRANT UPDATE (cột) — review CP04 lát 1)
+     WHERE CASE WHEN pr.privilege = 'UPDATE' THEN has_any_column_privilege(r.role, t.tbl, 'UPDATE')
+                ELSE has_table_privilege(r.role, t.tbl, pr.privilege) END
      ORDER BY 1, 2, 3`,
     [APP_ROLES],
   );

@@ -61,6 +61,127 @@ enum StoreStatus {
   @@schema("core")
 }
 
+enum StorePosStatus {
+  OPEN
+  CLOSED
+
+  @@schema("core")
+}
+
+enum StoreAppStatus {
+  ONLINE
+  PAUSED
+
+  @@schema("core")
+}
+
+enum LocationType {
+  STORAGE // kho chung
+  COLD_ROOM // kho lạnh
+  SHELF // kệ
+  CHILLER // tủ mát
+  RIPENING // khu chín
+  IN_TRANSIT // đang vận chuyển (một vị trí mỗi kho/cửa hàng)
+
+  @@schema("core")
+}
+
+/// Kiểu bán §4.2
+enum SaleUnitType {
+  WEIGHT
+  PIECE_BY_WEIGHT
+  PIECE_FIXED
+  PACK_FIXED
+  PACK_VARIABLE
+  BUNDLE
+  SERVICE
+
+  @@schema("core")
+}
+
+/// Nhóm đơn vị §21.3.1 (chỉ để hiển thị/lọc; quy đổi nằm ở sku_units)
+enum UnitKind {
+  WEIGHT
+  COUNT
+
+  @@schema("core")
+}
+
+enum PriceScope {
+  GLOBAL
+  STORE
+
+  @@schema("core")
+}
+
+/// giá nào đổi: giá/kg, giá/đơn vị của SKU, hoặc giá của một đơn vị bán (sku_units)
+enum PriceField {
+  PER_KG
+  PER_UNIT
+  SKU_UNIT
+
+  @@schema("core")
+}
+
+/// §21.3.8
+enum BarcodeRuleType {
+  WEIGHT
+  PRICE
+  PRODUCT
+  BATCH
+  ORDER
+  STAFF
+
+  @@schema("core")
+}
+
+enum ImportType {
+  CATALOG
+  SUPPLIER
+
+  @@schema("core")
+}
+
+enum ImportDuplicateMode {
+  SKIP
+  UPDATE
+  STOP
+
+  @@schema("core")
+}
+
+enum ImportStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+
+  @@schema("core")
+}
+
+/// Phụ lục D
+enum ReasonGroup {
+  SPOILAGE
+  POS_LINE_DELETE
+  APP_ORDER_CANCEL
+  DELIVERY_FAILED
+  STOCKTAKE_VARIANCE
+  MANUAL_WEIGHT
+
+  @@schema("core")
+}
+
+/// §4.5
+enum SupplierType {
+  FARM // vườn
+  COOPERATIVE // HTX
+  WHOLESALER // đầu mối
+  IMPORTER // nhà nhập khẩu
+  OTHER
+
+  @@schema("core")
+}
+
 enum PosDeviceStatus {
   PENDING
   ACTIVE
@@ -99,33 +220,48 @@ enum FileStatus {
   @@schema("core")
 }
 
-// ───────────────────────────── Tổ chức (M03 tối thiểu; CP04 mở rộng) ─────────────────────────────
+// ───────────────────────────── Tổ chức (M03 — CP04 mở rộng §4.6) ─────────────────────────────
 
 model Store {
-  id              String               @id @db.Uuid
-  code            String               @unique
-  name            String
-  address         String?
-  status          StoreStatus          @default(ACTIVE)
-  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  archivedAt      DateTime?            @map("archived_at") @db.Timestamptz(6)
-  registers       Register[]
-  posDevices      PosDevice[]
-  enrollmentCodes PosEnrollmentCode[]
-  viewerScope     ViewerProfileScope[]
+  id                 String               @id @db.Uuid
+  code               String               @unique
+  name               String
+  address            String?
+  status             StoreStatus          @default(ACTIVE)
+  /// tọa độ WGS84 (đi cặp, CHECK phạm vi) — vùng giao dùng PostGIS ở M13
+  lat                Float?
+  lng                Float?
+  /// giờ mở cửa theo thứ: {"mon":[["07:00","21:00"]], …} (API kiểm cấu trúc; DB chỉ kiểm là object)
+  openingHours       Json?                @map("opening_hours")
+  /// bán tại quầy (§4.6)
+  posStatus          StorePosStatus       @default(CLOSED) @map("pos_status")
+  /// nhận đơn app (§4.6) — mặc định tạm dừng tới khi Master bật
+  appStatus          StoreAppStatus       @default(PAUSED) @map("app_status")
+  appCapacityPerHour Int?                 @map("app_capacity_per_hour")
+  createdAt          DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt         DateTime?            @map("archived_at") @db.Timestamptz(6)
+  registers          Register[]
+  posDevices         PosDevice[]
+  enrollmentCodes    PosEnrollmentCode[]
+  viewerScope        ViewerProfileScope[]
+  locations          Location[]
+  storePrices        StorePrice[]
+  priceChanges       PriceChangeLog[]
+  defaultLocations   SkuDefaultLocation[]
 
   @@map("stores")
   @@schema("core")
 }
 
 model Warehouse {
-  id         String    @id @db.Uuid
-  code       String    @unique
+  id         String     @id @db.Uuid
+  code       String     @unique
   name       String
   address    String?
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  archivedAt DateTime? @map("archived_at") @db.Timestamptz(6)
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  archivedAt DateTime?  @map("archived_at") @db.Timestamptz(6)
+  locations  Location[]
 
   @@map("warehouses")
   @@schema("core")
@@ -135,13 +271,357 @@ model Register {
   id         String      @id @db.Uuid
   storeId    String      @map("store_id") @db.Uuid
   code       String
+  name       String?
   createdAt  DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  archivedAt DateTime?   @map("archived_at") @db.Timestamptz(6)
   store      Store       @relation(fields: [storeId], references: [id])
   posDevices PosDevice[]
 
   @@unique([storeId, code])
   @@unique([id, storeId])
   @@map("registers")
+  @@schema("core")
+}
+
+/// Vị trí trong kho / cửa hàng (§4.6); thuộc đúng MỘT nơi (CHECK); `sort` = thứ tự lộ trình nhặt hàng (§21.3.19)
+model Location {
+  id          String               @id @db.Uuid
+  storeId     String?              @map("store_id") @db.Uuid
+  warehouseId String?              @map("warehouse_id") @db.Uuid
+  type        LocationType
+  code        String
+  name        String
+  sort        Int                  @default(0)
+  createdAt   DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  archivedAt  DateTime?            @map("archived_at") @db.Timestamptz(6)
+  store       Store?               @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  warehouse   Warehouse?           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  skuDefaults SkuDefaultLocation[]
+
+  @@unique([storeId, code])
+  @@unique([warehouseId, code])
+  @@unique([id, storeId])
+  @@map("locations")
+  @@schema("core")
+}
+
+// ───────────────────────────── Danh mục (M04, CP04) ─────────────────────────────
+
+/// Đơn vị tính §21.3.1 (mã cố định, seed); quy đổi theo từng SKU ở sku_units
+model Unit {
+  code       String    @id
+  name       String
+  kind       UnitKind
+  /// đơn vị khối lượng chuẩn: số gram cố định (KG = 1000) — sku_units dùng đơn vị này phải có factor_g đúng bằng
+  fixedG     Int?      @map("fixed_g")
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(6)
+  skuUnits   SkuUnit[]
+
+  @@map("units")
+  @@schema("core")
+}
+
+/// Cây danh mục (§4.1); không xóa — lưu trữ bằng archived_at
+model Category {
+  id         String     @id @db.Uuid
+  parentId   String?    @map("parent_id") @db.Uuid
+  name       String
+  sort       Int        @default(0)
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt DateTime?  @map("archived_at") @db.Timestamptz(6)
+  parent     Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children   Category[] @relation("CategoryTree")
+  products   Product[]
+
+  @@index([parentId])
+  @@map("categories")
+  @@schema("core")
+}
+
+model Product {
+  id          String    @id @db.Uuid
+  categoryId  String    @map("category_id") @db.Uuid
+  name        String
+  description String?
+  origin      String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt  DateTime? @map("archived_at") @db.Timestamptz(6)
+  category    Category  @relation(fields: [categoryId], references: [id])
+  skus        Sku[]
+
+  @@index([categoryId])
+  @@map("products")
+  @@schema("core")
+}
+
+/// SKU §4.3. Kiểu bán bất biến (không GRANT UPDATE) — đổi kiểu bán = SKU mới. Tiền BIGINT đồng; gram INTEGER.
+/// Mã vạch nằm ở sku_units (một chỗ, unique toàn cục). Giá lẻ chung ở đây; theo cửa hàng ở store_prices.
+model Sku {
+  id                      String               @id @db.Uuid
+  productId               String               @map("product_id") @db.Uuid
+  skuCode                 String               @unique @map("sku_code")
+  name                    String
+  saleUnitType            SaleUnitType         @map("sale_unit_type")
+  stdWeightG              Int?                 @map("std_weight_g")
+  weightMinG              Int?                 @map("weight_min_g")
+  weightMaxG              Int?                 @map("weight_max_g")
+  tareG                   Int?                 @map("tare_g")
+  retailPricePerKg        BigInt?              @map("retail_price_per_kg")
+  retailPricePerUnit      BigInt?              @map("retail_price_per_unit")
+  /// PLU 5 số trên cân in tem; unique trong các SKU chưa lưu trữ
+  scalePlu                String?              @map("scale_plu")
+  /// "bán qua cân" — chỉ các SKU này vào file PLU (§21.3.17)
+  soldByScale             Boolean              @default(false) @map("sold_by_scale")
+  shelfLifeDays           Int?                 @map("shelf_life_days")
+  storageNote             String?              @map("storage_note")
+  hasRipeness             Boolean              @default(false) @map("has_ripeness")
+  /// định mức hao hụt/tuần, phần vạn (ADR-016: *_pct → *_bps)
+  shrinkNormBpsWeek       Int?                 @map("shrink_norm_bps_week")
+  isHighValue             Boolean              @default(false) @map("is_high_value")
+  coldRequired            Boolean              @default(false) @map("cold_required")
+  /// §21.3.7 — số ngày trước hạn: cảnh báo / ngừng bán trên app
+  alertDaysBeforeExpiry   Int?                 @map("alert_days_before_expiry")
+  stopAppDaysBeforeExpiry Int?                 @map("stop_app_days_before_expiry")
+  createdAt               DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt              DateTime?            @map("archived_at") @db.Timestamptz(6)
+  version                 Int                  @default(0)
+  product                 Product              @relation(fields: [productId], references: [id])
+  units                   SkuUnit[]
+  storePrices             StorePrice[]
+  priceChanges            PriceChangeLog[]
+  defaultLocations        SkuDefaultLocation[]
+  suppliers               SupplierSku[]
+
+  @@index([productId])
+  @@map("skus")
+  @@schema("core")
+}
+
+/// Đơn vị bán/mua dùng chung tồn (§21.3.1). Đúng một cách quy đổi: factor_g (tồn gram) | factor_units (tồn đếm) |
+/// is_variable (thùng/sọt danh nghĩa — cân thực khi nhận, chỉ để mua). Khớp kiểu bán của SKU kiểm bằng trigger.
+model SkuUnit {
+  id           String           @id @db.Uuid
+  skuId        String           @map("sku_id") @db.Uuid
+  unitCode     String           @map("unit_code")
+  /// nhãn hiển thị, vd. "Hộp 500 g", "Thùng ~5 kg"
+  name         String
+  factorG      Int?             @map("factor_g")
+  factorUnits  Int?             @map("factor_units")
+  isVariable   Boolean          @default(false) @map("is_variable")
+  forSale      Boolean          @default(false) @map("for_sale")
+  forPurchase  Boolean          @default(false) @map("for_purchase")
+  barcode      String?
+  pricePerUnit BigInt?          @map("price_per_unit")
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt   DateTime?        @map("archived_at") @db.Timestamptz(6)
+  sku          Sku              @relation(fields: [skuId], references: [id])
+  unit         Unit             @relation(fields: [unitCode], references: [code])
+  priceChanges PriceChangeLog[]
+
+  /// đích FK composite (sku_unit_id, sku_id) của các dòng bán/mua (ERD §6.1)
+  @@unique([id, skuId])
+  @@index([skuId])
+  @@map("sku_units")
+  @@schema("core")
+}
+
+/// Giá lẻ riêng theo cửa hàng (§4.4); không có dòng ⇒ dùng giá chung của SKU
+model StorePrice {
+  storeId            String   @map("store_id") @db.Uuid
+  skuId              String   @map("sku_id") @db.Uuid
+  retailPricePerKg   BigInt?  @map("retail_price_per_kg")
+  retailPricePerUnit BigInt?  @map("retail_price_per_unit")
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy          String   @map("updated_by") @db.Uuid
+  store              Store    @relation(fields: [storeId], references: [id])
+  sku                Sku      @relation(fields: [skuId], references: [id])
+  updater            User     @relation(fields: [updatedBy], references: [id])
+
+  @@id([storeId, skuId])
+  @@index([skuId])
+  @@map("store_prices")
+  @@schema("core")
+}
+
+/// Lịch sử giá (§4.4) — CHỈ THÊM (trigger raise_immutable); changed_at do server đặt. Là nguồn tra "giá hiệu lực tại
+/// thời điểm" (lát 3): bản ghi mới nhất có changed_at ≤ t. old/new NULL = chưa có giá / bỏ giá riêng cửa hàng.
+model PriceChangeLog {
+  id        String     @id @db.Uuid
+  skuId     String     @map("sku_id") @db.Uuid
+  skuUnitId String?    @map("sku_unit_id") @db.Uuid
+  storeId   String?    @map("store_id") @db.Uuid
+  scope     PriceScope
+  field     PriceField
+  oldValue  BigInt?    @map("old_value")
+  newValue  BigInt?    @map("new_value")
+  reason    String
+  changedBy String     @map("changed_by") @db.Uuid
+  changedAt DateTime   @default(now()) @map("changed_at") @db.Timestamptz(6)
+  sku       Sku        @relation(fields: [skuId], references: [id])
+  skuUnit   SkuUnit?   @relation(fields: [skuUnitId, skuId], references: [id, skuId], onDelete: Restrict)
+  store     Store?     @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  changer   User       @relation(fields: [changedBy], references: [id])
+
+  @@index([skuId, changedAt])
+  @@index([storeId, skuId, changedAt])
+  @@index([skuUnitId, skuId])
+  @@index([changedBy])
+  @@map("price_change_logs")
+  @@schema("core")
+}
+
+/// Vị trí mặc định của SKU ở cửa hàng (§21.3.19); vị trí phải thuộc đúng cửa hàng (FK composite)
+model SkuDefaultLocation {
+  storeId    String   @map("store_id") @db.Uuid
+  skuId      String   @map("sku_id") @db.Uuid
+  locationId String   @map("location_id") @db.Uuid
+  store      Store    @relation(fields: [storeId], references: [id])
+  sku        Sku      @relation(fields: [skuId], references: [id])
+  location   Location @relation(fields: [locationId, storeId], references: [id, storeId])
+
+  @@id([storeId, skuId])
+  @@index([skuId])
+  @@index([locationId, storeId])
+  @@map("sku_default_locations")
+  @@schema("core")
+}
+
+/// Quy tắc mã vạch (§21.3.8, §6.5) — Master cấu hình, POS tải về; thử theo priority tăng dần
+model BarcodeRule {
+  id            String          @id @db.Uuid
+  code          String          @unique
+  name          String
+  priority      Int             @unique
+  type          BarcodeRuleType
+  /// vd. `20{PLU:5}{W:5}{C}`
+  pattern       String
+  /// đơn vị phần nhúng: 1 (gram / đồng), 10 (10 g), 100 (100 đồng)
+  valueScale    Int             @default(1) @map("value_scale")
+  ean13Checksum Boolean         @default(true) @map("ean13_checksum")
+  enabled       Boolean         @default(false)
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("barcode_rules")
+  @@schema("core")
+}
+
+/// Lượt nhập Excel (§21.3.17) — file qua files (ADR-014); dry_run chỉ kiểm, không ghi danh mục. Lát 5 dùng.
+model ImportJob {
+  id              String              @id @db.Uuid
+  type            ImportType
+  fileId          String              @map("file_id") @db.Uuid
+  modeOnDuplicate ImportDuplicateMode @map("mode_on_duplicate")
+  dryRun          Boolean             @map("dry_run")
+  status          ImportStatus        @default(PENDING)
+  totalRows       Int?                @map("total_rows")
+  okRows          Int?                @map("ok_rows")
+  skippedRows     Int?                @map("skipped_rows")
+  errorRows       Int?                @map("error_rows")
+  /// lỗi/bỏ qua theo dòng (không chứa tiền tính toán — FR-INV-01 áp cho chứng từ)
+  report          Json?
+  error           String?
+  createdBy       String              @map("created_by") @db.Uuid
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  startedAt       DateTime?           @map("started_at") @db.Timestamptz(6)
+  finishedAt      DateTime?           @map("finished_at") @db.Timestamptz(6)
+  file            File                @relation(fields: [fileId], references: [id])
+  creator         User                @relation(fields: [createdBy], references: [id])
+
+  @@index([createdBy, createdAt])
+  @@index([fileId])
+  @@map("import_jobs")
+  @@schema("core")
+}
+
+/// Mã lý do (Phụ lục D) — seed; Master thêm/lưu trữ
+model ReasonCode {
+  group        ReasonGroup
+  code         String
+  name         String
+  requiresNote Boolean     @default(false) @map("requires_note")
+  sort         Int         @default(0)
+  archivedAt   DateTime?   @map("archived_at") @db.Timestamptz(6)
+
+  @@id([group, code])
+  @@map("reason_codes")
+  @@schema("core")
+}
+
+/// Loại thùng/sọt với bì chuẩn (§19.7) — dùng khi nhận hàng (CP05)
+model ContainerType {
+  id         String    @id @db.Uuid
+  code       String    @unique
+  name       String
+  tareG      Int       @map("tare_g")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(6)
+
+  @@map("container_types")
+  @@schema("core")
+}
+
+/// Thương hiệu (§18.5) — đúng một dòng (id = 1)
+model BrandSettings {
+  id              Int      @id @db.SmallInt
+  brandName       String   @map("brand_name")
+  hotline         String?
+  displayAddress  String?  @map("display_address")
+  receiptFooter   String?  @map("receipt_footer")
+  primaryColor    String?  @map("primary_color")
+  privacyUrl      String?  @map("privacy_url")
+  logoMonoFileId  String?  @map("logo_mono_file_id") @db.Uuid
+  logoColorFileId String?  @map("logo_color_file_id") @db.Uuid
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy       String?  @map("updated_by") @db.Uuid
+  logoMono        File?    @relation("BrandLogoMono", fields: [logoMonoFileId], references: [id], onDelete: Restrict)
+  logoColor       File?    @relation("BrandLogoColor", fields: [logoColorFileId], references: [id], onDelete: Restrict)
+  updater         User?    @relation(fields: [updatedBy], references: [id], onDelete: Restrict)
+
+  @@map("brand_settings")
+  @@schema("core")
+}
+
+/// Danh bạ NCC cơ bản (§4.5, NC-27). SĐT và số tài khoản mã hóa (ADR-015); công nợ/nhận hàng ở CP05
+model Supplier {
+  id               String        @id @db.Uuid
+  code             String        @unique
+  name             String
+  type             SupplierType
+  contactName      String?       @map("contact_name")
+  phoneEnc         Bytes?        @map("phone_enc")
+  phoneHash        Bytes?        @map("phone_hash")
+  bankName         String?       @map("bank_name")
+  /// số tài khoản + chủ tài khoản, mã hóa AES-256-GCM (ADR-015 `suppliers.bank_enc`)
+  bankEnc          Bytes?        @map("bank_enc")
+  paymentTermsDays Int?          @map("payment_terms_days")
+  note             String?
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt       DateTime?     @map("archived_at") @db.Timestamptz(6)
+  skus             SupplierSku[]
+
+  @@index([phoneHash])
+  @@map("suppliers")
+  @@schema("core")
+}
+
+/// SKU mà NCC cung cấp (§4.5); giá tham khảo gần nhất tính từ phiếu nhận (CP05)
+model SupplierSku {
+  supplierId      String   @map("supplier_id") @db.Uuid
+  skuId           String   @map("sku_id") @db.Uuid
+  supplierSkuCode String?  @map("supplier_sku_code")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  supplier        Supplier @relation(fields: [supplierId], references: [id])
+  sku             Sku      @relation(fields: [skuId], references: [id])
+
+  @@id([supplierId, skuId])
+  @@index([skuId])
+  @@map("supplier_skus")
   @@schema("core")
 }
 
@@ -187,6 +667,10 @@ model User {
   authChallenges     AuthChallenge[]
   enrollmentCodes    PosEnrollmentCode[]
   filesCreated       File[]
+  priceChanges       PriceChangeLog[]
+  storePriceUpdates  StorePrice[]
+  importJobs         ImportJob[]
+  brandUpdates       BrandSettings[]
 
   @@map("users")
   @@schema("core")
@@ -526,31 +1010,34 @@ model ViewerProfileScope {
 // ───────────────────────────── File (ADR-014) ─────────────────────────────
 
 model File {
-  id             String     @id @db.Uuid
-  kind           String
-  mime           String
-  ownerType      String?    @map("owner_type")
-  ownerId        String?    @map("owner_id") @db.Uuid
-  storageKey     String     @unique @map("storage_key")
+  id              String          @id @db.Uuid
+  kind            String
+  mime            String
+  ownerType       String?         @map("owner_type")
+  ownerId         String?         @map("owner_id") @db.Uuid
+  storageKey      String          @unique @map("storage_key")
   /// khóa object cuối của file READY (mỗi lần complete chép sang khóa riêng — ADR-025)
-  finalKey       String?    @map("final_key")
-  declaredBytes  Int        @map("declared_bytes")
-  declaredSha256 Bytes      @map("declared_sha256")
+  finalKey        String?         @map("final_key")
+  declaredBytes   Int             @map("declared_bytes")
+  declaredSha256  Bytes           @map("declared_sha256")
   /// do server tính lại sau khi tải object (ADR-014)
-  bytes          Int?
-  sha256         Bytes?
-  status         FileStatus @default(PENDING)
-  rejectReason   String?    @map("reject_reason")
-  duplicateOfId  String?    @map("duplicate_of_id") @db.Uuid
-  captureSource  String?    @map("capture_source")
-  capturedAt     DateTime?  @map("captured_at") @db.Timestamptz(6)
-  deviceId       String?    @map("device_id")
-  createdBy      String     @map("created_by") @db.Uuid
-  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  completedAt    DateTime?  @map("completed_at") @db.Timestamptz(6)
-  creator        User       @relation(fields: [createdBy], references: [id])
-  duplicateOf    File?      @relation("FileDuplicate", fields: [duplicateOfId], references: [id])
-  duplicates     File[]     @relation("FileDuplicate")
+  bytes           Int?
+  sha256          Bytes?
+  status          FileStatus      @default(PENDING)
+  rejectReason    String?         @map("reject_reason")
+  duplicateOfId   String?         @map("duplicate_of_id") @db.Uuid
+  captureSource   String?         @map("capture_source")
+  capturedAt      DateTime?       @map("captured_at") @db.Timestamptz(6)
+  deviceId        String?         @map("device_id")
+  createdBy       String          @map("created_by") @db.Uuid
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt     DateTime?       @map("completed_at") @db.Timestamptz(6)
+  creator         User            @relation(fields: [createdBy], references: [id])
+  duplicateOf     File?           @relation("FileDuplicate", fields: [duplicateOfId], references: [id])
+  duplicates      File[]          @relation("FileDuplicate")
+  importJobs      ImportJob[]
+  brandLogosMono  BrandSettings[] @relation("BrandLogoMono")
+  brandLogosColor BrandSettings[] @relation("BrandLogoColor")
 
   @@index([sha256])
   @@index([createdBy])

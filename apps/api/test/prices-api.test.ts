@@ -315,9 +315,15 @@ describe('API giá (CP04 lát 3)', () => {
     };
     expect(err(await e.master.put('/admin/prices', body))).toEqual([403, 'STEP_UP_REQUIRED']);
     const su = await e.masterStepUp();
-    const bad = await su.put('/admin/prices', { ...body, items: [body.items[0], { ...body.items[1], version: 9 }] });
+    // dòng lỗi là SKU có id LỚN hơn (xử lý sau) ⇒ chứng minh dòng đã ghi trước đó bị rollback
+    const [lo, hi] = [a.id, b.id].sort();
+    const bad = await su.put('/admin/prices', {
+      ...body,
+      items: body.items.map((i) => (i.sku_id === hi ? { ...i, version: 9 } : i)),
+    });
     expect(err(bad)).toEqual([409, 'VERSION_CONFLICT']);
-    expect((await logs(a.id)).length).toBe(0);
+    expect((await logs(lo ?? '')).length).toBe(0);
+    expect((await logs(hi ?? '')).length).toBe(0);
     expect(err(await su.put('/admin/prices', { ...body, items: [body.items[0], body.items[0]] }))).toEqual([
       400,
       'INVALID_REQUEST',
@@ -333,12 +339,143 @@ describe('API giá (CP04 lát 3)', () => {
     expect(au?.after).toMatchObject({ skus: 2, changes: 2 });
   });
 
-  it('quyền: cửa hàng trưởng xem giá (price:read), không đổi giá (price:write ⇒ 403)', async () => {
-    const s = await sku();
+  it('quyền + phạm vi: chỉ Master đổi giá / xem lịch sử; cửa hàng trưởng chỉ thấy giá riêng cửa hàng mình (ngoài ⇒ 404)', async () => {
+    const s = await sku({ sale_unit_type: 'PIECE_FIXED' });
     const sm = await e.storeManager();
-    expect((await sm.get(`/admin/prices/${s.id}`)).status).toBe(200);
-    expect((await sm.get(`/admin/prices/${s.id}/history`)).status).toBe(200);
-    expect((await sm.put(`/admin/prices/${s.id}`, { version: 0, reason: 'x', global: '1' })).status).toBe(403);
+    const other = await store();
+    const set = await e.master.put(`/admin/prices/${s.id}`, {
+      version: 0,
+      reason: 'Ghi chú nội bộ',
+      global: '25000',
+      stores: [
+        { store_id: sm.storeId.toUpperCase(), price: '24000' },
+        { store_id: other, price: '23000' },
+      ],
+    });
+    expect(set.status).toBe(200);
+    // UUID viết hoa được chuẩn hóa (không báo "cửa hàng không tồn tại")
+    expect(set.body.stores.map((x: { store_id: string }) => x.store_id).sort()).toEqual([sm.storeId, other].sort());
+    const cur = await sm.get(`/admin/prices/${s.id}`);
+    expect(cur.status).toBe(200);
+    expect(schemaErrors('SkuPrices', cur.body)).toEqual([]);
+    expect(cur.body.stores).toEqual([expect.objectContaining({ store_id: sm.storeId, price: '24000' })]);
+    expect(JSON.stringify(cur.body)).not.toContain(e.masterId);
+    expect((await sm.get(`/admin/prices/${s.id}/effective?store_id=${sm.storeId}`)).body).toMatchObject({
+      source: 'STORE',
+      price: '24000',
+    });
+    expect(err(await sm.get(`/admin/prices/${s.id}/effective?store_id=${other}`))).toEqual([404, 'RESOURCE_NOT_FOUND']);
+    expect((await sm.get(`/admin/prices/${s.id}/effective`)).body).toMatchObject({ source: 'GLOBAL', price: '25000' });
+    expect((await sm.get(`/admin/prices/${s.id}/history`)).status).toBe(403);
+    expect((await sm.put(`/admin/prices/${s.id}`, { version: 1, reason: 'x', global: '1' })).status).toBe(403);
+    // Master thấy mọi cửa hàng
+    expect((await e.master.get(`/admin/prices/${s.id}`)).body.stores).toHaveLength(2);
     expect((await e.http().get(`/v1/admin/prices/${s.id}`)).status).toBe(401);
+    // lý do có ký tự điều khiển (NUL) ⇒ 400, không 500
+    expect(
+      err(
+        await e.master.put(`/admin/prices/${s.id}`, {
+          version: 1,
+          reason: `a${String.fromCharCode(0)}b`,
+          global: '26000',
+        }),
+      ),
+    ).toEqual([400, 'INVALID_REQUEST']);
+  });
+
+  it('lịch sử: phân trang không mất bản ghi khi nhiều mốc cùng mili-giây; lọc theo cửa hàng / loại giá; biên at = changed_at', async () => {
+    const s = await sku({ sale_unit_type: 'PIECE_FIXED' });
+    const stores = await Promise.all(Array.from({ length: 30 }, () => store()));
+    const r = await e.master.put(`/admin/prices/${s.id}`, {
+      version: 0,
+      reason: 'Nạp giá',
+      global: '10000',
+      stores: stores.map((id, k) => ({ store_id: id, price: String(9000 + k) })),
+    });
+    expect(r.status).toBe(200);
+    const seen: string[] = [];
+    let before: string | null = null;
+    for (let page = 0; page < 20; page++) {
+      const h = await e.master.get(`/admin/prices/${s.id}/history?limit=3${before ? `&before=${before}` : ''}`);
+      expect(schemaErrors('PriceHistory', h.body)).toEqual([]);
+      seen.push(...h.body.items.map((x: { id: string }) => x.id));
+      before = h.body.next_before as string | null;
+      if (!before) break;
+    }
+    expect(seen).toHaveLength(31);
+    expect(new Set(seen).size).toBe(31);
+    // lọc
+    const one = await e.master.get(`/admin/prices/${s.id}/history?store_id=${stores[3] ?? ''}`);
+    expect(one.body.items.map((x: { new_value: string }) => x.new_value)).toEqual(['9003']);
+    const glob = await e.master.get(`/admin/prices/${s.id}/history?field=PER_UNIT&limit=500`);
+    expect(glob.body.items).toHaveLength(31);
+    expect((await e.master.get(`/admin/prices/${s.id}/history?field=SKU_UNIT`)).body.items).toEqual([]);
+    // biên: at đúng bằng changed_at (đủ micro-giây) ⇒ lần đổi đó đã có hiệu lực
+    const g = (await e.master.get(`/admin/prices/${s.id}/history?limit=500`)).body.items.find(
+      (x: { store_id: string | null }) => x.store_id === null,
+    ) as { changed_at: string };
+    expect(g.changed_at).toMatch(/\.\d{6}Z$/);
+    const eff = await e.master.get(`/admin/prices/${s.id}/effective?at=${encodeURIComponent(g.changed_at)}`);
+    expect(eff.body).toMatchObject({ source: 'GLOBAL', price: '10000', changed_at: g.changed_at });
+    expect(err(await e.master.get(`/admin/prices/${s.id}/history?before=${randomUUID()}`))).toEqual([
+      400,
+      'INVALID_REQUEST',
+    ]);
+  });
+
+  it('ưu tiên đơn vị → cửa hàng → chung; giá đơn vị hàng đếm; giá 0 / âm ở cửa hàng, đơn vị ⇒ 422; null = không đặt', async () => {
+    const s = await sku({
+      sale_unit_type: 'PACK_FIXED',
+      std_weight_g: 250,
+      units: [{ unit_code: 'BOX', name: 'Thùng 6 hộp', factor_units: 6, for_sale: true, for_purchase: true }],
+    });
+    const box = s.units[1]?.id ?? '';
+    const st = await store();
+    for (const bad of [
+      { stores: [{ store_id: st, price: '0' }] },
+      { stores: [{ store_id: st, price: '-5' }] },
+      { units: [{ sku_unit_id: box, price: '0' }] },
+      { units: [{ sku_unit_id: box, price: '1000000001' }] },
+    ])
+      expect(err(await e.master.put(`/admin/prices/${s.id}`, { version: 0, reason: 'x', ...bad }))).toEqual([
+        422,
+        'CATALOG_RULE_VIOLATION',
+      ]);
+    const r = await e.master.put(`/admin/prices/${s.id}`, {
+      version: 0,
+      reason: 'Giá đầu',
+      global: '40000',
+      stores: [{ store_id: st, price: '38000' }],
+      units: [{ sku_unit_id: box, price: '220000' }],
+    });
+    expect(r.status).toBe(200);
+    const q = (x: string) => e.master.get(`/admin/prices/${s.id}/effective?${x}`);
+    expect((await q(`sku_unit_id=${box}&store_id=${st}`)).body).toMatchObject({ source: 'SKU_UNIT', price: '220000' });
+    expect((await q(`sku_unit_id=${s.units[0]?.id ?? ''}&store_id=${st}`)).body).toMatchObject({
+      source: 'STORE',
+      price: '38000',
+    });
+    expect(err(await q(`store_id=${randomUUID()}`))).toEqual([404, 'RESOURCE_NOT_FOUND']);
+    // client sinh mã (Dart) gửi null cho trường không đặt ⇒ không đổi gì
+    const n = await e.master.put(`/admin/prices/${s.id}`, {
+      version: 1,
+      reason: 'x',
+      global: null,
+      stores: null,
+      units: null,
+    });
+    expect(n.status).toBe(200);
+    expect(n.body).toMatchObject({ version: 1, global: '40000' });
+  });
+
+  it('song song: 4 PUT cùng SKU cùng version ⇒ đúng một 200, còn lại 409; lịch sử liền một bản ghi', async () => {
+    const s = await sku();
+    const rs = await Promise.all(
+      ['11000', '12000', '13000', '14000'].map((v) =>
+        e.master.put(`/admin/prices/${s.id}`, { version: 0, reason: 'song song', global: v }),
+      ),
+    );
+    expect(rs.map((r) => r.status).sort()).toEqual([200, 409, 409, 409]);
+    expect((await logs(s.id)).length).toBe(1);
   });
 });

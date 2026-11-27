@@ -333,7 +333,7 @@ chứng từ gốc (đơn / phiếu) → `payments` → `push_deals` → `push_d
 (`wholesale_customers`, `shippers`) → `inventory_batches` (đổi status) → `code_sequences` **cuối cùng**.
 
 Danh mục & giá (CP04): `skus` (sku_id tăng dần; khóa dòng SKU cả khi chỉ đổi giá cửa hàng / giá đơn vị) → `sku_units` (id) →
-`store_prices` (store_id, kể cả INSERT/DELETE) → INSERT `price_change_logs` (advisory `price:<khóa>`) — **không** ghi log
+`stores` (`FOR SHARE`, id tăng dần — chặn lưu trữ cửa hàng song song) → `store_prices` (store_id, kể cả INSERT/DELETE) → INSERT `price_change_logs` (lát 3: ghi CUỐI transaction, sau mọi dòng giá của cả lô) (advisory `price:<khóa>`) — **không** ghi log
 trước khi khóa dòng giá. Đổi cây danh mục: advisory `catalog:category_tree` lấy đầu transaction, READ COMMITTED.
 Sửa danh mục (CP04 lát 2): dòng đang sửa/lưu trữ khóa `FOR NO KEY UPDATE` (không chặn FK `FOR KEY SHARE` của dòng
 bán/tồn), dòng cha khóa `FOR SHARE` khi gắn con (danh mục con, sản phẩm, SKU) ⇒ "lưu trữ cha" và "gắn con" song song không

@@ -6,7 +6,8 @@ import type { Principal } from '../common/access';
 import { AuditOutboxService, type Tx } from '../common/audit-outbox.service';
 import { AppError } from '../common/errors';
 import type { RequestStore } from '../common/request-context';
-import type { Sku, SkuUnit } from '../generated/prisma/client';
+import { ScopeService } from '../common/scope.service';
+import { Prisma, type Sku, type SkuUnit } from '../generated/prisma/client';
 import { catalogWrite } from './catalog-db';
 import { rule, type SaleUnitType, WEIGHT_PRICED } from './catalog-rules';
 
@@ -27,6 +28,7 @@ export interface PriceSet extends PriceChange {
 
 type Field = 'PER_KG' | 'PER_UNIT' | 'SKU_UNIT';
 interface LogRow {
+  skuId: string;
   scope: 'GLOBAL' | 'STORE';
   field: Field;
   storeId: string | null;
@@ -34,6 +36,9 @@ interface LogRow {
   oldValue: bigint | null;
   newValue: bigint | null;
 }
+
+/** timestamptz ⇒ ISO-8601 UTC đủ micro-giây (Date của JS cắt còn mili-giây) */
+const ISO_US = (col: string) => Prisma.raw(`to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`);
 
 const notFound = () => new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy SKU');
 const fieldOf = (t: SaleUnitType): 'PER_KG' | 'PER_UNIT' => (WEIGHT_PRICED.has(t) ? 'PER_KG' : 'PER_UNIT');
@@ -57,6 +62,7 @@ export class PricesService {
     @Inject(TransactionHost) private readonly txHost: Tx,
     private readonly ao: AuditOutboxService,
     private readonly cls: ClsService<RequestStore>,
+    private readonly scope: ScopeService,
   ) {}
 
   private get tx() {
@@ -71,10 +77,17 @@ export class PricesService {
 
   // ───────── đọc ─────────
 
+  /** Đọc bằng SQL thô cần transaction (tx-prisma); REPEATABLE READ ⇒ mọi bước tra cùng một snapshot (review TS N2). */
+  private readTx<T>(fn: () => Promise<T>): Promise<T> {
+    return this.txHost.withTransaction({ isolationLevel: 'RepeatableRead' }, fn);
+  }
+
+  /** Giá hiện hành; giá riêng cửa hàng chỉ của các cửa hàng trong phạm vi `price:read` (x-scope: store — ADR-024). */
   async current(skuId: string) {
     const s = await this.tx.sku.findUnique({ where: { id: skuId }, include: { units: true, storePrices: true } });
     if (!s) throw notFound();
-    return this.wire(s, s.units, s.storePrices);
+    const sc = await this.scope.stores('price:read');
+    return this.wire(s, s.units, sc === 'ALL' ? s.storePrices : s.storePrices.filter((p) => sc.has(p.storeId)));
   }
 
   private wire(
@@ -85,7 +98,6 @@ export class PricesService {
       retailPricePerKg: bigint | null;
       retailPricePerUnit: bigint | null;
       updatedAt: Date;
-      updatedBy: string;
     }[],
   ) {
     const f = fieldOf(s.saleUnitType as SaleUnitType);
@@ -102,7 +114,6 @@ export class PricesService {
           store_id: p.storeId,
           price: pick(p.retailPricePerKg, p.retailPricePerUnit),
           updated_at: p.updatedAt,
-          updated_by: p.updatedBy,
         })),
       units: [...units]
         .filter((u) => u.archivedAt === null || u.pricePerUnit !== null)
@@ -117,94 +128,120 @@ export class PricesService {
     };
   }
 
-  async history(skuId: string, q: { store_id?: string; field?: Field; limit: number; before?: string }) {
-    if (!(await this.tx.sku.findUnique({ where: { id: skuId }, select: { id: true } }))) throw notFound();
-    let beforeAt: Date | undefined;
-    if (q.before) {
-      const b = await this.tx.priceChangeLog.findFirst({ where: { id: q.before, skuId }, select: { changedAt: true } });
-      if (!b) throw new AppError('INVALID_REQUEST', 'Con trỏ trang không hợp lệ', { field: 'before' });
-      beforeAt = b.changedAt;
-    }
-    const rows = await this.tx.priceChangeLog.findMany({
-      where: {
-        skuId,
-        ...(q.store_id ? { storeId: q.store_id } : {}),
-        ...(q.field ? { field: q.field } : {}),
-        ...(beforeAt && q.before
-          ? { OR: [{ changedAt: { lt: beforeAt } }, { changedAt: beforeAt, id: { lt: q.before } }] }
-          : {}),
-      },
-      orderBy: [{ changedAt: 'desc' }, { id: 'desc' }],
-      take: q.limit + 1,
-    });
-    const more = rows.length > q.limit;
-    const page = more ? rows.slice(0, q.limit) : rows;
-    return {
-      items: page.map((l) => ({
-        id: l.id,
-        scope: l.scope,
-        field: l.field,
-        store_id: l.storeId,
-        sku_unit_id: l.skuUnitId,
-        old_value: l.oldValue,
-        new_value: l.newValue,
-        reason: l.reason,
-        changed_by: l.changedBy,
-        changed_at: l.changedAt,
-      })),
-      next_before: more ? (page[page.length - 1]?.id ?? null) : null,
-    };
+  /**
+   * Lịch sử giá (mới → cũ). Con trỏ `before` = id bản ghi cuối trang trước; so (changed_at, id) HOÀN TOÀN trong SQL —
+   * Date của JS chỉ tới mili-giây, changed_at tới micro-giây (review TS lát 3 C1: cắt mili-giây làm mất bản ghi).
+   */
+  history(skuId: string, q: { store_id?: string; field?: Field; limit: number; before?: string }) {
+    return this.readTx(() => this.historyTx(skuId, q));
   }
 
-  /** Giá mới nhất của một khóa giá tại thời điểm `at` (bản ghi lịch sử changed_at ≤ at). undefined = chưa từng có. */
-  private async logAt(skuId: string, storeId: string | null, field: Field, unitId: string | null, at: Date) {
-    const r = await this.tx.priceChangeLog.findFirst({
-      where: { skuId, storeId, field, skuUnitId: unitId, changedAt: { lte: at } },
-      orderBy: [{ changedAt: 'desc' }, { id: 'desc' }],
-      select: { newValue: true, changedAt: true },
-    });
-    return r ?? undefined;
+  private async historyTx(skuId: string, q: { store_id?: string; field?: Field; limit: number; before?: string }) {
+    if (!(await this.tx.sku.findUnique({ where: { id: skuId }, select: { id: true } }))) throw notFound();
+    if (q.before) {
+      const b = await this.tx.priceChangeLog.findFirst({ where: { id: q.before, skuId }, select: { id: true } });
+      if (!b) throw new AppError('INVALID_REQUEST', 'Con trỏ trang không hợp lệ', { field: 'before' });
+    }
+    const rows = await this.tx.$queryRaw<
+      {
+        id: string;
+        scope: 'GLOBAL' | 'STORE';
+        field: Field;
+        store_id: string | null;
+        sku_unit_id: string | null;
+        old_value: bigint | null;
+        new_value: bigint | null;
+        reason: string;
+        changed_by: string;
+        changed_at: string;
+      }[]
+    >`
+      SELECT l.id::text, l.scope::text AS scope, l.field::text AS field, l.store_id::text, l.sku_unit_id::text,
+             l.old_value, l.new_value, l.reason, l.changed_by::text, ${ISO_US('l.changed_at')} AS changed_at
+      FROM core.price_change_logs l
+      WHERE l.sku_id = ${skuId}::uuid
+        AND (${q.store_id ?? null}::uuid IS NULL OR l.store_id = ${q.store_id ?? null}::uuid)
+        AND (${q.field ?? null}::text IS NULL OR l.field::text = ${q.field ?? null}::text)
+        AND (${q.before ?? null}::uuid IS NULL OR (l.changed_at, l.id) <
+             (SELECT b.changed_at, b.id FROM core.price_change_logs b WHERE b.id = ${q.before ?? null}::uuid))
+      ORDER BY l.changed_at DESC, l.id DESC
+      LIMIT ${q.limit + 1}`;
+    const more = rows.length > q.limit;
+    const page = more ? rows.slice(0, q.limit) : rows;
+    return { items: page, next_before: more ? (page[page.length - 1]?.id ?? null) : null };
   }
 
   /**
-   * Giá lẻ HIỆU LỰC tại thời điểm `at` (mặc định: bây giờ) — nguồn cho POS/app khi tạo dòng bán: giá riêng đơn vị (nếu
-   * đơn vị có) → giá riêng cửa hàng → giá chung. Dựng lại từ `price_change_logs` nên trả đúng giá cũ cho thời điểm trước
-   * lần đổi (đổi giá không hồi tố).
+   * Giá lẻ HIỆU LỰC tại thời điểm `at` — nguồn cho POS/app khi tạo dòng bán: giá riêng đơn vị (nếu đơn vị có) → giá riêng
+   * cửa hàng → giá chung. Dựng lại từ `price_change_logs` (changed_at ≤ at, so trong SQL đủ micro-giây) nên trả đúng giá
+   * cũ cho thời điểm trước lần đổi (đổi giá không hồi tố). Không truyền `at` ⇒ bản ghi mới nhất đã COMMIT (= giá hiện hành,
+   * constraint price_log_required bảo đảm khớp) — không dùng giờ máy app. MỘT câu lệnh ⇒ một snapshot.
    */
-  async effectiveAt(skuId: string, q: { store_id?: string; sku_unit_id?: string; at?: Date }) {
+  effectiveAt(skuId: string, q: { store_id?: string; sku_unit_id?: string; at?: string }) {
+    return this.readTx(() => this.effectiveTx(skuId, q));
+  }
+
+  private async effectiveTx(skuId: string, q: { store_id?: string; sku_unit_id?: string; at?: string }) {
     const s = await this.tx.sku.findUnique({ where: { id: skuId }, select: { saleUnitType: true } });
     if (!s) throw notFound();
-    const at = q.at ?? new Date();
-    const f = fieldOf(s.saleUnitType as SaleUnitType);
+    if (q.store_id) {
+      // cửa hàng ngoài phạm vi / không tồn tại ⇒ 404 (không lộ giá riêng cửa hàng khác — ADR-024)
+      await this.scope.assertStore('price:read', q.store_id);
+      if (!(await this.tx.store.findUnique({ where: { id: q.store_id }, select: { id: true } })))
+        throw new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy cửa hàng');
+    }
     if (q.sku_unit_id) {
       const u = await this.tx.skuUnit.findFirst({ where: { id: q.sku_unit_id, skuId }, select: { id: true } });
       if (!u) throw new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy đơn vị của SKU');
-      const own = await this.logAt(skuId, null, 'SKU_UNIT', q.sku_unit_id, at);
-      if (own?.newValue != null)
-        return {
-          at,
-          field: 'SKU_UNIT' as const,
-          source: 'SKU_UNIT' as const,
-          price: own.newValue,
-          changed_at: own.changedAt,
-        };
     }
-    if (q.store_id) {
-      const st = await this.logAt(skuId, q.store_id, f, null, at);
-      if (st?.newValue != null)
-        return { at, field: f, source: 'STORE' as const, price: st.newValue, changed_at: st.changedAt };
-    }
-    const g = await this.logAt(skuId, null, f, null, at);
-    if (g?.newValue != null)
-      return { at, field: f, source: 'GLOBAL' as const, price: g.newValue, changed_at: g.changedAt };
-    return { at, field: f, source: 'NONE' as const, price: null, changed_at: null };
+    const f = fieldOf(s.saleUnitType as SaleUnitType);
+    const at = q.at ?? null;
+    const unit = q.sku_unit_id ?? null;
+    const store = q.store_id ?? null;
+    const [r] = await this.tx.$queryRaw<
+      {
+        at: string;
+        u_val: bigint | null;
+        u_at: string | null;
+        s_val: bigint | null;
+        s_at: string | null;
+        g_val: bigint | null;
+        g_at: string | null;
+      }[]
+    >`
+      WITH k AS (SELECT COALESCE(${at}::timestamptz, 'infinity'::timestamptz) AS lim,
+                        COALESCE(${at}::timestamptz, clock_timestamp()) AS at)
+      SELECT ${ISO_US('k.at')} AS at,
+             u.new_value AS u_val, ${ISO_US('u.changed_at')} AS u_at,
+             st.new_value AS s_val, ${ISO_US('st.changed_at')} AS s_at,
+             g.new_value AS g_val, ${ISO_US('g.changed_at')} AS g_at
+      FROM k
+      LEFT JOIN LATERAL (SELECT l.new_value, l.changed_at FROM core.price_change_logs l
+        WHERE ${unit}::uuid IS NOT NULL AND l.sku_id = ${skuId}::uuid AND l.field = 'SKU_UNIT'
+          AND l.sku_unit_id = ${unit}::uuid AND l.changed_at <= k.lim
+        ORDER BY l.changed_at DESC, l.id DESC LIMIT 1) u ON true
+      LEFT JOIN LATERAL (SELECT l.new_value, l.changed_at FROM core.price_change_logs l
+        WHERE ${store}::uuid IS NOT NULL AND l.sku_id = ${skuId}::uuid AND l.field = ${f}::core."PriceField"
+          AND l.store_id = ${store}::uuid AND l.changed_at <= k.lim
+        ORDER BY l.changed_at DESC, l.id DESC LIMIT 1) st ON true
+      LEFT JOIN LATERAL (SELECT l.new_value, l.changed_at FROM core.price_change_logs l
+        WHERE l.sku_id = ${skuId}::uuid AND l.field = ${f}::core."PriceField" AND l.store_id IS NULL
+          AND l.changed_at <= k.lim
+        ORDER BY l.changed_at DESC, l.id DESC LIMIT 1) g ON true`;
+    if (!r) throw new Error('effectiveAt: không có dòng');
+    if (r.u_val !== null)
+      return { at: r.at, field: 'SKU_UNIT' as const, source: 'SKU_UNIT' as const, price: r.u_val, changed_at: r.u_at };
+    if (r.s_val !== null) return { at: r.at, field: f, source: 'STORE' as const, price: r.s_val, changed_at: r.s_at };
+    if (r.g_val !== null) return { at: r.at, field: f, source: 'GLOBAL' as const, price: r.g_val, changed_at: r.g_at };
+    return { at: r.at, field: f, source: 'NONE' as const, price: null, changed_at: null };
   }
 
   // ───────── ghi ─────────
 
   /** Đặt giá một SKU (khóa dòng SKU trước). */
   async set(skuId: string, b: PriceSet, reason: string) {
-    const out = await this.apply(skuId, b, reason);
+    const out = await this.apply(skuId, b);
+    await this.writeLogs(out.logs, reason);
     await this.ao.recordAudit({
       action: 'price.set',
       resourceType: 'sku',
@@ -233,12 +270,15 @@ export class PricesService {
       throw new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy SKU', { sku_id: ids.find((x) => !have.has(x)) });
     }
     const results = [];
+    const pending: LogRow[] = [];
     let changes = 0;
     for (const i of sorted) {
-      const r = await this.apply(i.sku_id, i, reason);
+      const r = await this.apply(i.sku_id, i);
       changes += r.changes.length;
+      pending.push(...r.logs);
       results.push(r.prices);
     }
+    await this.writeLogs(pending, reason);
     await this.ao.recordAudit({
       action: 'price.set_bulk',
       resourceType: 'sku',
@@ -248,7 +288,20 @@ export class PricesService {
     return { items: results };
   }
 
-  private async apply(skuId: string, b: PriceSet, reason: string) {
+  /**
+   * Ghi lịch sử CUỐI transaction, sau khi mọi dòng giá đã khóa và ghi (ERD §6.2). changed_at = mốc server lúc INSERT (trigger)
+   * ⇒ cách lúc COMMIT ≤ phần còn lại của transaction: ghi cuối để sai số nhỏ nhất (review bảo mật lát 3 N1).
+   */
+  private async writeLogs(logs: LogRow[], reason: string): Promise<void> {
+    if (!logs.length) return;
+    const p = this.principal();
+    await catalogWrite(async () => {
+      for (const l of logs)
+        await this.tx.priceChangeLog.create({ data: { id: uuidv7(), ...l, reason, changedBy: p.userId } });
+    });
+  }
+
+  private async apply(skuId: string, b: PriceSet) {
     const p = this.principal();
     const lk = await this.tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM core.skus WHERE id = ${skuId}::uuid FOR NO KEY UPDATE`;
@@ -271,6 +324,7 @@ export class PricesService {
       assertPrice(b.global, 'global');
       if (b.global !== curGlobal)
         logs.push({
+          skuId,
           scope: 'GLOBAL',
           field: f,
           storeId: null,
@@ -309,6 +363,7 @@ export class PricesService {
         if (r.price !== u.pricePerUnit) {
           unitUpdates.push({ id: u.id, price: r.price });
           logs.push({
+            skuId,
             scope: 'GLOBAL',
             field: 'SKU_UNIT',
             storeId: null,
@@ -327,10 +382,9 @@ export class PricesService {
     const storeOps: { storeId: string; price: bigint | null; exists: boolean }[] = [];
     if (storeReq.length) {
       const sids = storeReq.map((s) => s.store_id);
-      const stores = await this.tx.store.findMany({
-        where: { id: { in: sids } },
-        select: { id: true, archivedAt: true },
-      });
+      // FOR SHARE: chặn lưu trữ cửa hàng song song (thứ tự: skus → sku_units → stores → store_prices)
+      const stores = await this.tx.$queryRaw<{ id: string; archived: boolean }[]>`
+        SELECT id::text, archived_at IS NOT NULL AS archived FROM core.stores WHERE id = ANY(${sids}::uuid[]) ORDER BY id FOR SHARE`;
       await this.tx.$queryRaw`
         SELECT store_id FROM core.store_prices WHERE sku_id = ${skuId}::uuid AND store_id = ANY(${sids}::uuid[])
         ORDER BY store_id FOR UPDATE`;
@@ -342,11 +396,12 @@ export class PricesService {
         const old = row ? (f === 'PER_KG' ? row.retailPricePerKg : row.retailPricePerUnit) : null;
         if (r.price !== null) {
           assertPrice(r.price, 'stores.price');
-          if (st.archivedAt) throw rule('Cửa hàng đã lưu trữ — không đặt giá riêng', { store_id: r.store_id });
+          if (st.archived) throw rule('Cửa hàng đã lưu trữ — không đặt giá riêng', { store_id: r.store_id });
         }
         if (r.price !== old) {
           storeOps.push({ storeId: r.store_id, price: r.price, exists: !!row });
           logs.push({
+            skuId,
             scope: 'STORE',
             field: f,
             storeId: r.store_id,
@@ -384,11 +439,6 @@ export class PricesService {
             });
           else await this.tx.storePrice.create({ data: { storeId: o.storeId, skuId, ...val, updatedBy: p.userId } });
         }
-        // lịch sử SAU khi đã khóa và ghi dòng giá (ERD §6.2); changed_at do trigger đặt (mốc server, tăng nghiêm ngặt)
-        for (const l of logs)
-          await this.tx.priceChangeLog.create({
-            data: { id: uuidv7(), skuId, ...l, reason, changedBy: p.userId },
-          });
       });
     }
     const fresh = await this.tx.sku.findUniqueOrThrow({
@@ -397,6 +447,7 @@ export class PricesService {
     });
     return {
       version: fresh.version,
+      logs,
       changes: logs.map((l) => ({
         field: l.field,
         store_id: l.storeId,

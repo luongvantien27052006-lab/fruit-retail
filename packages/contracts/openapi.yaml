@@ -5963,6 +5963,7 @@ paths:
       tags: [admin]
       summary: 'Đổi giá lẻ hàng loạt (nhiều SKU, một transaction)'
       x-permission: 'price:write'
+      x-master-only: true # SPEC §2.2 chỉ Master sửa giá
       x-step-up: true
       x-spec-ref: '§4.4'
       x-detail-cp: CP04
@@ -6012,6 +6013,7 @@ paths:
       tags: [admin]
       summary: 'Giá lẻ hiện hành của SKU (chung, theo cửa hàng, theo đơn vị)'
       x-permission: 'price:read'
+      x-scope: store
       x-spec-ref: '§4.4'
       x-detail-cp: CP04
       x-not-in-spec-13-2: true # NC-29 (CP04)
@@ -6041,6 +6043,7 @@ paths:
       tags: [admin]
       summary: 'Đặt giá lẻ chuỗi/cửa hàng/đơn vị (ghi lịch sử)'
       x-permission: 'price:write'
+      x-master-only: true # SPEC §2.2 chỉ Master sửa giá
       x-spec-ref: '§4.4'
       x-detail-cp: CP04
       parameters:
@@ -6088,6 +6091,7 @@ paths:
       tags: [admin]
       summary: 'Lịch sử giá của SKU (ai, khi nào, cũ → mới, lý do)'
       x-permission: 'price:read'
+      x-master-only: true # lý do + người đổi chỉ Master xem
       x-spec-ref: '§4.4'
       x-detail-cp: CP04
       x-not-in-spec-13-2: true # NC-29 (CP04)
@@ -6152,6 +6156,7 @@ paths:
       tags: [admin]
       summary: 'Giá lẻ hiệu lực tại một thời điểm (đơn vị → cửa hàng → chung)'
       x-permission: 'price:read'
+      x-scope: store
       x-spec-ref: '§4.4'
       x-detail-cp: CP04
       x-not-in-spec-13-2: true # NC-29 (CP04)
@@ -9581,7 +9586,8 @@ components:
         Đặt giá một SKU. global = giá lẻ chung (giá/kg cho WEIGHT, PIECE_BY_WEIGHT, PACK_VARIABLE; giá/đơn vị cho kiểu khác);
         stores[].price null = bỏ giá riêng cửa hàng (về giá chung); units[].price null = bỏ giá riêng của đơn vị. Giá 1 … 1.000.000.000
         đồng, âm / 0 / quá trần ⇒ 422 CATALOG_RULE_VIOLATION. version lệch ⇒ 409. Giá không đổi thì không ghi lịch sử. Đổi giá chỉ
-        áp cho giao dịch mới (dòng bán chụp giá lúc bán).
+        áp cho giao dịch mới (dòng bán chụp giá lúc bán). Tối đa 2000 giá (chung + cửa hàng + đơn vị) mỗi yêu cầu. Chỉ Master.
+        global / stores / units = null coi như không đặt.
       required: [reason, version]
       additionalProperties: false
       properties:
@@ -9593,16 +9599,16 @@ components:
           type: integer
           minimum: 0
         global:
-          type: string
+          type: [string, 'null']
           pattern: '^-?[0-9]{1,18}$'
           format: vnd
         stores:
-          type: array
+          type: [array, 'null']
           maxItems: 200
           items:
             $ref: '#/components/schemas/StorePriceInput'
         units:
-          type: array
+          type: [array, 'null']
           maxItems: 20
           items:
             $ref: '#/components/schemas/UnitPriceInput'
@@ -9632,7 +9638,7 @@ components:
           format: vnd
     PriceBulkSetRequest:
       type: object
-      description: Nhiều SKU một transaction (tất cả hoặc không); cần step-up.
+      description: Nhiều SKU một transaction (tất cả hoặc không); cần step-up; chỉ Master; tối đa 2000 giá cả lô.
       required: [reason, items]
       additionalProperties: false
       properties:
@@ -9658,16 +9664,16 @@ components:
           type: integer
           minimum: 0
         global:
-          type: string
+          type: [string, 'null']
           pattern: '^-?[0-9]{1,18}$'
           format: vnd
         stores:
-          type: array
+          type: [array, 'null']
           maxItems: 200
           items:
             $ref: '#/components/schemas/StorePriceInput'
         units:
-          type: array
+          type: [array, 'null']
           maxItems: 20
           items:
             $ref: '#/components/schemas/UnitPriceInput'
@@ -9682,7 +9688,7 @@ components:
             $ref: '#/components/schemas/SkuPrices'
     SkuPrices:
       type: object
-      description: Giá hiện hành. price_field cho biết global / stores[].price là giá/kg hay giá/đơn vị. version tăng mỗi lần đổi giá.
+      description: Giá hiện hành; stores chỉ gồm cửa hàng trong phạm vi price:read của người gọi. price_field cho biết global / stores[].price là giá/kg hay giá/đơn vị. version tăng mỗi lần đổi giá.
       required: [sku_id, sale_unit_type, price_field, version, global, stores, units]
       additionalProperties: false
       properties:
@@ -9704,44 +9710,45 @@ components:
         stores:
           type: array
           items:
-            type: object
-            required: [store_id, price, updated_at, updated_by]
-            additionalProperties: false
-            properties:
-              store_id:
-                type: string
-                format: uuid
-              price:
-                type: [string, 'null']
-                pattern: '^-?[0-9]{1,18}$'
-                format: vnd
-              updated_at:
-                type: string
-                format: date-time
-              updated_by:
-                type: string
-                format: uuid
+            $ref: '#/components/schemas/SkuStorePrice'
         units:
           type: array
           items:
-            type: object
-            required: [sku_unit_id, name, for_sale, archived_at, price]
-            additionalProperties: false
-            properties:
-              sku_unit_id:
-                type: string
-                format: uuid
-              name:
-                type: string
-              for_sale:
-                type: boolean
-              archived_at:
-                type: [string, 'null']
-                format: date-time
-              price:
-                type: [string, 'null']
-                pattern: '^-?[0-9]{1,18}$'
-                format: vnd
+            $ref: '#/components/schemas/SkuUnitPrice'
+    SkuStorePrice:
+      type: object
+      required: [store_id, price, updated_at]
+      additionalProperties: false
+      properties:
+        store_id:
+          type: string
+          format: uuid
+        price:
+          type: [string, 'null']
+          pattern: '^-?[0-9]{1,18}$'
+          format: vnd
+        updated_at:
+          type: string
+          format: date-time
+    SkuUnitPrice:
+      type: object
+      required: [sku_unit_id, name, for_sale, archived_at, price]
+      additionalProperties: false
+      properties:
+        sku_unit_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        for_sale:
+          type: boolean
+        archived_at:
+          type: [string, 'null']
+          format: date-time
+        price:
+          type: [string, 'null']
+          pattern: '^-?[0-9]{1,18}$'
+          format: vnd
     PriceHistory:
       type: object
       required: [items, next_before]
@@ -9795,7 +9802,11 @@ components:
       type: object
       description: >-
         Giá hiệu lực tại thời điểm at, dựng lại từ lịch sử: giá riêng đơn vị (nếu hỏi sku_unit_id và đơn vị có) → giá riêng cửa hàng
-        (nếu hỏi store_id) → giá chung. source NONE = chưa có giá.
+        (nếu hỏi store_id — ngoài phạm vi / không tồn tại ⇒ 404) → giá chung. source NONE = chưa có giá. changed_at là mốc
+        server lúc ghi lịch sử (ghi cuối transaction, trước COMMIT tối đa vài giây) ⇒ at trong quá khứ là xấp xỉ ở biên; nguồn
+        đối soát giao dịch là giá chụp trên dòng bán. Không truyền at ⇒ bản ghi mới nhất đã COMMIT (giá hiện hành, mốc giờ DB).
+        Mốc trả về đủ micro-giây. Trả giá cả khi đơn vị / SKU đã lưu trữ hoặc không để bán — POS/app tự kiểm còn bán được không.
+        Đơn vị không có giá riêng ⇒ trả giá/kg hoặc giá/đơn vị gốc; client nhân hệ số quy đổi của đơn vị.
       required: [at, field, source, price, changed_at]
       additionalProperties: false
       properties:

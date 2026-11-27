@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
-import { RequirePermission, RequireStepUp } from '../common/access';
+import { MasterOnly, RequirePermission, RequireStepUp } from '../common/access';
 import { ZodPipe } from '../common/zod.pipe';
 import { PricesService } from './prices.service';
 
@@ -9,41 +9,68 @@ const vnd = z
   .string()
   .regex(/^-?[0-9]{1,18}$/, 'tiền: chuỗi số nguyên đồng')
   .transform((v) => BigInt(v));
-const reason = z.string().trim().min(1).max(500);
+/** ký tự điều khiển trừ tab / xuống dòng */
+const isControl = (c: string) => {
+  const n = c.charCodeAt(0);
+  return (n < 32 && n !== 9 && n !== 10 && n !== 13) || n === 127;
+};
+/** chữ tự do: cấm ký tự điều khiển (NUL ⇒ PostgreSQL lỗi 500 — review bảo mật lát 3 G1) */
+const reason = z
+  .string()
+  .trim()
+  .min(1)
+  .max(500)
+  .refine((v) => ![...v].some(isControl), 'không chứa ký tự điều khiển');
+/** UUID chuẩn hóa chữ thường (so trùng / so khớp id — G2) */
+const uuid = z
+  .string()
+  .uuid()
+  .transform((v) => v.toLowerCase());
+/** Trần tổng số khóa giá trong một yêu cầu (giá chung + cửa hàng + đơn vị) — giữ transaction ngắn (G3, N1) */
+export const MAX_PRICE_KEYS = 2000;
+const keys = (i: { global?: unknown; stores?: unknown[]; units?: unknown[] }) =>
+  (i.global !== undefined ? 1 : 0) + (i.stores?.length ?? 0) + (i.units?.length ?? 0);
 const PriceChange = {
   version: z.number().int().min(0),
-  global: vnd.optional(),
+  /** null = không đặt (client sinh mã gửi null cho trường trống; giá chung không bỏ được) */
+  global: vnd.nullish().transform((v) => v ?? undefined),
   stores: z
-    .array(z.object({ store_id: z.string().uuid(), price: vnd.nullable() }).strict())
+    .array(z.object({ store_id: uuid, price: vnd.nullable() }).strict())
     .max(200)
-    .optional(),
+    .nullish()
+    .transform((v) => v ?? undefined),
   units: z
-    .array(z.object({ sku_unit_id: z.string().uuid(), price: vnd.nullable() }).strict())
+    .array(z.object({ sku_unit_id: uuid, price: vnd.nullable() }).strict())
     .max(20)
-    .optional(),
+    .nullish()
+    .transform((v) => v ?? undefined),
 };
-const PutPrices = z.object({ reason, ...PriceChange }).strict();
+const PutPrices = z
+  .object({ reason, ...PriceChange })
+  .strict()
+  .refine((b) => keys(b) <= MAX_PRICE_KEYS, `tối đa ${MAX_PRICE_KEYS} giá mỗi yêu cầu`);
 const PutPricesBulk = z
   .object({
     reason,
     items: z
-      .array(z.object({ sku_id: z.string().uuid(), ...PriceChange }).strict())
+      .array(z.object({ sku_id: uuid, ...PriceChange }).strict())
       .min(1)
       .max(500),
   })
-  .strict();
+  .strict()
+  .refine((b) => b.items.reduce((n, i) => n + keys(i), 0) <= MAX_PRICE_KEYS, `tối đa ${MAX_PRICE_KEYS} giá mỗi lô`);
 const History = z
   .object({
-    store_id: z.string().uuid().optional(),
+    store_id: uuid.optional(),
     field: z.enum(['PER_KG', 'PER_UNIT', 'SKU_UNIT']).optional(),
     limit: z.coerce.number().int().min(1).max(500).default(100),
-    before: z.string().uuid().optional(),
+    before: uuid.optional(),
   })
   .strict();
 const Effective = z
   .object({
-    store_id: z.string().uuid().optional(),
-    sku_unit_id: z.string().uuid().optional(),
+    store_id: uuid.optional(),
+    sku_unit_id: uuid.optional(),
     at: z.iso.datetime({ offset: true }).optional(),
   })
   .strict();
@@ -55,38 +82,43 @@ export class PricesController {
 
   /** Đổi giá hàng loạt (nhiều SKU một lần) — x-step-up (kế hoạch CP04 lát 3) */
   @RequirePermission('price:write')
+  @MasterOnly()
   @RequireStepUp()
   @Put()
   putMany(@Body(new ZodPipe(PutPricesBulk)) b: z.infer<typeof PutPricesBulk>) {
     return this.prices.setMany(b.items, b.reason);
   }
 
-  @RequirePermission('price:read')
+  @RequirePermission('price:read', { scope: 'store' })
   @Get(':sku_id')
-  current(@Param('sku_id', new ParseUUIDPipe()) id: string) {
+  current(@Param('sku_id', new ZodPipe(uuid)) id: string) {
     return this.prices.current(id);
   }
 
+  /** SPEC §2.2: chỉ Master sửa giá bán lẻ (vai trò khác chỉ xem) — chặn cả mã price:write cấp riêng (review bảo mật N2) */
   @RequirePermission('price:write')
+  @MasterOnly()
   @Put(':sku_id')
-  put(@Param('sku_id', new ParseUUIDPipe()) id: string, @Body(new ZodPipe(PutPrices)) b: z.infer<typeof PutPrices>) {
+  put(@Param('sku_id', new ZodPipe(uuid)) id: string, @Body(new ZodPipe(PutPrices)) b: z.infer<typeof PutPrices>) {
     const { reason: r, ...change } = b;
     return this.prices.set(id, change, r);
   }
 
+  /** lịch sử có lý do (chữ tự do) + người đổi ⇒ chỉ Master (màn A10) — review bảo mật N3 */
   @RequirePermission('price:read')
+  @MasterOnly()
   @Get(':sku_id/history')
-  history(@Param('sku_id', new ParseUUIDPipe()) id: string, @Query(new ZodPipe(History)) q: z.infer<typeof History>) {
+  history(@Param('sku_id', new ZodPipe(uuid)) id: string, @Query(new ZodPipe(History)) q: z.infer<typeof History>) {
     return this.prices.history(id, q);
   }
 
   /** Giá hiệu lực tại thời điểm (mặc định bây giờ) — nguồn giá cho dòng bán POS/app; dựng lại từ lịch sử */
-  @RequirePermission('price:read')
+  @RequirePermission('price:read', { scope: 'store' })
   @Get(':sku_id/effective')
   effective(
-    @Param('sku_id', new ParseUUIDPipe()) id: string,
+    @Param('sku_id', new ZodPipe(uuid)) id: string,
     @Query(new ZodPipe(Effective)) q: z.infer<typeof Effective>,
   ) {
-    return this.prices.effectiveAt(id, { ...q, at: q.at ? new Date(q.at) : undefined });
+    return this.prices.effectiveAt(id, q);
   }
 }

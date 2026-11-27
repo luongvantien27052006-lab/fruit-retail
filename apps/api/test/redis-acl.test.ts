@@ -156,6 +156,17 @@ describe('Redis ACL theo user (CP03 lát 10)', () => {
       await expect(c.call('SCRIPT', 'FLUSH')).rejects.toThrow(/NOPERM/);
       await expect(c.call('ACL', 'LIST')).rejects.toThrow(/NOPERM/);
       await expect(c.call('MONITOR')).rejects.toThrow(/NOPERM/);
+      // review cổng CP03: treo Redis / thư viện dùng chung / lộ tên khóa tiền tố khác
+      await expect(c.call('SCRIPT', 'DEBUG', 'SYNC')).rejects.toThrow(/NOPERM/);
+      await expect(
+        c.call('FUNCTION', 'LOAD', "#!lua name=x\nredis.register_function('f', function() return 1 end)"),
+      ).rejects.toThrow(/NOPERM/);
+      await expect(c.call('FCALL', 'f', '0')).rejects.toThrow(/NOPERM/);
+      await expect(c.call('SCAN', '0')).rejects.toThrow(/NOPERM/);
+      await expect(c.call('RANDOMKEY')).rejects.toThrow(/NOPERM/);
+      await expect(c.call('DBSIZE')).rejects.toThrow(/NOPERM/);
+      await expect(c.call('CLIENT', 'TRACKING', 'on', 'BCAST')).rejects.toThrow(/NOPERM/);
+      await expect(c.eval(`return redis.call('SCAN', '0')`, 0)).rejects.toThrow(/NOPERM|permission/i);
       // Lua không vượt được ACL: lệnh trong script vẫn bị kiểm
       await expect(c.eval(`return redis.call('FLUSHALL')`, 0)).rejects.toThrow(/NOPERM|permission/i);
     }
@@ -167,6 +178,10 @@ describe('Redis ACL theo user (CP03 lát 10)', () => {
     expect(await worker.set('bull:ok', '1')).toBe('OK');
     expect(await ops.call('CONFIG', 'GET', 'maxmemory-policy')).toEqual(['maxmemory-policy', 'noeviction']);
     expect(String(await ops.call('ACL', 'WHOAMI'))).toBe('ops');
+    // file ACL không chứa mật khẩu rõ (chỉ SHA-256)
+    const f = await redis.exec(['cat', '/tmp/redis-users.acl']);
+    for (const v of Object.values(P)) expect(f.output).not.toContain(v);
+    expect(f.output).toMatch(/user api on #[0-9a-f]{64} /);
   });
 });
 

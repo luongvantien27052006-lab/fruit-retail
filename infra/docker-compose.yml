@@ -37,7 +37,10 @@ services:
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
     # ACL theo user (ADR-029): default TẮT; ops toàn quyền (vận hành); api chỉ rl:*; worker chỉ bull:*; không lệnh nguy hiểm
     entrypoint: ['sh', '/usr/local/bin/fruit-redis-start.sh']
-    command: ['--appendonly', 'yes', '--appendfsync', 'everysec', '--maxmemory-policy', 'noeviction']
+    # maxmemory: mật khẩu api/worker lộ không lấp đầy được RAM của máy (noeviction ⇒ ghi thêm bị từ chối, không mất dữ liệu)
+    command:
+      ['--appendonly', 'yes', '--appendfsync', 'everysec', '--maxmemory', '256mb', '--maxmemory-policy', 'noeviction']
+    mem_limit: 384m
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD bắt buộc (user ops)}
       REDIS_API_PASSWORD: ${REDIS_API_PASSWORD:?REDIS_API_PASSWORD bắt buộc — xem infra/.env.example}

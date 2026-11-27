@@ -6,7 +6,7 @@
 #   worker  : chỉ khóa bull:* (BullMQ outbox) + PING/INFO; không lệnh nguy hiểm
 # Lệnh nguy hiểm (@dangerous: FLUSHALL/FLUSHDB/CONFIG/DEBUG/KEYS/SHUTDOWN/MONITOR/CLIENT KILL…) và @admin bị chặn cho
 # api/worker; INFO mở lại vì ioredis (ready check) và BullMQ (kiểm phiên bản) cần. SCRIPT/FUNCTION FLUSH|KILL bị chặn.
-# Mật khẩu lấy từ biến môi trường, ghi vào ACL file trong container (chỉ user redis đọc được), không vào log.
+# Mật khẩu lấy từ biến môi trường; file ACL chỉ chứa SHA-256 (#hash), không chứa mật khẩu rõ, chỉ user redis đọc được.
 set -eu
 
 check() {
@@ -26,14 +26,17 @@ if [ "$REDIS_API_PASSWORD" = "$REDIS_PASSWORD" ] || [ "$REDIS_WORKER_PASSWORD" =
   exit 1
 fi
 
-APP='resetchannels -@all +@read +@write +@scripting +@connection -@dangerous -@admin +ping +info +client|setname +client|getname +client|id -script|flush -script|kill -function|flush -function|delete -function|restore -function|kill'
+# Review cổng CP03: chặn thêm SCRIPT DEBUG (treo cả Redis), FUNCTION (thư viện dùng chung, lưu vào RDB/AOF), SCAN/
+# RANDOMKEY/DBSIZE (lộ tên khóa tiền tố khác), CLIENT TRACKING/CACHING (nhận thông báo invalidate tên khóa người khác).
+APP='resetchannels -@all +@read +@write +@scripting +@connection -@dangerous -@admin +ping +info +client|setname +client|getname +client|id -script|flush -script|kill -script|debug -function -fcall -fcall_ro -scan -randomkey -dbsize -client|tracking -client|caching -client|trackinginfo -client|getredir'
 ACL=/tmp/redis-users.acl
 umask 077
+h() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
 {
   printf 'user default off resetkeys -@all\n'
-  printf 'user ops on >%s ~* &* +@all\n' "$REDIS_PASSWORD"
-  printf 'user api on >%s resetkeys ~rl:* %s\n' "$REDIS_API_PASSWORD" "$APP"
-  printf 'user worker on >%s resetkeys ~bull:* %s\n' "$REDIS_WORKER_PASSWORD" "$APP"
+  printf 'user ops on #%s ~* &* +@all\n' "$(h "$REDIS_PASSWORD")"
+  printf 'user api on #%s resetkeys ~rl:* %s\n' "$(h "$REDIS_API_PASSWORD")" "$APP"
+  printf 'user worker on #%s resetkeys ~bull:* %s\n' "$(h "$REDIS_WORKER_PASSWORD")" "$APP"
 } > "$ACL"
 # entrypoint của image hạ quyền xuống user redis ⇒ file phải thuộc redis
 chown redis:redis "$ACL" 2>/dev/null || true

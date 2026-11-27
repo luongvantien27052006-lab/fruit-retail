@@ -29,6 +29,15 @@ FLUSHALL, CONFIG SET, DEBUG… Đến CP03 đã có hai người dùng Redis th�
    - healthcheck chạy `redis-cli --user api ping`;
    - script được bind-mount read-only và chạy qua `sh`, nên không phụ thuộc bit thực thi.
 
+## Sửa theo review cổng CP03
+- Chặn thêm cho api/worker: `SCRIPT DEBUG` (chế độ debug đồng bộ treo cả Redis), toàn bộ `FUNCTION`/`FCALL` (thư viện
+  dùng chung, ghi đè được, lưu vào RDB/AOF), `SCAN`/`RANDOMKEY`/`DBSIZE` (lộ tên khóa tiền tố khác), `CLIENT
+  TRACKING`/`CACHING` (nhận invalidate tên khóa người khác). MULTI/EXEC vốn không cấp (`@transaction`): outbox không dùng;
+  FlowProducer/getJobLogs của BullMQ sẽ cần cấp khi dùng.
+- File ACL chỉ chứa SHA-256 (`#hash`), không có mật khẩu rõ. Mật khẩu vẫn nằm trong env của container (thấy qua
+  `docker inspect` — cần quyền docker ≈ root); chuyển docker secrets khi lên VPS.
+- `--maxmemory 256mb` (noeviction) + `mem_limit: 384m`: lộ mật khẩu api/worker không lấp đầy được RAM máy.
+
 ## Hệ quả
 - Test `apps/api/test/redis-acl.test.ts` chạy Redis thật bằng chính `start.sh`. Nội dung kiểm:
   - RateLimiter thật (Lua) chạy được dưới user api; OutboxWorker thật (BullMQ) chạy được dưới user worker;

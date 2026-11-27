@@ -273,5 +273,165 @@
       "units": 2000000000,
       "error": "OUT_OF_RANGE"
     }
+  ],
+  "stockQuantity": [
+    {
+      "id": "Q1",
+      "source": "§21.3.1 hộp 500 g",
+      "factorG": 500,
+      "factorUnits": null,
+      "isVariable": false,
+      "qty": 1,
+      "expected": {
+        "base": "GRAM",
+        "amount": 500
+      }
+    },
+    {
+      "id": "Q2",
+      "source": "§21.3.1 2 hộp 500 g",
+      "factorG": 500,
+      "factorUnits": null,
+      "isVariable": false,
+      "qty": 2,
+      "expected": {
+        "base": "GRAM",
+        "amount": 1000
+      }
+    },
+    {
+      "id": "Q3",
+      "source": "kg",
+      "factorG": 1000,
+      "factorUnits": null,
+      "isVariable": false,
+      "qty": 3,
+      "expected": {
+        "base": "GRAM",
+        "amount": 3000
+      }
+    },
+    {
+      "id": "Q4",
+      "source": "thùng 24 quả",
+      "factorG": null,
+      "factorUnits": 24,
+      "isVariable": false,
+      "qty": 2,
+      "expected": {
+        "base": "COUNT",
+        "amount": 48
+      }
+    },
+    {
+      "id": "Q5",
+      "source": "đơn vị gốc",
+      "factorG": null,
+      "factorUnits": 1,
+      "isVariable": false,
+      "qty": 7,
+      "expected": {
+        "base": "COUNT",
+        "amount": 7
+      }
+    },
+    {
+      "id": "Q6",
+      "source": "biên 0",
+      "factorG": 500,
+      "factorUnits": null,
+      "isVariable": false,
+      "qty": 0,
+      "expected": {
+        "base": "GRAM",
+        "amount": 0
+      }
+    },
+    {
+      "id": "Q7",
+      "source": "biên int32",
+      "factorG": 1,
+      "factorUnits": null,
+      "isVariable": false,
+      "qty": 2147483647,
+      "expected": {
+        "base": "GRAM",
+        "amount": 2147483647
+      }
+    }
+  ],
+  "stockQuantityRejects": [
+    {
+      "id": "QR1",
+      "source": "§21.3.1 thùng danh nghĩa — cân thực khi nhận",
+      "factorG": null,
+      "factorUnits": null,
+      "isVariable": true,
+      "qty": 1,
+      "error": "VARIABLE_UNIT"
+    },
+    {
+      "id": "QR2",
+      "source": "hai cách quy đổi",
+      "factorG": 500,
+      "factorUnits": 2,
+      "isVariable": false,
+      "qty": 1,
+      "error": "INVALID_UNIT"
+    },
+    {
+      "id": "QR3",
+      "source": "không có cách quy đổi",
+      "factorG": null,
+      "factorUnits": null,
+      "isVariable": false,
+      "qty": 1,
+      "error": "INVALID_UNIT"
+    },
+    {
+      "id": "QR4",
+      "source": "hệ số 0",
+      "factorG": 0,
+      "factorUnits": null,
+      "isVariable": false,
+      "qty": 1,
+      "error": "INVALID_UNIT"
+    },
+    {
+      "id": "QR5",
+      "source": "số lượng âm",
+      "factorG": 500,
+      "factorUnits": null,
+      "isVariable": false,
+      "qty": -1,
+      "error": "NEGATIVE"
+    },
+    {
+      "id": "QR6",
+      "source": "số lượng lẻ",
+      "factorG": null,
+      "factorUnits": 1,
+      "isVariable": false,
+      "qty": 1.5,
+      "error": "NOT_INTEGER"
+    },
+    {
+      "id": "QR7",
+      "source": "vượt int32",
+      "factorG": 500,
+      "factorUnits": null,
+      "isVariable": false,
+      "qty": 4294968,
+      "error": "OUT_OF_RANGE"
+    },
+    {
+      "id": "QR8",
+      "source": "danh nghĩa kèm hệ số",
+      "factorG": 5000,
+      "factorUnits": null,
+      "isVariable": true,
+      "qty": 1,
+      "error": "INVALID_UNIT"
+    }
   ]
 }

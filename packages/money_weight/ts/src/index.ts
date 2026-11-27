@@ -3,7 +3,8 @@
  * Tiền: bigint VND (đồng). Khối lượng: số nguyên gram. Không dùng number cho tiền.
  */
 
-export type MoneyWeightErrorCode = 'NEGATIVE' | 'NOT_INTEGER' | 'INVALID_WIRE' | 'OUT_OF_RANGE';
+export type MoneyWeightErrorCode =
+  'NEGATIVE' | 'NOT_INTEGER' | 'INVALID_WIRE' | 'OUT_OF_RANGE' | 'INVALID_UNIT' | 'VARIABLE_UNIT';
 
 export class MoneyWeightError extends Error {
   constructor(
@@ -92,4 +93,35 @@ export function toWire(amount: bigint): string {
   const s = assertRange(amount).toString();
   if (!WIRE_RE.test(s)) throw new MoneyWeightError('OUT_OF_RANGE', `Quá 18 chữ số: ${s}`);
   return s;
+}
+
+/** Cách quy đổi của một đơn vị bán/mua (`sku_units`, §21.3.1): đúng MỘT trong factorG / factorUnits / isVariable. */
+export interface UnitConversion {
+  factorG: number | null;
+  factorUnits: number | null;
+  isVariable: boolean;
+}
+
+/** Số lượng theo đơn vị tồn chuẩn của SKU: gram (hàng cân) hoặc số đơn vị (hàng đếm). */
+export interface StockQuantity {
+  base: 'GRAM' | 'COUNT';
+  amount: number;
+}
+
+/**
+ * Quy đổi `qty` đơn vị bán/mua về đơn vị tồn (§21.3.1): hộp 500 g × 2 ⇒ 1000 g; thùng 24 quả × 2 ⇒ 48.
+ * Đơn vị danh nghĩa (thùng/sọt "~5 kg") KHÔNG quy đổi cứng ⇒ `VARIABLE_UNIT` (phải cân thực khi nhận — §5.3).
+ */
+export function toStockQuantity(conv: UnitConversion, qty: number): StockQuantity {
+  const set = (conv.factorG !== null ? 1 : 0) + (conv.factorUnits !== null ? 1 : 0) + (conv.isVariable ? 1 : 0);
+  if (set !== 1) throw new MoneyWeightError('INVALID_UNIT', 'Đơn vị phải có đúng một cách quy đổi');
+  if (conv.isVariable)
+    throw new MoneyWeightError('VARIABLE_UNIT', 'Đơn vị danh nghĩa không quy đổi cứng — cân thực khi nhận');
+  const factor = (conv.factorG ?? conv.factorUnits) as number;
+  if (!Number.isSafeInteger(factor) || factor < 1 || factor > GRAMS_MAX)
+    throw new MoneyWeightError('INVALID_UNIT', `Hệ số quy đổi không hợp lệ: ${factor}`);
+  const q = assertGrams(qty);
+  const amount = q * BigInt(factor);
+  if (amount > BigInt(GRAMS_MAX)) throw new MoneyWeightError('OUT_OF_RANGE', `Số lượng quy đổi vượt int32: ${amount}`);
+  return { base: conv.factorG !== null ? 'GRAM' : 'COUNT', amount: Number(amount) };
 }

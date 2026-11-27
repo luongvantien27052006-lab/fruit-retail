@@ -8,7 +8,9 @@ enum MoneyWeightErrorCode {
   negative('NEGATIVE'),
   notInteger('NOT_INTEGER'),
   invalidWire('INVALID_WIRE'),
-  outOfRange('OUT_OF_RANGE');
+  outOfRange('OUT_OF_RANGE'),
+  invalidUnit('INVALID_UNIT'),
+  variableUnit('VARIABLE_UNIT');
 
   const MoneyWeightErrorCode(this.wireName);
   final String wireName;
@@ -121,4 +123,63 @@ String toWire(int amount) {
     );
   }
   return s;
+}
+
+/// Số lượng theo đơn vị tồn chuẩn của SKU: `GRAM` (hàng cân) hoặc `COUNT` (hàng đếm).
+class StockQuantity {
+  const StockQuantity(this.base, this.amount);
+  final String base;
+  final int amount;
+
+  @override
+  bool operator ==(Object other) =>
+      other is StockQuantity && other.base == base && other.amount == amount;
+
+  @override
+  int get hashCode => Object.hash(base, amount);
+
+  @override
+  String toString() => 'StockQuantity($base, $amount)';
+}
+
+/// Quy đổi [qty] đơn vị bán/mua về đơn vị tồn (§21.3.1) — khớp bản TS `toStockQuantity`.
+/// Đơn vị danh nghĩa (thùng/sọt) KHÔNG quy đổi cứng ⇒ `VARIABLE_UNIT` (cân thực khi nhận — §5.3).
+StockQuantity toStockQuantity({
+  required int? factorG,
+  required int? factorUnits,
+  required bool isVariable,
+  required num qty,
+}) {
+  final set =
+      (factorG != null ? 1 : 0) +
+      (factorUnits != null ? 1 : 0) +
+      (isVariable ? 1 : 0);
+  if (set != 1) {
+    throw MoneyWeightError(
+      MoneyWeightErrorCode.invalidUnit,
+      'Đơn vị phải có đúng một cách quy đổi',
+    );
+  }
+  if (isVariable) {
+    throw MoneyWeightError(
+      MoneyWeightErrorCode.variableUnit,
+      'Đơn vị danh nghĩa không quy đổi cứng — cân thực khi nhận',
+    );
+  }
+  final factor = (factorG ?? factorUnits)!;
+  if (factor < 1 || factor > _gramsMax) {
+    throw MoneyWeightError(
+      MoneyWeightErrorCode.invalidUnit,
+      'Hệ số quy đổi không hợp lệ: $factor',
+    );
+  }
+  final q = _assertGrams(qty);
+  final amount = q * factor;
+  if (amount > _gramsMax) {
+    throw MoneyWeightError(
+      MoneyWeightErrorCode.outOfRange,
+      'Số lượng quy đổi vượt int32: $amount',
+    );
+  }
+  return StockQuantity(factorG != null ? 'GRAM' : 'COUNT', amount);
 }

@@ -1,6 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { formatKg, formatVnd, fromWire, lineAmount, MoneyWeightError, toWire, unitsAmount } from '../src/index.js';
+import {
+  formatKg,
+  formatVnd,
+  fromWire,
+  lineAmount,
+  MoneyWeightError,
+  toStockQuantity,
+  toWire,
+  unitsAmount,
+} from '../src/index.js';
 
 interface V {
   lineAmount: { id: string; pricePerKg: string; grams: number; expected: string }[];
@@ -10,6 +19,16 @@ interface V {
   formatVnd: { amount: string; expected: string }[];
   formatKg: { grams: number; expected: string }[];
   wire: { wire: string; ok: boolean }[];
+  stockQuantity: (Q & { expected: { base: 'GRAM' | 'COUNT'; amount: number } })[];
+  stockQuantityRejects: (Q & { error: string })[];
+}
+interface Q {
+  id: string;
+  source: string;
+  factorG: number | null;
+  factorUnits: number | null;
+  isVariable: boolean;
+  qty: number;
 }
 const v = JSON.parse(readFileSync(new URL('../../vectors/money_weight.vectors.json', import.meta.url), 'utf8')) as V;
 
@@ -49,5 +68,12 @@ describe('wire codec — ADR-016', () => {
   it('toWire chỉ nhận bigint', () => {
     // @ts-expect-error — số thực/number bị chặn ở kiểu
     expect(() => toWire(1.5)).toThrowError(MoneyWeightError);
+  });
+});
+
+describe('toStockQuantity — §21.3.1 quy đổi về đơn vị tồn', () => {
+  it.each(v.stockQuantity)('$id ($source)', (c) => expect(toStockQuantity(c, c.qty)).toEqual(c.expected));
+  it.each(v.stockQuantityRejects)('$id từ chối ($error) — $source', (c) => {
+    expect(() => toStockQuantity(c, c.qty)).toThrowError(expect.objectContaining({ code: c.error }));
   });
 });

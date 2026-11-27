@@ -3550,13 +3550,21 @@ paths:
       x-detail-cp: CP04
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - name: include_archived
+          in: query
+          required: false
+          description: 'gồm cả bản ghi đã lưu trữ'
+          schema:
+            type: string
+            enum: ['true', 'false']
+            default: 'false'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/CategoryList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -3582,14 +3590,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/CategoryCreateRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Category'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -3627,7 +3635,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Category'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -3643,7 +3651,7 @@ paths:
     patch:
       operationId: patchAdminCategoriesId
       tags: [admin]
-      summary: 'Sửa danh mục'
+      summary: 'Sửa / lưu trữ danh mục'
       x-permission: 'catalog:write'
       x-spec-ref: '§4.1'
       x-detail-cp: CP04
@@ -3655,14 +3663,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/CategoryUpdateRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Category'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -3689,13 +3697,35 @@ paths:
       x-detail-cp: CP04
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - name: category_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: include_archived
+          in: query
+          required: false
+          description: 'gồm cả bản ghi đã lưu trữ'
+          schema:
+            type: string
+            enum: ['true', 'false']
+            default: 'false'
+        - name: q
+          in: query
+          required: false
+          description: 'tìm theo tên'
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/ProductList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -3721,14 +3751,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/ProductCreateRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Product'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -3766,7 +3796,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Product'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -3782,7 +3812,7 @@ paths:
     patch:
       operationId: patchAdminProductsId
       tags: [admin]
-      summary: 'Sửa sản phẩm'
+      summary: 'Sửa / lưu trữ sản phẩm'
       x-permission: 'catalog:write'
       x-spec-ref: '§4.1'
       x-detail-cp: CP04
@@ -3794,14 +3824,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/ProductUpdateRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Product'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -3828,13 +3858,55 @@ paths:
       x-detail-cp: CP04
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - name: product_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: sale_unit_type
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/SaleUnitType'
+        - name: q
+          in: query
+          required: false
+          description: 'tên (chứa), mã SKU (đầu mã), PLU hoặc mã vạch (đúng)'
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: include_archived
+          in: query
+          required: false
+          description: 'gồm cả bản ghi đã lưu trữ'
+          schema:
+            type: string
+            enum: ['true', 'false']
+            default: 'false'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 200
+        - name: after
+          in: query
+          required: false
+          description: 'trang sau: next_after của trang trước (theo mã SKU)'
+          schema:
+            type: string
+            maxLength: 32
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/SkuList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -3860,14 +3932,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/SkuCreateRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Sku'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -3905,7 +3977,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Sku'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -3921,7 +3993,7 @@ paths:
     patch:
       operationId: patchAdminSkusId
       tags: [admin]
-      summary: 'Sửa SKU'
+      summary: 'Sửa / lưu trữ SKU'
       x-permission: 'catalog:write'
       x-spec-ref: '§4.3'
       x-detail-cp: CP04
@@ -3933,14 +4005,116 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/SkuUpdateRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Sku'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/skus/{id}/units:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: postAdminSkusIdUnits
+      tags: [admin]
+      summary: 'Thêm đơn vị bán/mua cho SKU'
+      x-permission: 'catalog:write'
+      x-spec-ref: '§21.3.1'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkuUnitCreateRequest'
+      responses:
+        '201':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkuUnit'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/skus/{id}/units/{unit_id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: unit_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      operationId: patchAdminSkusIdUnitsUnitId
+      tags: [admin]
+      summary: 'Sửa / lưu trữ đơn vị bán/mua của SKU'
+      x-permission: 'catalog:write'
+      x-spec-ref: '§21.3.1'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkuUnitUpdateRequest'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkuUnit'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -3961,19 +4135,27 @@ paths:
     get:
       operationId: getAdminUnits
       tags: [admin]
-      summary: 'Danh sách đơn vị tính SKU'
+      summary: 'Danh sách đơn vị tính'
       x-permission: 'catalog:read'
       x-spec-ref: '§21.3.1'
       x-detail-cp: CP04
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - name: include_archived
+          in: query
+          required: false
+          description: 'gồm cả bản ghi đã lưu trữ'
+          schema:
+            type: string
+            enum: ['true', 'false']
+            default: 'false'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/UnitList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -3987,7 +4169,7 @@ paths:
     post:
       operationId: postAdminUnits
       tags: [admin]
-      summary: 'Tạo đơn vị tính SKU'
+      summary: 'Tạo đơn vị tính'
       x-permission: 'unit:write'
       x-spec-ref: '§21.3.1'
       x-detail-cp: CP04
@@ -3999,14 +4181,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/UnitCreateRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Unit'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4021,18 +4203,18 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /admin/units/{id}:
+  /admin/units/{code}:
     parameters:
-      - name: id
+      - name: code
         in: path
         required: true
         schema:
           type: string
-          format: uuid
+          pattern: '^[A-Za-z][A-Za-z0-9_]{0,15}$'
     get:
-      operationId: getAdminUnitsId
+      operationId: getAdminUnitsCode
       tags: [admin]
-      summary: 'Chi tiết đơn vị tính SKU'
+      summary: 'Chi tiết đơn vị tính'
       x-permission: 'catalog:read'
       x-spec-ref: '§21.3.1'
       x-detail-cp: CP04
@@ -4044,7 +4226,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Unit'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4058,9 +4240,9 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
     patch:
-      operationId: patchAdminUnitsId
+      operationId: patchAdminUnitsCode
       tags: [admin]
-      summary: 'Sửa đơn vị tính SKU'
+      summary: 'Sửa / lưu trữ đơn vị tính'
       x-permission: 'unit:write'
       x-spec-ref: '§21.3.1'
       x-detail-cp: CP04
@@ -4072,14 +4254,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/UnitUpdateRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Unit'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -8597,6 +8779,610 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
+    SaleUnitType:
+      type: string
+      description: Kiểu bán §4.2 — bất biến sau khi tạo SKU
+      enum: [WEIGHT, PIECE_BY_WEIGHT, PIECE_FIXED, PACK_FIXED, PACK_VARIABLE, BUNDLE, SERVICE]
+    Unit:
+      type: object
+      description: >-
+        Đơn vị tính (§21.3.1). Mã, loại, số gram cố định bất biến.
+      required: [code, name, kind, fixed_g, archived_at]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [WEIGHT, COUNT]
+        fixed_g:
+          type: [integer, 'null']
+          description: đơn vị khối lượng — số gram cố định (kg = 1000)
+        archived_at:
+          type: [string, 'null']
+          format: date-time
+    UnitList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Unit'
+    UnitCreateRequest:
+      type: object
+      description: >-
+        kind WEIGHT ⇒ bắt buộc fixed_g; COUNT ⇒ không có (422).
+      required: [code, name, kind]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Za-z][A-Za-z0-9_]{0,15}$'
+          description: chuẩn hóa chữ HOA
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        kind:
+          type: string
+          enum: [WEIGHT, COUNT]
+        fixed_g:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 1000000
+    UnitUpdateRequest:
+      type: object
+      description: >-
+        Đơn vị gốc mặc định của SKU (KG, PIECE, PACK, BASKET, SERVICE) không lưu trữ được (422).
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 50
+        archived:
+          type: boolean
+          description: true = lưu trữ (không xóa); false = dùng lại
+    Category:
+      type: object
+      description: >-
+        Cây danh mục §4.1 (tối đa 5 cấp, không vòng).
+      required: [id, parent_id, name, sort, created_at, updated_at, archived_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        parent_id:
+          type: [string, 'null']
+          format: uuid
+        name:
+          type: string
+        sort:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: [string, 'null']
+          format: date-time
+    CategoryList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+    CategoryCreateRequest:
+      type: object
+      description: >-
+        Cha đã lưu trữ / không tồn tại ⇒ 422; trùng tên cùng cha ⇒ 409.
+      required: [name]
+      additionalProperties: false
+      properties:
+        parent_id:
+          type: [string, 'null']
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        sort:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+    CategoryUpdateRequest:
+      type: object
+      description: >-
+        Lưu trữ khi còn danh mục con / sản phẩm đang dùng ⇒ 422; đổi cha tạo vòng hoặc sâu quá 5 cấp ⇒ 422.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        parent_id:
+          type: [string, 'null']
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        sort:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+        archived:
+          type: boolean
+          description: true = lưu trữ (không xóa); false = dùng lại
+    Product:
+      type: object
+      description: >-
+        Sản phẩm §4.1 (nhóm các SKU cùng loại hàng).
+      required: [id, category_id, name, description, origin, created_at, updated_at, archived_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        category_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        origin:
+          type: [string, 'null']
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: [string, 'null']
+          format: date-time
+    ProductList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+    ProductCreateRequest:
+      type: object
+      description: >-
+        Danh mục đã lưu trữ / không tồn tại ⇒ 422.
+      required: [category_id, name]
+      additionalProperties: false
+      properties:
+        category_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: [string, 'null']
+          maxLength: 2000
+        origin:
+          type: [string, 'null']
+          maxLength: 100
+    ProductUpdateRequest:
+      type: object
+      description: >-
+        Lưu trữ khi còn SKU đang dùng ⇒ 422.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        category_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: [string, 'null']
+          maxLength: 2000
+        origin:
+          type: [string, 'null']
+          maxLength: 100
+        archived:
+          type: boolean
+          description: true = lưu trữ (không xóa); false = dùng lại
+    SkuUnit:
+      type: object
+      description: >-
+        Đơn vị bán/mua dùng chung tồn (§21.3.1): đúng một cách quy đổi — factor_g (tồn gram), factor_units (tồn đếm), is_variable (thùng/sọt danh nghĩa, cân thực khi nhận, chỉ để mua). Hệ số và mã đơn vị bất biến.
+      required:
+        [
+          id,
+          sku_id,
+          unit_code,
+          name,
+          factor_g,
+          factor_units,
+          is_variable,
+          for_sale,
+          for_purchase,
+          barcode,
+          price_per_unit,
+          created_at,
+          updated_at,
+          archived_at,
+        ]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        sku_id:
+          type: string
+          format: uuid
+        unit_code:
+          type: string
+        name:
+          type: string
+        factor_g:
+          type: [integer, 'null']
+        factor_units:
+          type: [integer, 'null']
+        is_variable:
+          type: boolean
+        for_sale:
+          type: boolean
+        for_purchase:
+          type: boolean
+        barcode:
+          type: [string, 'null']
+        price_per_unit:
+          type: [string, 'null']
+          pattern: '^-?[0-9]{1,18}$'
+          format: vnd
+          description: giá riêng của đơn vị (đổi qua /admin/prices — lát 3); null = tính theo giá SKU
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: [string, 'null']
+          format: date-time
+    SkuUnitCreateRequest:
+      type: object
+      description: >-
+        Sai kiểu bán / sai loại đơn vị (vd. đơn vị đếm cho hàng chỉ tồn gram, danh nghĩa để bán, dịch vụ để mua) ⇒ 422 CATALOG_RULE_VIOLATION.
+      required: [unit_code, name, for_sale, for_purchase]
+      additionalProperties: false
+      properties:
+        unit_code:
+          type: string
+          pattern: '^[A-Za-z][A-Za-z0-9_]{0,15}$'
+          description: chuẩn hóa chữ HOA
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        factor_g:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 1000000
+        factor_units:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 100000
+        is_variable:
+          type: boolean
+        for_sale:
+          type: boolean
+        for_purchase:
+          type: boolean
+        barcode:
+          type: [string, 'null']
+          pattern: '^[0-9A-Za-z-]{4,32}$'
+          description: chuẩn hóa chữ HOA; mã 13 số bắt đầu bằng 2 (tem cân) bị từ chối; mã toàn số 8/12/13/14 kiểm số kiểm tra GS1 (422 BARCODE_CHECKSUM_INVALID)
+    SkuUnitUpdateRequest:
+      type: object
+      description: >-
+        SKU đang dùng phải còn ít nhất một đơn vị bán đang dùng (422). Bỏ "để bán" khi đơn vị có giá riêng ⇒ 422.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        for_sale:
+          type: boolean
+        for_purchase:
+          type: boolean
+        barcode:
+          type: [string, 'null']
+          pattern: '^[0-9A-Za-z-]{4,32}$'
+          description: chuẩn hóa chữ HOA; mã 13 số bắt đầu bằng 2 (tem cân) bị từ chối; mã toàn số 8/12/13/14 kiểm số kiểm tra GS1 (422 BARCODE_CHECKSUM_INVALID)
+        archived:
+          type: boolean
+          description: true = lưu trữ (không xóa); false = dùng lại
+    Sku:
+      type: object
+      description: >-
+        SKU §4.3. stock_base: đơn vị tồn chuẩn (GRAM hàng cân, COUNT hàng đếm, NONE dịch vụ). Giá chỉ đọc ở đây (đổi qua /admin/prices — lát 3).
+      required:
+        [
+          id,
+          product_id,
+          sku_code,
+          name,
+          sale_unit_type,
+          stock_base,
+          std_weight_g,
+          weight_min_g,
+          weight_max_g,
+          tare_g,
+          scale_plu,
+          sold_by_scale,
+          shelf_life_days,
+          storage_note,
+          has_ripeness,
+          shrink_norm_bps_week,
+          is_high_value,
+          cold_required,
+          alert_days_before_expiry,
+          stop_app_days_before_expiry,
+          retail_price_per_kg,
+          retail_price_per_unit,
+          version,
+          created_at,
+          updated_at,
+          archived_at,
+          units,
+        ]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        sku_code:
+          type: string
+        name:
+          type: string
+        sale_unit_type:
+          $ref: '#/components/schemas/SaleUnitType'
+        stock_base:
+          type: string
+          enum: [GRAM, COUNT, NONE]
+        std_weight_g:
+          type: [integer, 'null']
+        weight_min_g:
+          type: [integer, 'null']
+        weight_max_g:
+          type: [integer, 'null']
+        tare_g:
+          type: [integer, 'null']
+        scale_plu:
+          type: [string, 'null']
+          description: PLU 5 số (khác 00000) — chỉ hàng tính theo kg; unique trong SKU đang dùng
+        sold_by_scale:
+          type: boolean
+        shelf_life_days:
+          type: [integer, 'null']
+        storage_note:
+          type: [string, 'null']
+        has_ripeness:
+          type: boolean
+        shrink_norm_bps_week:
+          type: [integer, 'null']
+          description: định mức hao hụt/tuần, phần vạn
+        is_high_value:
+          type: boolean
+        cold_required:
+          type: boolean
+        alert_days_before_expiry:
+          type: [integer, 'null']
+        stop_app_days_before_expiry:
+          type: [integer, 'null']
+        retail_price_per_kg:
+          type: [string, 'null']
+          pattern: '^-?[0-9]{1,18}$'
+          format: vnd
+        retail_price_per_unit:
+          type: [string, 'null']
+          pattern: '^-?[0-9]{1,18}$'
+          format: vnd
+        version:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: [string, 'null']
+          format: date-time
+        units:
+          type: array
+          items:
+            $ref: '#/components/schemas/SkuUnit'
+    SkuList:
+      type: object
+      required: [items, next_after]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Sku'
+        next_after:
+          type: [string, 'null']
+          description: còn trang sau ⇒ truyền vào ?after=
+    SkuCreateRequest:
+      type: object
+      description: >-
+        Tạo SKU kèm đơn vị gốc (hàng cân: kg 1000 g; hàng đếm: 1 đơn vị — PIECE/PACK/BASKET/SERVICE, đổi bằng base_unit_code). Thuộc tính sai kiểu bán ⇒ 422 CATALOG_RULE_VIOLATION; trùng mã SKU / PLU / mã vạch ⇒ 409. Không nhận giá (lát 3).
+      required: [product_id, sku_code, name, sale_unit_type]
+      additionalProperties: false
+      properties:
+        product_id:
+          type: string
+          format: uuid
+        sku_code:
+          type: string
+          pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$'
+          description: chuẩn hóa chữ HOA; bất biến
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        sale_unit_type:
+          $ref: '#/components/schemas/SaleUnitType'
+        barcode:
+          type: [string, 'null']
+          pattern: '^[0-9A-Za-z-]{4,32}$'
+          description: mã vạch của đơn vị gốc — chuẩn hóa chữ HOA; mã 13 số bắt đầu bằng 2 (tem cân) bị từ chối; mã toàn số 8/12/13/14 kiểm số kiểm tra GS1 (422 BARCODE_CHECKSUM_INVALID)
+        base_unit_code:
+          type: string
+          pattern: '^[A-Za-z][A-Za-z0-9_]{0,15}$'
+          description: chuẩn hóa chữ HOA
+        units:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/SkuUnitCreateRequest'
+        std_weight_g:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 100000
+        weight_min_g:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 100000
+        weight_max_g:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 100000
+        tare_g:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 20000
+        scale_plu:
+          type: [string, 'null']
+          pattern: '^[0-9]{5}$'
+          description: PLU 5 số (khác 00000) — chỉ hàng tính theo kg; unique trong SKU đang dùng
+        sold_by_scale:
+          type: boolean
+        shelf_life_days:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 3650
+        storage_note:
+          type: [string, 'null']
+          maxLength: 500
+        has_ripeness:
+          type: boolean
+        shrink_norm_bps_week:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 10000
+          description: định mức hao hụt/tuần, phần vạn
+        is_high_value:
+          type: boolean
+        cold_required:
+          type: boolean
+        alert_days_before_expiry:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 3650
+        stop_app_days_before_expiry:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 3650
+    SkuUpdateRequest:
+      type: object
+      description: >-
+        version phải bằng bản hiện tại (lệch ⇒ 409). Mã SKU, kiểu bán, giá không sửa ở đây. Lưu trữ SKU trả PLU lại; mở lại ⇒ kiểm trùng PLU / mã vạch.
+      required: [version]
+      additionalProperties: false
+      minProperties: 2
+      properties:
+        version:
+          type: integer
+          minimum: 0
+        product_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        archived:
+          type: boolean
+          description: true = lưu trữ (không xóa); false = dùng lại
+        std_weight_g:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 100000
+        weight_min_g:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 100000
+        weight_max_g:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 100000
+        tare_g:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 20000
+        scale_plu:
+          type: [string, 'null']
+          pattern: '^[0-9]{5}$'
+          description: PLU 5 số (khác 00000) — chỉ hàng tính theo kg; unique trong SKU đang dùng
+        sold_by_scale:
+          type: boolean
+        shelf_life_days:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 3650
+        storage_note:
+          type: [string, 'null']
+          maxLength: 500
+        has_ripeness:
+          type: boolean
+        shrink_norm_bps_week:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 10000
+          description: định mức hao hụt/tuần, phần vạn
+        is_high_value:
+          type: boolean
+        cold_required:
+          type: boolean
+        alert_days_before_expiry:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 3650
+        stop_app_days_before_expiry:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 3650
     VndAmount:
       type: string
       pattern: '^-?[0-9]{1,18}$'
@@ -9742,6 +10528,7 @@ components:
         - SESSION_REVOKED
         - DEVICE_REVOKED
         - LAST_MASTER_REQUIRED
+        - CATALOG_RULE_VIOLATION
         - WEBHOOK_SIGNATURE_INVALID
         - MFA_CHALLENGE_INVALID
         - RATE_LIMITED
@@ -9792,6 +10579,7 @@ components:
         SESSION_REVOKED: 401
         DEVICE_REVOKED: 403
         LAST_MASTER_REQUIRED: 422
+        CATALOG_RULE_VIOLATION: 422
         WEBHOOK_SIGNATURE_INVALID: 401
         MFA_CHALLENGE_INVALID: 401
         RATE_LIMITED: 429

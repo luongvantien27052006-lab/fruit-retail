@@ -96,4 +96,36 @@ void main() {
       });
     }
   });
+
+  group('toStockQuantity', () {
+    for (final c in list('stockQuantity')) {
+      test('${c['id']} (${c['source']})', () {
+        final e = c['expected'] as Map<String, dynamic>;
+        expect(
+          toStockQuantity(
+            factorG: c['factorG'] as int?,
+            factorUnits: c['factorUnits'] as int?,
+            isVariable: c['isVariable'] as bool,
+            qty: c['qty'] as num,
+          ),
+          StockQuantity(e['base'] as String, e['amount'] as int),
+        );
+      });
+    }
+    for (final c in list('stockQuantityRejects')) {
+      test('${c['id']} từ chối (${c['error']})', () {
+        expect(
+          () => toStockQuantity(
+            factorG: c['factorG'] as int?,
+            factorUnits: c['factorUnits'] as int?,
+            isVariable: c['isVariable'] as bool,
+            qty: c['qty'] as num,
+          ),
+          throwsA(
+            isA<MoneyWeightError>().having((e) => e.code, 'code', c['error']),
+          ),
+        );
+      });
+    }
+  });
 }

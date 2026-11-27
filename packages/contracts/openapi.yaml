@@ -8057,8 +8057,10 @@ paths:
       description: >-
         Đúng một trong sku_ids (≤ 500) / category_id. store_id ⇒ giá riêng cửa hàng (nếu có); không có store_id ⇒ giá chung,
         cần phạm vi toàn chuỗi (403). Chỉ đọc (không ghi audit). Trả text/html in được (không script); header
-        Content-Security-Policy có sandbox, frame-ancestors 'none' — client PHẢI hiển thị trong iframe sandbox KHÔNG có
-        allow-scripts / allow-same-origin, không mở bằng blob: cùng origin. Mã vạch EAN-13 vẽ SVG. Header X-Label-Count = số
+        Content-Security-Policy có sandbox, frame-ancestors 'none'. Vì cần bearer, client fetch rồi hiển thị bằng
+        `<iframe sandbox srcdoc=…>` (KHÔNG allow-scripts / allow-same-origin; srcdoc thừa hưởng CSP trang cha) — không mở bằng
+        blob: / src cùng origin; CSP của response không còn tác dụng khi client tự hiển thị ⇒ lớp bảo vệ là thoát HTML phía
+        server + thuộc tính sandbox. Mã vạch EAN-13 vẽ SVG. Header X-Label-Count = số
         tem. A4_24 = 3 × 8 tem / trang, A4_10 = 2 × 5 tem / trang.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -11883,9 +11885,14 @@ components:
         - $ref: '#/components/schemas/BarcodeDecodeFail'
     BarcodeDecodeOk:
       type: object
-      required: [ok, rule, type, plu, grams, amount, value, sku]
+      required: [ok, rule, type, plu, grams, amount, value, sku, skipped_rules]
       additionalProperties: false
       properties:
+        skipped_rules:
+          type: array
+          description: mã quy tắc ĐANG BẬT trong DB nhưng mẫu không hợp lệ (bị bỏ qua) — sửa hoặc tắt
+          items:
+            type: string
         ok:
           type: boolean
           const: true
@@ -11919,9 +11926,14 @@ components:
                   type: string
     BarcodeDecodeFail:
       type: object
-      required: [ok, reason, rule, sku]
+      required: [ok, reason, rule, sku, skipped_rules]
       additionalProperties: false
       properties:
+        skipped_rules:
+          type: array
+          description: mã quy tắc ĐANG BẬT trong DB nhưng mẫu không hợp lệ (bị bỏ qua) — sửa hoặc tắt
+          items:
+            type: string
         ok:
           type: boolean
           const: false

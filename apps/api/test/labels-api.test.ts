@@ -144,6 +144,8 @@ describe('PLU, mã vạch cân, thương hiệu, tem (CP04 lát 6)', () => {
     try {
       const again = await e.master.get('/admin/barcode-rules/decode?code=2000123008455');
       expect(again.body).toMatchObject({ ok: true, rule: 'W1' });
+      expect(again.body.skipped_rules).toEqual(['BROKEN']);
+      expect(schemaErrors('BarcodeDecodeResult', again.body)).toEqual([]);
     } finally {
       await e.db.q(`DELETE FROM core.barcode_rules WHERE code = 'BROKEN'`);
     }
@@ -299,12 +301,28 @@ describe('PLU, mã vạch cân, thương hiệu, tem (CP04 lát 6)', () => {
     expect(h).toContain('Táo &amp; lê');
     expect(h).toContain('52.000đ');
     expect(h).toContain('/kg');
-    expect(h).toContain('12.000đ');
-    expect(h).toMatch(/12\.000đ<span class="per">\/[^<]+<\/span>/); // hàng đếm có hậu tố đơn vị
+    // một đơn vị hiển thị: hộp có mã vạch ⇒ giá HỘP (12.000 × 6 = 72.000đ) + "/Hộp 6 quả" + mã vạch của hộp — khớp POS
+    expect(h).toContain('72.000đ<span class="per">/Hộp 6 quả</span>');
+    expect(h).not.toContain('12.000đ');
     expect(h).toContain('Chưa có giá');
     expect(h).toContain('<svg');
     expect(h).toContain('aria-label="8934567890120"');
     expect(h.match(/class="page"/g)).toHaveLength(1);
+    // hộp có giá riêng ⇒ tem in giá riêng của hộp (ưu tiên giá đơn vị — lát 3)
+    const full = await e.master.get(`/admin/skus/${b.id}`);
+    const box = (full.body.units as { id: string; name: string }[]).find((u) => u.name === 'Hộp 6 quả');
+    const cur = await e.master.get(`/admin/prices/${b.id}`);
+    expect(
+      (
+        await e.master.put(`/admin/prices/${b.id}`, {
+          reason: 'giá hộp',
+          version: cur.body.version as number,
+          units: [{ sku_unit_id: box?.id as string, price: '65000' }],
+        })
+      ).status,
+    ).toBe(200);
+    const r2 = await e.master.post('/admin/shelf-labels', { sku_ids: [b.id], store_id: storeId });
+    expect(r2.text).toContain('65.000đ<span class="per">/Hộp 6 quả</span>');
     expect((await e.master.post('/admin/shelf-labels', { sku_ids: [a.id], category_id: a.id })).status).toBe(400);
     expect((await e.master.post('/admin/shelf-labels', {})).status).toBe(400);
     const sm = await e.storeManager();

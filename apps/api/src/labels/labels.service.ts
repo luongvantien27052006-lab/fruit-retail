@@ -202,8 +202,11 @@ export class LabelsService {
         return false; // quy tắc hỏng (sửa tay bằng SQL) ⇒ bỏ qua, không làm hỏng mọi lần giải mã
       }
     });
+    // quy tắc bị bỏ qua báo lại để Master sửa (review bảo mật lát 6 vòng 2)
+    const skipped = rules.filter((r) => !usable.includes(r)).map((r) => r.code);
     const res = decodeBarcode(usable.map(def), code);
-    if (!res.ok) return { ok: false as const, reason: res.reason, rule: res.rule ?? null, sku: null };
+    if (!res.ok)
+      return { ok: false as const, reason: res.reason, rule: res.rule ?? null, sku: null, skipped_rules: skipped };
     const d = res.decoded;
     const sku =
       d.plu !== undefined
@@ -221,6 +224,7 @@ export class LabelsService {
           : null;
     return {
       ok: true as const,
+      skipped_rules: skipped,
       rule: d.rule,
       type: d.type,
       plu: d.plu ?? null,
@@ -393,7 +397,7 @@ export class LabelsService {
         units: {
           where: { archivedAt: null, forSale: true },
           orderBy: { id: 'asc' },
-          select: { barcode: true, name: true },
+          select: { barcode: true, name: true, pricePerUnit: true, factorUnits: true },
         },
         storePrices: q.store_id ? { where: { storeId: q.store_id } } : false,
       },
@@ -405,12 +409,19 @@ export class LabelsService {
       const kg = perKg.has(s.saleUnitType);
       const sp = (s as { storePrices?: { retailPricePerKg: bigint | null; retailPricePerUnit: bigint | null }[] })
         .storePrices?.[0];
+      // MỘT đơn vị hiển thị — giá, tên đơn vị, mã vạch cùng của đơn vị đó (review TS lát 6 vòng 2 C1):
+      // hàng cân ⇒ giá/kg + PLU (không in mã vạch của hộp — giá khác); hàng đếm ⇒ đơn vị bán có mã vạch, không thì đơn vị
+      // bán đầu tiên; giá = giá riêng của đơn vị, không có thì giá SKU (cửa hàng → chung, giá đơn vị gốc) × số quy đổi
+      // (như POS tính dòng bán — lát 3).
+      const base = sp?.retailPricePerUnit ?? s.retailPricePerUnit;
+      const unit = kg ? undefined : (s.units.find((u) => u.barcode) ?? s.units[0]);
       const price = kg
         ? (sp?.retailPricePerKg ?? s.retailPricePerKg)
-        : (sp?.retailPricePerUnit ?? s.retailPricePerUnit);
-      // mã vạch: đơn vị bán đầu tiên CÓ mã (đơn vị lưu trữ không in — POS quét không ra)
-      const barcode = s.units.find((u) => u.barcode)?.barcode ?? null;
-      const per = kg ? '/kg' : s.units[0] ? `/${s.units[0].name}` : '';
+        : unit
+          ? (unit.pricePerUnit ?? (base !== null && unit.factorUnits !== null ? base * BigInt(unit.factorUnits) : null))
+          : base;
+      const barcode = unit?.barcode ?? null;
+      const per = kg ? '/kg' : unit ? `/${unit.name}` : '';
       const code =
         barcode && isValidEan13(barcode)
           ? ean13Svg(barcode, { moduleWidth: 1.2, height: 22 })

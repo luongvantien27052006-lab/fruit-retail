@@ -9,7 +9,7 @@ import { AuditOutboxService, type Tx } from '../common/audit-outbox.service';
 import type { Principal } from '../common/access';
 import { AppError } from '../common/errors';
 import type { RequestStore } from '../common/request-context';
-import { AuthAttempts, challengeInvalid, otpInvalid, MFA_SOURCE } from './auth-attempts';
+import { AuthAttempts, challengeInvalid, otpInvalid } from './auth-attempts';
 import { type DeviceProof, refreshBinding } from './device-proof';
 import { PosDeviceService } from './pos-device.service';
 import { hasLeft, staffAllowedOnStore } from './staff-auth.service';

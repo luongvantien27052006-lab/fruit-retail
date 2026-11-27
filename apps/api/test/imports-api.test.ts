@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { NestFactory } from '@nestjs/core';
 import ExcelJS from 'exceljs';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CATALOG_COLUMNS, SUPPLIER_COLUMNS } from '../src/imports/import-columns';
 import { ImportProcessor } from '../src/imports/import-processor';
+import { inspectXlsx, XlsxRejected } from '../src/imports/xlsx-safe';
 import { ConsumerRunner } from '../src/infra/outbox/consumer-runner';
 import { EVENT_CONSUMERS, type EventConsumer } from '../src/infra/outbox/events';
 import { PrismaService } from '../src/infra/prisma.service';
@@ -581,6 +582,110 @@ describe('Nhập / xuất Excel (CP04 lát 5)', () => {
     const head = JSON.stringify(wb.worksheets[0]?.getRow(1).values);
     expect(head).not.toContain('has_bank_account');
   }, 120_000);
+
+  it('review vòng 2: bộ lọc phần chủ động — nháy đơn, thực thể, > trong giá trị, .rels lớn, macro sheet XLM ⇒ từ chối', async () => {
+    const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+    const root = Buffer.from(
+      `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    );
+    const pkg = (extraRels: string, more: { name: string; data: Buffer }[] = []) =>
+      buildZip([
+        { name: '[Content_Types].xml', data: CONTENT_TYPES_XLSX },
+        { name: '_rels/.rels', data: root },
+        {
+          name: 'xl/_rels/workbook.xml.rels',
+          data: Buffer.from(
+            `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${extraRels}</Relationships>`,
+          ),
+        },
+        ...more,
+      ]);
+    const reason = async (buf: Buffer) => {
+      try {
+        await inspectXlsx(buf);
+        return 'OK';
+      } catch (err) {
+        return err instanceof XlsxRejected ? err.reason : String(err);
+      }
+    };
+    // mốc: quan hệ chuẩn ⇒ qua; oleObject nháy kép ⇒ chặn
+    expect(await reason(pkg(`<Relationship Id="r2" Type="${REL}/worksheet" Target="worksheets/sheet1.xml"/>`))).toBe(
+      'OK',
+    );
+    expect(await reason(pkg(`<Relationship Id="r2" Type="${REL}/oleObject" Target="x.bin"/>`))).toBe('ACTIVE_CONTENT');
+    for (const rel of [
+      `<Relationship Id='r2' Type='${REL}/oleObject' Target='x.bin'/>`, // nháy đơn
+      `<Relationship Id="r2" Type="${REL}&#x2F;oleObject" Target="x.bin"/>`, // thực thể
+      `<Relationship Id="a>b" Type="${REL}/oleObject" Target="x.bin"/>`, // > trong giá trị
+      `<Relationship Id="r2" Type="${REL}/image" Target="\\\\evil\\x.png" TargetMode="External"/>`, // ảnh liên kết ngoài
+      `<Relationship Id="r2" Type="http://schemas.microsoft.com/office/2006/relationships/xlMacrosheet" Target="m.xml"/>`,
+      `<x:Relationship xmlns:x="http://schemas.openxmlformats.org/package/2006/relationships" Id="r2" Type="${REL}/oleObject" Target="x.bin"/>`,
+    ])
+      expect(await reason(pkg(rel))).toBe('ACTIVE_CONTENT');
+    // .rels > 1 MB (đệm chú thích nhiễu, tỉ lệ nén thấp) ⇒ chặn, không bỏ qua
+    const pad = Buffer.alloc(1100 * 1024);
+    for (let i = 0; i < pad.length; i++) pad[i] = 0x61 + ((i * 2654435761) >>> 27);
+    expect(
+      await reason(pkg(`<Relationship Id="r2" Type="${REL}/worksheet" Target="s.xml"/>${pad.toString('latin1')}`)),
+    ).toBe('ACTIVE_CONTENT');
+    // macro sheet theo tên phần
+    expect(await reason(pkg('', [{ name: 'xl/macrosheets/sheet1.xml', data: Buffer.from('<x/>') }]))).toBe(
+      'ACTIVE_CONTENT',
+    );
+    // file Excel thật (exceljs, có hyperlink ra ngoài) vẫn qua
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('a');
+    ws.addRow(['x']);
+    ws.getCell('B1').value = { text: 'web', hyperlink: 'https://example.com' };
+    expect(await reason(Buffer.from(await wb.xlsx.writeBuffer()))).toBe('OK');
+  }, 60_000);
+
+  it('chia lô: nhiều lô dùng chung danh mục mới; chạy thử không ghi; lỗi hệ thống ở lô 2 ⇒ FAILED + báo cáo lô 1', async () => {
+    const proc = e.app.get(ImportProcessor);
+    proc.batchSize = 3;
+    try {
+      const mk = (tag: string) =>
+        xlsx(
+          CATALOG_COLUMNS,
+          Array.from({ length: 7 }, (_, i) => ({
+            category: `Lô ${tag} > Con`,
+            product: 'SP lô',
+            sku_code: `${tag}-${i + 1}`,
+            name: `Lô ${i + 1}`,
+            sale_unit_type: 'WEIGHT',
+          })),
+        );
+      const t1 = `LO${e.hex(2)}`;
+      const dry = await runImport(await mk(t1), { mode: 'SKIP', dry_run: true });
+      expect(dry.report).toMatchObject({ created: 7, errors: 0 });
+      expect(await countSkus(`${t1}-`)).toBe(0);
+      const real = await runImport(await mk(t1), { mode: 'SKIP', dry_run: false });
+      expect(real).toMatchObject({ status: 'COMPLETED', ok_rows: 7 });
+      const [cats] = await e.db.q(`SELECT count(*)::int AS n FROM core.categories WHERE name = $1`, [`Lô ${t1}`]);
+      expect(cats?.n).toBe(1);
+
+      const t2 = `LF${e.hex(2)}`;
+      const anyProc = proc as unknown as { runBatch: (...a: unknown[]) => Promise<unknown> };
+      const orig = anyProc.runBatch.bind(proc);
+      let calls = 0;
+      const spy = vi.spyOn(anyProc, 'runBatch').mockImplementation(async (...a: unknown[]) => {
+        if (++calls === 2) throw new Error('giả lập lỗi hệ thống');
+        return orig(...a);
+      });
+      try {
+        const bad = await runImport(await mk(t2), { mode: 'SKIP', dry_run: false });
+        expect(bad.status).toBe('FAILED');
+        expect(bad.error).toMatch(/dòng Excel 4/);
+        expect(bad).toMatchObject({ ok_rows: 3, total_rows: 7 });
+        expect(bad.report.rows.map((r) => r.row)).toEqual([2, 3, 4]);
+        expect(await countSkus(`${t2}-`)).toBe(3);
+      } finally {
+        spy.mockRestore();
+      }
+    } finally {
+      proc.batchSize = 500;
+    }
+  }, 180_000);
 
   it('worker thật: WorkerModule dựng được, consumer catalog-import chạy lượt từ sự kiện outbox', async () => {
     const tag = `WK${e.hex(2)}`;

@@ -34,9 +34,11 @@ Tiến cần nạp danh mục thật (≥ 20 SKU, cổng CP04) và danh bạ NCC
 6. **File độc** (`xlsx-safe.ts`): duyệt thư mục zip bằng `yauzl` TRƯỚC exceljs — ≤ 200 mục, ≤ 20 sheet, tỉ lệ nén ≤ 150 với
    mục > 1 MB (zip bomb), giải nén ≤ 10 MB / mục, ≤ 20 MB tổng (exceljs tốn ~35× bộ nhớ theo XML; 5.000 × 60 ô thật ≈ 7 MB),
    giải nén thử từng mục và đếm byte thật (khai gian ⇒ từ chối); cấm mục mã hóa, đường dẫn lạ, tên phần chủ động
-   (`vbaProject.bin`, `externalLinks/`, `embeddings/`, `activeX/`…). Kiểm theo NGHĨA, không theo tên: phần officeDocument
-   (`_rels/.rels`) phải có đúng loại workbook .xlsx thường; mọi ContentType và mọi quan hệ trong `*.rels` không thuộc loại chủ
-   động (macro, OLE, ActiveX, liên kết ngoài, template); đích External chỉ cho hyperlink. exceljs đọc (saxes không nhận
+   (`vbaProject.bin`, `externalLinks/`, `embeddings/`, `activeX/`…). Kiểm theo NGHĨA, không theo tên, bằng DANH SÁCH CHO PHÉP: mọi ContentType và mọi kiểu quan hệ (đoạn cuối URI) trong
+   `*.rels` phải thuộc loại của workbook thường (form control, ActiveX, OLE, macro VBA / XLM, liên kết ngoài, kết nối dữ liệu,
+   template KHÔNG có ⇒ file có checkbox form control bị từ chối); phần officeDocument (`_rels/.rels`) khai đúng MỘT lần với loại
+   workbook .xlsx thường; đích External chỉ cho hyperlink. Các phần này phải ở dạng Excel tự tạo — có thực thể (`&…;`), nháy
+   đơn, tiền tố namespace, `<!…`, số thẻ thô khác số thẻ đọc được, hoặc > 1 MB ⇒ từ chối (không đoán). exceljs đọc (saxes không nhận
    DOCTYPE ⇒ chặn XXE / billion laughs); **ô công thức ở bất kỳ sheet nào ⇒ từ chối cả file**; sheet đầu bị ẩn ⇒ từ chối.
    ≤ 5.000 dòng, ≤ 60 cột, ô ≤ 2.000 ký tự. Từ chối ⇒ FAILED + `report.reason`.
 6b. **Đọc ô:** cột vắng = trống; ô kiểu SỐ phải là số nguyên an toàn (45000.5 / số > 2^53 ⇒ lỗi dòng — không tự bỏ dấu
@@ -62,3 +64,8 @@ Tiến cần nạp danh mục thật (≥ 20 SKU, cổng CP04) và danh bạ NCC
 - Lượt RUNNING khi worker chết giữa chừng nằm lại RUNNING — không tính vào trần 2 lượt sau 15 phút; dọn / cảnh báo ở CP19.
 - Mỗi lô giữ một transaction (≤ 2 phút): khóa cây danh mục / SKU giữ trong lô — lượt lớn nên chạy ngoài giờ cao điểm.
 - Trần presign 20 file / giờ / người (CP03) áp cả file nhập.
+- Phân loại trùng đọc DB ngoài transaction (không cùng snapshot): ghi đồng thời bởi người khác ⇒ dòng "tạo" gặp trùng khi ghi
+  thành ERROR (không phải SKIPPED / UPDATED) — chấp nhận.
+- Dòng / cột ẨN trong sheet hiện vẫn được nhập (chỉ chặn sheet ẩn) — báo cáo dòng nêu số dòng Excel để đối chiếu.
+- Hàng đợi một lượt / tiến trình: lượt treo (S3 / DB không trả lời) chặn các lượt sau của worker đó; khi thêm consumer khác
+  (CP12) cần tách hàng đợi / concurrency cho consumer nhập.

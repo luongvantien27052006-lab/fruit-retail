@@ -71,6 +71,8 @@ let running: Promise<void> = Promise.resolve();
 @Injectable()
 export class ImportProcessor {
   private readonly log = new Logger('ImportProcessor');
+  /** số dòng mỗi lô (test hạ xuống để thử biên lô) */
+  batchSize = IMPORT_BATCH;
 
   constructor(
     @Inject(TransactionHost) private readonly txHost: Tx,
@@ -107,7 +109,11 @@ export class ImportProcessor {
       });
     });
     if (!job) return;
-    let committedBatches = 0;
+    // báo cáo các lô ĐÃ commit (chạy thật) — lỗi hệ thống giữa chừng vẫn lưu được (review TS lát 5 vòng 2 N-b)
+    const committed: ReportRow[] = [];
+    let lastRow: number | undefined;
+    let total = 0;
+    let mode: DupMode = 'SKIP';
     try {
       const principal = await this.principalOf(job.createdBy);
       this.cls.set('principal', principal);
@@ -126,12 +132,13 @@ export class ImportProcessor {
             `Thiếu cột bắt buộc: ${missing.map((c) => `${c.label} (${c.key})`).join(', ')}`,
           );
         rows = sheet.rows;
+        total = rows.length;
       } catch (e) {
         if (e instanceof XlsxRejected) return await this.fail(jobId, `File bị từ chối: ${e.message}`, e.reason);
         if (e instanceof AppError) return await this.fail(jobId, e.message);
         throw e;
       }
-      const mode = job.modeOnDuplicate as DupMode;
+      mode = job.modeOnDuplicate as DupMode;
       const plans = type === 'CATALOG' ? await this.planCatalog(rows, mode) : await this.planSupplier(rows, mode);
       // STOP: gặp trùng ⇒ dừng TRƯỚC khi ghi bất cứ gì
       const stop = mode === 'STOP' ? plans.find((p) => p.kind === 'report' && p.report.duplicate_of) : undefined;
@@ -143,8 +150,8 @@ export class ImportProcessor {
       }
       const out: ReportRow[] = [];
       const caches = { cats: new Map<string, string>(), prods: new Map<string, string>() };
-      for (let i = 0; i < plans.length; i += IMPORT_BATCH) {
-        const batch = plans.slice(i, i + IMPORT_BATCH);
+      for (let i = 0; i < plans.length; i += this.batchSize) {
+        const batch = plans.slice(i, i + this.batchSize);
         // chạy thử: id danh mục / sản phẩm của lô trước đã hoàn tác ⇒ bỏ bộ nhớ đệm
         if (job.dryRun) {
           caches.cats.clear();
@@ -157,7 +164,8 @@ export class ImportProcessor {
             return r;
           });
           out.push(...res);
-          committedBatches++;
+          committed.push(...res);
+          lastRow = batch.at(-1)?.row;
         } catch (e) {
           if (!(e instanceof Rollback)) throw e;
           out.push(...e.rows);
@@ -172,12 +180,20 @@ export class ImportProcessor {
       // lỗi hệ thống (DB / S3…) ⇒ FAILED (không để RUNNING mãi); không ném tiếp — thử lại phải tạo lượt mới.
       // Chỉ log tên / mã lỗi (thông điệp lỗi DB có thể mang giá trị dòng)
       this.log.error({ err: errName(e), jobId }, 'nhập file lỗi');
-      const partial = committedBatches
-        ? ` — ${committedBatches * IMPORT_BATCH} dòng đầu (${committedBatches} lô) ĐÃ ghi; kiểm tra rồi nhập lại phần còn lại`
-        : '';
-      await this.fail(jobId, `Lỗi hệ thống khi nhập${partial}`).catch((err: unknown) =>
-        this.log.error({ err: errName(err), jobId }, 'không ghi được FAILED'),
-      );
+      const done = committed.length
+        ? this.txHost.withTransaction(() =>
+            this.finish(
+              jobId,
+              total,
+              committed,
+              false,
+              mode,
+              undefined,
+              `Lỗi hệ thống khi nhập — các dòng đến dòng Excel ${lastRow} ĐÃ ghi (xem báo cáo); kiểm tra rồi nhập lại phần còn lại`,
+            ),
+          )
+        : this.fail(jobId, 'Lỗi hệ thống khi nhập — chưa ghi dòng nào; tạo lượt nhập mới để thử lại');
+      await done.catch((err: unknown) => this.log.error({ err: errName(err), jobId }, 'không ghi được FAILED'));
     }
   }
 
@@ -233,6 +249,8 @@ export class ImportProcessor {
     dryRun: boolean,
     mode: DupMode,
     stoppedAt?: number,
+    /** lỗi hệ thống sau khi đã ghi một số lô ⇒ FAILED kèm báo cáo các lô đã ghi */
+    failure?: string,
   ) {
     const n = (s: RowStatus) => rows.filter((r) => r.status === s).length;
     const stopped = stoppedAt !== undefined;
@@ -261,11 +279,13 @@ export class ImportProcessor {
             report,
             ...counts,
           }
-        : { status: 'COMPLETED', report, ...counts },
+        : failure
+          ? { status: 'FAILED', error: failure.slice(0, 2000), report, ...counts }
+          : { status: 'COMPLETED', report, ...counts },
       select: { id: true },
     });
     await this.ao.recordAudit({
-      action: stopped ? 'import.fail' : dryRun ? 'import.dry_run' : 'import.complete',
+      action: stopped || failure ? 'import.fail' : dryRun ? 'import.dry_run' : 'import.complete',
       resourceType: 'import_job',
       resourceId: jobId,
       after: { ...counts, created: n('CREATED'), updated: n('UPDATED'), dry_run: dryRun, mode },

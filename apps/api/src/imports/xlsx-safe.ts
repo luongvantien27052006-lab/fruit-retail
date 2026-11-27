@@ -40,45 +40,133 @@ const FORBIDDEN = [
   /^customUI\//i,
   /^xl\/connections\.xml$/i,
   /^xl\/queryTables\//i,
+  /^xl\/(macrosheets|dialogsheets)\//i,
 ];
 const MAIN_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml';
-/** loại nội dung / quan hệ chủ động — từ chối bất kể TÊN phần (đổi tên phần không lọt — review bảo mật lát 5 N2) */
-const ACTIVE_TYPE =
-  /macroEnabled|vbaProject|externalLink|activeX|oleObject|ms-excel\.(sheet\.binary|addin|template)|ms-excel\.controlproperties|officedocument\.package/i;
-/** đoạn CUỐI của kiểu quan hệ (không khớp chuỗi con — loại chuẩn "…/package/2006/relationships/…" hợp lệ) */
-const ACTIVE_REL =
-  /\/(vbaProject|externalLink|externalLinkPath|oleObject|activeXControl|activeXControlBinary|control|ctrlProp|attachedTemplate|package|frame|embeddings?)$/i;
-const HYPERLINK_REL = /\/relationships\/hyperlink$/;
-
-const attrs = (tag: string) => new Map([...tag.matchAll(/([\w:]+)\s*=\s*"([^"]*)"/g)].map((m) => [m[1], m[2] ?? '']));
-const tags = (xml: string, name: string) =>
-  [...xml.matchAll(new RegExp(`<${name}\\b[^>]*>`, 'g'))].map((m) => attrs(m[0]));
 
 /**
- * Kiểm theo NGHĨA (không theo tên phần): mọi ContentType không chủ động; phần officeDocument (_rels/.rels) có đúng loại
- * workbook .xlsx thường; mọi quan hệ trong *.rels không chủ động; đích ngoài (External) chỉ cho hyperlink.
+ * DANH SÁCH CHO PHÉP (review bảo mật lát 5 vòng 2): kiểu quan hệ (đoạn cuối URI) và ContentType của workbook thường. Kiểu lạ
+ * / bị mã hóa / viết khác ⇒ không khớp ⇒ từ chối. Form control, ActiveX, OLE, macro (VBA + XLM), liên kết ngoài, kết nối dữ
+ * liệu, template KHÔNG có trong danh sách.
+ */
+const ALLOWED_REL = new Set([
+  'officeDocument',
+  'core-properties',
+  'extended-properties',
+  'custom-properties',
+  'thumbnail',
+  'worksheet',
+  'chartsheet',
+  'styles',
+  'sharedStrings',
+  'theme',
+  'themeOverride',
+  'calcChain',
+  'drawing',
+  'image',
+  'chart',
+  'chartUserShapes',
+  'chartStyle',
+  'chartColorStyle',
+  'comments',
+  'vmlDrawing',
+  'printerSettings',
+  'table',
+  'pivotTable',
+  'pivotCacheDefinition',
+  'pivotCacheRecords',
+  'hyperlink',
+  'customXml',
+  'customXmlProps',
+  'sheetMetadata',
+  'metadata',
+  'person',
+  'threadedComment',
+  'namedSheetView',
+  'slicer',
+  'slicerCache',
+  'timeline',
+  'timelineCache',
+  'volatileDependencies',
+  'richValue',
+  'richValueRel',
+  'richValueStructure',
+  'richValueTypes',
+  'rdRichValue',
+  'rdRichValueStructure',
+  'rdRichValueTypes',
+  'rdArray',
+  'rdSupportingPropertyBag',
+  'rdSupportingPropertyBagStructure',
+  'webImage',
+  'usernames',
+  'revisionHeaders',
+  'revisionLog',
+  'feature',
+]);
+const ALLOWED_CT = [
+  /^application\/xml$/,
+  /^text\/xml$/,
+  /^image\/[a-z0-9.+-]+$/,
+  /^application\/vnd\.openxmlformats-package\.(relationships|core-properties)\+xml$/,
+  /^application\/vnd\.openxmlformats-officedocument\.(spreadsheetml|drawingml|theme|themeOverride|extended-properties|custom-properties|customXmlProperties|vmlDrawing)[a-zA-Z0-9.+-]*$/,
+  /^application\/vnd\.ms-excel\.(person|threadedcomments|sheetMetadata|rdrichvalue[a-z]*|rdarray|rdsupportingpropertybag[a-z]*|namedsheetview|slicer|slicerCache|timeline|timelineCache|webimage|feature)\+xml$/i,
+  /^application\/vnd\.ms-office\.(chartstyle|chartcolorstyle)\+xml$/,
+];
+/** loại spreadsheetml chủ động (khớp được mẫu officedocument ở trên) ⇒ chặn */
+const DENY_CT = /externalLink|connections|queryTable|ctrlProp|activeX|oleObject|macro|vba|template|binary/i;
+const relKind = (type: string) => type.slice(type.lastIndexOf('/') + 1);
+
+/** thuộc tính trong NHÁY KÉP (nháy đơn / thực thể đã bị chặn trước); thẻ có '>' trong giá trị vẫn đọc đúng */
+const attrs = (tag: string) => new Map([...tag.matchAll(/([\w:]+)\s*=\s*"([^"]*)"/g)].map((m) => [m[1], m[2] ?? '']));
+const tagRe = (name: string) => new RegExp(String.raw`<${name}\b(?:[^>"]|"[^"]*")*>`, 'g');
+const tags = (xml: string, name: string) => [...xml.matchAll(tagRe(name))].map((m) => attrs(m[0]));
+
+/**
+ * Chỉ đọc phần quan hệ / loại nội dung khi viết ở dạng "chuẩn" Excel tạo: không thực thể (&…;), không nháy đơn, không
+ * tiền tố namespace, số thẻ thô = số thẻ đọc được. Khác ⇒ từ chối (không đoán).
+ */
+function assertPlain(xml: string, names: string[]): void {
+  if (xml.includes('&') || xml.includes("'") || /<\/?[A-Za-z_][\w.-]*:/.test(xml) || /<!/.test(xml))
+    throw new XlsxRejected('ACTIVE_CONTENT', 'Cấu trúc file Excel bất thường');
+  for (const n of names) {
+    const raw = xml.match(new RegExp(String.raw`<${n}\b`, 'g'))?.length ?? 0;
+    if (raw !== tags(xml, n).length) throw new XlsxRejected('ACTIVE_CONTENT', 'Cấu trúc file Excel bất thường');
+  }
+}
+
+/**
+ * Kiểm theo NGHĨA (không theo tên phần): mọi ContentType và mọi kiểu quan hệ trong *.rels thuộc danh sách cho phép; phần
+ * officeDocument (_rels/.rels) có đúng loại workbook .xlsx thường (khai đúng MỘT lần); đích ngoài (External) chỉ cho
+ * hyperlink.
  */
 function validateParts(contentTypes: string, rels: Map<string, string>): void {
+  assertPlain(contentTypes, ['Default', 'Override']);
   const defaults = tags(contentTypes, 'Default');
   const overrides = tags(contentTypes, 'Override');
-  for (const t of [...defaults, ...overrides])
-    if (ACTIVE_TYPE.test(t.get('ContentType') ?? ''))
+  for (const t of [...defaults, ...overrides]) {
+    const ct = t.get('ContentType') ?? '';
+    if (DENY_CT.test(ct) || !ALLOWED_CT.some((re) => re.test(ct)))
       throw new XlsxRejected('ACTIVE_CONTENT', 'File chứa macro / liên kết ngoài / đối tượng nhúng');
+  }
   const root = rels.get('_rels/.rels') ?? '';
-  const office = tags(root, 'Relationship').find((r) => /\/officeDocument$/.test(r.get('Type') ?? ''));
-  const target = (office?.get('Target') ?? '').replace(/^\//, '');
-  const ct = overrides.find((o) => (o.get('PartName') ?? '').replace(/^\//, '') === target)?.get('ContentType');
-  if (!target || ct !== MAIN_XLSX)
+  assertPlain(root, ['Relationship']);
+  const office = tags(root, 'Relationship').filter((r) => relKind(r.get('Type') ?? '') === 'officeDocument');
+  const target = (office[0]?.get('Target') ?? '').replace(/^\//, '');
+  const hits = overrides.filter((o) => (o.get('PartName') ?? '').replace(/^\//, '') === target);
+  if (office.length !== 1 || !target || hits.length !== 1 || hits[0]?.get('ContentType') !== MAIN_XLSX)
     // .xlsm (macroEnabled), .xlsb, .ods… đổi đuôi thành .xlsx
     throw new XlsxRejected('NOT_XLSX', 'File không phải .xlsx (có thể là .xlsm / .xls đổi đuôi)');
-  for (const xml of rels.values())
+  for (const xml of rels.values()) {
+    assertPlain(xml, ['Relationship']);
     for (const r of tags(xml, 'Relationship')) {
       const type = r.get('Type') ?? '';
-      if (ACTIVE_REL.test(type))
+      if (!ALLOWED_REL.has(relKind(type)))
         throw new XlsxRejected('ACTIVE_CONTENT', 'File chứa macro / liên kết ngoài / đối tượng nhúng');
-      if ((r.get('TargetMode') ?? '').toLowerCase() === 'external' && !HYPERLINK_REL.test(type))
+      if ((r.get('TargetMode') ?? '').toLowerCase() === 'external' && relKind(type) !== 'hyperlink')
         throw new XlsxRejected('ACTIVE_CONTENT', 'File chứa liên kết ra ngoài');
     }
+  }
 }
 
 const open = (buf: Buffer) =>
@@ -126,17 +214,16 @@ export async function inspectXlsx(buf: Buffer): Promise<void> {
             throw new XlsxRejected('ZIP_BOMB', 'Tỉ lệ nén bất thường (nghi zip bomb)');
           if (entry.uncompressedSize > XLSX_LIMITS.maxEntryUncompressed)
             throw new XlsxRejected('TOO_LARGE', 'File giải nén quá lớn');
-          if (
-            /^xl\/(worksheets|chartsheets|dialogsheets|macrosheets)\//i.test(name) &&
-            ++sheets > XLSX_LIMITS.maxSheets
-          )
+          if (/^xl\/(worksheets|chartsheets)\/[^/]+\.xml$/i.test(name) && ++sheets > XLSX_LIMITS.maxSheets)
             throw new XlsxRejected('TOO_MANY_SHEETS', 'File có quá nhiều sheet');
           total += entry.uncompressedSize;
           if (total > XLSX_LIMITS.maxTotalUncompressed) throw new XlsxRejected('TOO_LARGE', 'File giải nén quá lớn');
           // giải nén thử, đếm byte thật — yauzl validateEntrySizes báo lỗi nếu khác kích thước khai
           const chunks: Buffer[] = [];
-          const keep =
-            (name === '[Content_Types].xml' || name.endsWith('.rels')) && entry.uncompressedSize <= 1024 * 1024;
+          const keep = name === '[Content_Types].xml' || name.endsWith('.rels');
+          // phần quan hệ / loại nội dung lớn bất thường ⇒ từ chối (không bỏ qua — review bảo mật vòng 2)
+          if (keep && entry.uncompressedSize > 1024 * 1024)
+            throw new XlsxRejected('ACTIVE_CONTENT', 'Cấu trúc file Excel bất thường');
           await new Promise<void>((ok, bad) => {
             zip.openReadStream(entry, (err, s) => {
               if (err || !s) return bad(err ?? new Error('stream'));

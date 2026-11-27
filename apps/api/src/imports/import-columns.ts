@@ -267,5 +267,13 @@ export async function templateXlsx(t: ImportType): Promise<Buffer> {
   for (const c of cols) help.addRow({ col: `${c.label} (${c.key})`, req: c.required ? 'có' : '', hint: c.hint });
   help.addRow({});
   help.addRow({ col: 'Lưu ý', hint: 'Không dùng công thức (file có công thức bị từ chối). Tối đa 5.000 dòng, 5 MB.' });
+  help.addRow({
+    col: 'Số',
+    hint: 'Ô số phải là số nguyên (không thập phân). Chữ "1.000" / "1,000" hiểu là một nghìn. Mã vạch, số tài khoản, SĐT: định dạng cột là Chữ (Text).',
+  });
+  help.addRow({
+    col: 'Không nhận',
+    hint: 'Macro, form control (checkbox), đối tượng nhúng, liên kết ngoài, sheet dữ liệu bị ẩn.',
+  });
   return Buffer.from(await wb.xlsx.writeBuffer());
 }

@@ -176,6 +176,7 @@ model User {
   roleAssignments    UserRoleAssignment[]
   permissionGrants   UserPermissionGrant[]
   sessions           Session[]
+  lockouts           AuthLockout[]
   viewerAssignments  ViewerProfileAssignment[]
   authChallenges     AuthChallenge[]
   enrollmentCodes    PosEnrollmentCode[]
@@ -365,26 +366,46 @@ model PosEnrollmentCode {
   @@schema("core")
 }
 
+/// Khóa đăng nhập theo cặp (tài khoản, nguồn) — ADR-030 (sửa review cổng CP03): kẻ ẩn danh sai mật khẩu chỉ khóa
+/// chính nguồn của mình (mạng IP /64, hoặc máy POS với PIN), người dùng thật ở nguồn khác vẫn vào được.
+/// `source`: 'ip:<sha256(bucket) 22 ký tự>' | 'dev:<uuid thiết bị>' (không lưu IP thô).
+model AuthLockout {
+  userId      String    @map("user_id") @db.Uuid
+  source      String
+  failedCount Int       @default(0) @map("failed_count")
+  lockCount   Int       @default(0) @map("lock_count")
+  lockedUntil DateTime? @map("locked_until") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, source])
+  @@index([userId, lockedUntil])
+  @@map("auth_lockouts")
+  @@schema("core")
+}
+
 /// Một phiên = một họ refresh token (ADR-012 `family_id`); xoay vòng lưu ở refresh_tokens
 model Session {
-  id           String         @id @db.Uuid
-  userId       String         @map("user_id") @db.Uuid
-  userType     UserType       @map("user_type")
-  posDeviceId  String?        @map("pos_device_id") @db.Uuid
+  id                String         @id @db.Uuid
+  userId            String         @map("user_id") @db.Uuid
+  userType          UserType       @map("user_type")
+  posDeviceId       String?        @map("pos_device_id") @db.Uuid
   /// X-Device-Id của app khách / trình duyệt admin (không phải POS)
-  clientDevice String?        @map("client_device")
-  amr          String[]
-  stepUpUntil  DateTime?      @map("step_up_until") @db.Timestamptz(6)
-  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  lastUsedAt   DateTime       @default(now()) @map("last_used_at") @db.Timestamptz(6)
-  expiresAt    DateTime       @map("expires_at") @db.Timestamptz(6)
-  revokedAt    DateTime?      @map("revoked_at") @db.Timestamptz(6)
-  revokeReason String?        @map("revoke_reason")
-  ipHash       Bytes?         @map("ip_hash")
-  userAgent    String?        @map("user_agent")
-  user         User           @relation(fields: [userId], references: [id])
-  posDevice    PosDevice?     @relation(fields: [posDeviceId], references: [id])
-  tokens       RefreshToken[]
+  clientDevice      String?        @map("client_device")
+  amr               String[]
+  stepUpUntil       DateTime?      @map("step_up_until") @db.Timestamptz(6)
+  /// lần xác thực lại sai (step-up / mật khẩu hiện tại) TRONG phiên này — đủ 5 ⇒ thu hồi phiên (ADR-030)
+  reauthFailedCount Int            @default(0) @map("reauth_failed_count")
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastUsedAt        DateTime       @default(now()) @map("last_used_at") @db.Timestamptz(6)
+  expiresAt         DateTime       @map("expires_at") @db.Timestamptz(6)
+  revokedAt         DateTime?      @map("revoked_at") @db.Timestamptz(6)
+  revokeReason      String?        @map("revoke_reason")
+  ipHash            Bytes?         @map("ip_hash")
+  userAgent         String?        @map("user_agent")
+  user              User           @relation(fields: [userId], references: [id])
+  posDevice         PosDevice?     @relation(fields: [posDeviceId], references: [id])
+  tokens            RefreshToken[]
 
   @@index([userId])
   @@index([posDeviceId])

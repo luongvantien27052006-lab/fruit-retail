@@ -37,8 +37,20 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
   }
   /** Mô phỏng "đã sang bước 30 s mới" để dùng mã kế tiếp (mã cũ vẫn bị chặn dùng lại trong test riêng) */
   const forgetStep = (userId: string) => rows(`UPDATE core.users SET totp_last_step = NULL WHERE id = $1`, [userId]);
-  const unlock = (userId: string) =>
-    rows(`UPDATE core.users SET locked_until = NULL, failed_login_count = 0 WHERE id = $1`, [userId]);
+  const unlock = async (userId: string) => {
+    await rows(`DELETE FROM core.auth_lockouts WHERE user_id = $1`, [userId]);
+    await rows(`UPDATE core.users SET locked_until = NULL WHERE id = $1`, [userId]);
+  };
+  /** ADR-030: khóa theo (tài khoản, nguồn) — test chạy từ một IP ⇒ một dòng nguồn */
+  const lockRow = async (userId: string) =>
+    (
+      await rows(
+        `SELECT failed_count, lock_count, EXTRACT(EPOCH FROM locked_until - now())::int AS left_s,
+                (locked_until > now()) IS TRUE AS locked
+         FROM core.auth_lockouts WHERE user_id = $1 AND source LIKE 'ip:%'`,
+        [userId],
+      )
+    )[0];
 
   async function enrolledMaster(device = `dev-${randomBytes(6).toString('hex')}`) {
     const m = await createMaster(db.roleUrl('app_rw'), `m-${randomBytes(4).toString('hex')}@fruit.test`, {
@@ -201,7 +213,7 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     expect([exp.status, exp.body.code]).toEqual([401, 'MFA_CHALLENGE_INVALID']);
   });
 
-  it('SEC5 — 5 lần sai (mật khẩu + mã 2FA cộng chung) ⇒ khóa 15 phút; đang khóa thì mật khẩu đúng cũng bị chặn', async () => {
+  it('SEC5 — 5 lần sai từ MỘT nguồn (mật khẩu + mã 2FA cộng chung) ⇒ khóa nguồn đó 15 phút; đang khóa thì mật khẩu đúng cũng bị chặn', async () => {
     const m = await enrolledMaster();
     for (let i = 0; i < 4; i++)
       expect((await http().post('/v1/auth/login').send({ email: m.email, password: 'sai' })).status).toBe(401);
@@ -212,11 +224,8 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
       .post('/v1/auth/2fa/verify')
       .set('Authorization', `Bearer ${l.body.mfa_challenge as string}`)
       .send({ code: '000000' });
-    const [u] = await rows(
-      `SELECT failed_login_count, lock_count, EXTRACT(EPOCH FROM locked_until - now())::int AS left_s FROM core.users WHERE id = $1`,
-      [m.userId],
-    );
-    expect(u?.failed_login_count).toBe(0);
+    const u = await lockRow(m.userId);
+    expect(u?.failed_count).toBe(0);
     expect(u?.lock_count).toBe(1);
     expect(Number(u?.left_s)).toBeGreaterThan(14 * 60);
     expect(Number(u?.left_s)).toBeLessThanOrEqual(15 * 60);
@@ -238,17 +247,13 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     // lần khóa kế tiếp gấp đôi (30 phút)
     await unlock(m.userId);
     for (let i = 0; i < 5; i++) await http().post('/v1/auth/login').send({ email: m.email, password: 'sai' });
-    const [u2] = await rows(
-      `SELECT lock_count, EXTRACT(EPOCH FROM locked_until - now())::int AS left_s FROM core.users WHERE id = $1`,
-      [m.userId],
-    );
-    expect(u2?.lock_count).toBe(2);
-    expect(Number(u2?.left_s)).toBeGreaterThan(29 * 60);
+    const u2 = await lockRow(m.userId);
+    expect(u2?.lock_count).toBe(1); // unlock() xóa dòng ⇒ đếm lại từ đầu; mức tăng dần kiểm ở test ADR-030 dưới
+    expect(Number(u2?.left_s)).toBeGreaterThan(14 * 60);
     // hết khóa + đăng nhập trọn vẹn ⇒ xóa mức khóa tăng dần
     await unlock(m.userId);
     await fullLogin(m);
-    const [u3] = await rows(`SELECT lock_count, failed_login_count FROM core.users WHERE id = $1`, [m.userId]);
-    expect([u3?.lock_count, u3?.failed_login_count]).toEqual([0, 0]);
+    expect(await lockRow(m.userId)).toBeUndefined(); // đăng nhập trọn vẹn ⇒ xóa dòng khóa của nguồn
     const results = await rows(`SELECT result FROM audit.login_logs WHERE user_id = $1`, [m.userId]);
     expect(results.some((r) => r.result === 'LOCKED')).toBe(true);
   });
@@ -265,8 +270,11 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
 
   /** Bất biến "không rò": mỗi lần sai đã được kiểm đều nằm trong bộ đếm hoặc đã kích một lần khóa (R1) */
   async function expectNoLeak(userId: string, failResult: string) {
-    const [u] = await rows(`SELECT failed_login_count, lock_count FROM core.users WHERE id = $1`, [userId]);
-    expect(Number(u?.lock_count) * 5 + Number(u?.failed_login_count)).toBe(await countResult(userId, failResult));
+    const [u] = await rows(
+      `SELECT COALESCE(sum(lock_count * 5 + failed_count), 0)::int AS n FROM core.auth_lockouts WHERE user_id = $1`,
+      [userId],
+    );
+    expect(Number(u?.n)).toBe(await countResult(userId, failResult));
   }
 
   it('S1 — đợt 40 mật khẩu sai + 1 đúng song song: ≤ 5 lần được kiểm, chen ngang ⇒ 429 không đếm, không rò', async () => {
@@ -283,7 +291,7 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     else expect([401, 429]).toContain(right?.status);
     await expectNoLeak(m.userId, 'BAD_CREDENTIALS');
     // sau đợt: chưa khóa ⇒ mật khẩu đúng vào được (không bị khóa vĩnh viễn); đã khóa ⇒ 401
-    const [u] = await rows(`SELECT (locked_until > now()) IS TRUE AS locked FROM core.users WHERE id = $1`, [m.userId]);
+    const u = await lockRow(m.userId);
     const after = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
     expect(after.status).toBe(u?.locked ? 401 : 200);
   });
@@ -303,7 +311,7 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     await expectNoLeak(m.userId, 'BAD_CREDENTIALS');
   });
 
-  it('S1 — step-up / 2fa verify song song: ≤ 5 lần được kiểm; 5 lần sai tuần tự ⇒ mã đúng bị chặn ACCOUNT_LOCKED', async () => {
+  it('S1 — step-up song song: ≤ 5 lần được kiểm (theo PHIÊN); đủ 5 lần sai ⇒ phiên bị thu hồi; 2fa verify song song ≤ 5', async () => {
     const m = await enrolledMaster();
     const t = await fullLogin(m);
     const bearer = `Bearer ${t.access_token}`;
@@ -312,19 +320,30 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
         http().post('/v1/auth/step-up').set('Authorization', bearer).send({ code: '000000' }),
       ),
     );
-    expect(await countResult(m.userId, 'STEP_UP_FAILED')).toBeLessThanOrEqual(5);
-    // R3: chen ngang ⇒ 429, không bao giờ báo ACCOUNT_LOCKED khi tài khoản chưa khóa
-    for (const r of su) expect(['OTP_INVALID', 'RATE_LIMITED', 'ACCOUNT_LOCKED']).toContain(r.body.code);
-    await expectNoLeak(m.userId, 'STEP_UP_FAILED');
-    await unlock(m.userId);
-    for (let i = 0; i < 5; i++)
-      await http().post('/v1/auth/step-up').set('Authorization', bearer).send({ code: '000000' });
-    const ok = await http()
+    const failed = await countResult(m.userId, 'STEP_UP_FAILED');
+    const revokedLog = await countResult(m.userId, 'REAUTH_REVOKED');
+    expect(failed + revokedLog).toBeLessThanOrEqual(5);
+    for (const r of su)
+      expect(['OTP_INVALID', 'RATE_LIMITED', 'SESSION_REVOKED', 'AUTHENTICATION_REQUIRED']).toContain(r.body.code);
+    // ADR-030: step-up sai KHÔNG khóa đăng nhập của tài khoản
+    expect(await lockRow(m.userId)).toBeUndefined();
+    // tuần tự trên phiên mới: 4 sai vẫn sống, lần sai thứ 5 ⇒ thu hồi phiên, mã đúng sau đó cũng không qua
+    const t2 = await fullLogin(m);
+    const b2 = `Bearer ${t2.access_token}`;
+    for (let i = 0; i < 4; i++)
+      expect((await http().post('/v1/auth/step-up').set('Authorization', b2).send({ code: '000000' })).body.code).toBe(
+        'OTP_INVALID',
+      );
+    const fifth = await http().post('/v1/auth/step-up').set('Authorization', b2).send({ code: '000000' });
+    expect([fifth.status, fifth.body.code]).toEqual([401, 'SESSION_REVOKED']);
+    const [sess] = await rows(`SELECT revoke_reason FROM core.sessions WHERE id = $1`, [t2.session_id]);
+    expect(sess?.revoke_reason).toBe('REAUTH_FAILED');
+    await forgetStep(m.userId);
+    const after = await http()
       .post('/v1/auth/step-up')
-      .set('Authorization', bearer)
+      .set('Authorization', b2)
       .send({ code: await totp(m.userId) });
-    expect([ok.status, ok.body.code]).toEqual([403, 'ACCOUNT_LOCKED']);
-    expect(ok.body.details.retry_after_s).toBeGreaterThan(800);
+    expect(after.status).toBe(401);
 
     const m2 = await enrolledMaster();
     const l = await http().post('/v1/auth/login').send({ email: m2.email, password: m2.password });
@@ -338,6 +357,95 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     const [c] = await rows(`SELECT attempts FROM core.auth_challenges WHERE user_id = $1`, [m2.userId]);
     expect(Number(c?.attempts)).toBeLessThanOrEqual(5);
     await expectNoLeak(m2.userId, 'BAD_TOTP');
+  });
+
+  it('ADR-030 — kẻ ẩn danh sai mật khẩu chỉ khóa nguồn của mình: Master ở mạng khác vẫn vào; phiên đang mở vẫn step-up', async () => {
+    const m = await enrolledMaster();
+    const t = await fullLogin(m);
+    const attacker = '203.0.113.7';
+    for (let i = 0; i < 5; i++)
+      await http().post('/v1/auth/login').set('X-Forwarded-For', attacker).send({ email: m.email, password: 'sai' });
+    // nguồn của kẻ tấn công bị khóa: mật khẩu đúng từ đó cũng 401
+    expect(
+      (
+        await http()
+          .post('/v1/auth/login')
+          .set('X-Forwarded-For', attacker)
+          .send({ email: m.email, password: m.password })
+      ).status,
+    ).toBe(401);
+    // Master ở mạng khác đăng nhập bình thường
+    const ok = await http()
+      .post('/v1/auth/login')
+      .set('X-Forwarded-For', '198.51.100.20')
+      .send({ email: m.email, password: m.password });
+    expect(ok.body.status).toBe('MFA_REQUIRED');
+    // phiên đang mở vẫn xác thực lại được (không bị khóa đăng nhập chặn)
+    await forgetStep(m.userId);
+    const su = await http()
+      .post('/v1/auth/step-up')
+      .set('Authorization', `Bearer ${t.access_token}`)
+      .send({ code: await totp(m.userId) });
+    expect(su.status).toBe(200);
+    // IPv6: cùng /64 là một nguồn (xoay địa chỉ trong mạng con không né được khóa)
+    for (let i = 0; i < 5; i++)
+      await http()
+        .post('/v1/auth/login')
+        .set('X-Forwarded-For', `2001:db8:1:2::${i + 1}`)
+        .send({ email: m.email, password: 'sai' });
+    expect(
+      (
+        await http()
+          .post('/v1/auth/login')
+          .set('X-Forwarded-For', '2001:db8:1:2::99')
+          .send({ email: m.email, password: m.password })
+      ).status,
+    ).toBe(401);
+    const srcs = await rows(`SELECT source FROM core.auth_lockouts WHERE user_id = $1 AND locked_until > now()`, [
+      m.userId,
+    ]);
+    expect(srcs).toHaveLength(2);
+    for (const r of srcs) expect(String(r.source)).toMatch(/^ip:[A-Za-z0-9_-]{22}$/); // không lưu IP thô
+  });
+
+  it('ADR-030 — khóa tăng dần theo nguồn, tự giảm sau 24 giờ; ≥ 10 nguồn bị khóa ⇒ khóa toàn tài khoản 1 giờ', async () => {
+    const m = await enrolledMaster();
+    const ip = '192.0.2.50';
+    const bad = (x = ip) =>
+      http().post('/v1/auth/login').set('X-Forwarded-For', x).send({ email: m.email, password: 'sai' });
+    for (let i = 0; i < 5; i++) await bad();
+    // hết khóa (giả lập) ⇒ 5 lần sai nữa ⇒ khóa gấp đôi
+    await rows(`UPDATE core.auth_lockouts SET locked_until = now() - interval '1 second' WHERE user_id = $1`, [
+      m.userId,
+    ]);
+    for (let i = 0; i < 5; i++) await bad();
+    const [r2] = await rows(
+      `SELECT lock_count, EXTRACT(EPOCH FROM locked_until - now())::int AS left_s FROM core.auth_lockouts WHERE user_id = $1`,
+      [m.userId],
+    );
+    expect(r2?.lock_count).toBe(2);
+    expect(Number(r2?.left_s)).toBeGreaterThan(29 * 60);
+    // 24 giờ không sai ⇒ lần sai kế tiếp tính lại từ mức 0
+    await rows(
+      `UPDATE core.auth_lockouts SET locked_until = now() - interval '1 second', updated_at = now() - interval '25 hours' WHERE user_id = $1`,
+      [m.userId],
+    );
+    await bad();
+    const [r3] = await rows(`SELECT failed_count, lock_count FROM core.auth_lockouts WHERE user_id = $1`, [m.userId]);
+    expect([r3?.failed_count, r3?.lock_count]).toEqual([1, 0]);
+    // tấn công phân tán: 10 nguồn khác nhau cùng bị khóa ⇒ khóa toàn tài khoản (nguồn thứ 11 cũng bị chặn)
+    for (let n = 1; n <= 10; n++) for (let i = 0; i < 5; i++) await bad(`198.18.${n}.1`);
+    const [u] = await rows(`SELECT (locked_until > now()) IS TRUE AS locked FROM core.users WHERE id = $1`, [m.userId]);
+    expect(u?.locked).toBe(true);
+    expect(await countResult(m.userId, 'LOCKED_GLOBAL')).toBeGreaterThanOrEqual(1);
+    expect(
+      (
+        await http()
+          .post('/v1/auth/login')
+          .set('X-Forwarded-For', '198.18.99.1')
+          .send({ email: m.email, password: m.password })
+      ).status,
+    ).toBe(401);
   });
 
   it('R1 — hàng đợi Argon2 đầy (429) không làm rò bộ đếm; sau bão Master vẫn đăng nhập được', async () => {
@@ -357,12 +465,12 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     // lần bị 429 cũng có dòng login_logs (nạn nhân có lần bị chen ngang hoặc hết suất)
     const victimBusy = all.slice(60).filter((r) => r.status === 429).length;
     expect(await countResult(m.userId, 'RATE_LIMITED')).toBe(victimBusy);
-    const [u] = await rows(`SELECT failed_login_count, locked_until FROM core.users WHERE id = $1`, [m.userId]);
-    if (u?.locked_until === null) {
-      expect(Number(u?.failed_login_count)).toBeLessThan(5);
+    const u = await lockRow(m.userId);
+    if (!u?.locked) {
+      expect(Number(u?.failed_count ?? 0)).toBeLessThan(5);
       await fullLogin(m); // không bị khóa vĩnh viễn
     } else {
-      expect(new Date(u?.locked_until as string).getTime()).toBeGreaterThan(Date.now()); // khóa CÓ hạn
+      expect(Number(u.left_s)).toBeGreaterThan(0); // khóa CÓ hạn
     }
   });
 
@@ -533,9 +641,9 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
       .set('Authorization', `Bearer ${su.body.access_token as string}`)
       .send({});
     expect([exp.status, exp.body.code]).toEqual([403, 'STEP_UP_REQUIRED']);
-    // lần step-up sai được đếm vào khóa
-    const [u] = await rows(`SELECT failed_login_count FROM core.users WHERE id = $1`, [m.userId]);
-    expect(u?.failed_login_count).toBe(0); // step-up đúng đã xóa
+    // ADR-030: step-up đếm theo phiên; lần đúng đã xóa bộ đếm của phiên
+    const [u] = await rows(`SELECT reauth_failed_count FROM core.sessions WHERE id = $1`, [t.session_id]);
+    expect(u?.reauth_failed_count).toBe(0);
   });
 
   it('mã khôi phục: đăng nhập được một lần, mã đã dùng bị từ chối', async () => {

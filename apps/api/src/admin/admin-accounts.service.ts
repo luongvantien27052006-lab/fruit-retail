@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { clearAllLocks, hasTempLock } from '../auth/auth-attempts';
 import { TransactionHost } from '@nestjs-cls/transactional';
 import { ClsService } from 'nestjs-cls';
 import { randomBytes } from 'node:crypto';
@@ -130,17 +131,18 @@ export class AdminAccountsService {
     if (p.userType !== 'MASTER') throw new AppError('ACTION_FORBIDDEN', 'Chỉ Master mở khóa tài khoản');
     await this.authLock(id);
     const u = await this.target(id, 'staff:write');
-    if (u.status !== 'LOCKED') throw new AppError('INVALID_STATE_TRANSITION', `Tài khoản đang ${u.status}`);
-    await this.tx.user.update({
-      where: { id },
-      data: { status: 'ACTIVE', failedLoginCount: 0, lockedUntil: null },
-      select: { id: true },
-    });
+    // LOCKED (Master khóa) hoặc ACTIVE đang bị khóa TẠM do nhập sai (ADR-030: Master gỡ được khóa tạm của Master khác)
+    const temp = u.status === 'ACTIVE' && (await hasTempLock(this.tx, id));
+    if (u.status !== 'LOCKED' && !temp)
+      throw new AppError('INVALID_STATE_TRANSITION', `Tài khoản đang ${u.status} và không bị khóa tạm`);
+    if (u.status === 'LOCKED')
+      await this.tx.user.update({ where: { id }, data: { status: 'ACTIVE' }, select: { id: true } });
+    await clearAllLocks(this.tx, id);
     await this.ao.recordAudit({
       action: 'user.unlock',
       resourceType: 'user',
       resourceId: id,
-      before: { status: 'LOCKED' },
+      before: { status: u.status, temporary_lock: temp },
       after: { status: 'ACTIVE' },
       reason,
     });

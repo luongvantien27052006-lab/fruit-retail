@@ -397,12 +397,19 @@ describe('auth nhân viên POS + thiết bị (CP03 lát 4)', () => {
     for (let i = 0; i < 4; i++) await pin(d, n.code, '000000');
     const locked = await pin(d, n.code, n.pin);
     expect([locked.status, locked.body.message]).toEqual([401, res[0]?.body.message]);
-    const [u] = await rows(`SELECT locked_until > now() AS locked FROM core.users WHERE id = $1`, [n.userId]);
+    // ADR-030: khóa (nhân viên, MÁY) — máy khác cùng cửa hàng vẫn đăng nhập được
+    const [u] = await rows(`SELECT locked_until > now() AS locked, source FROM core.auth_lockouts WHERE user_id = $1`, [
+      n.userId,
+    ]);
     expect(u?.locked).toBe(true);
+    expect(u?.source).toBe(`dev:${d.id.toLowerCase()}`);
+    const d2 = await activeDevice(s.code);
+    expect((await pin(d2, n.code, n.pin)).status).toBe(200);
     const results = (await rows(`SELECT result FROM audit.login_logs WHERE user_id = $1 ORDER BY at`, [n.userId])).map(
       (x) => x.result,
     );
-    expect(results).toEqual([...Array(5).fill('BAD_CREDENTIALS'), 'LOCKED']);
+    // lần đúng trên máy thứ hai ghi SUCCESS sau cùng
+    expect(results).toEqual([...Array(5).fill('BAD_CREDENTIALS'), 'LOCKED', 'SUCCESS']);
     expect((await rows(`SELECT result FROM audit.login_logs WHERE user_id = $1`, [foreign.userId]))[0]?.result).toBe(
       'STORE_NOT_ALLOWED',
     );
@@ -438,8 +445,8 @@ describe('auth nhân viên POS + thiết bị (CP03 lát 4)', () => {
     expect((await pin(d, n.code, n.pin, p2)).status).toBe(200);
     expect((await pin(d, n.code, n.pin, p2)).status).toBe(401);
     // không lần thử chữ ký sai nào đụng bộ đếm PIN (chỉ lần PIN sai thật)
-    const [u] = await rows(`SELECT failed_login_count FROM core.users WHERE id = $1`, [n.userId]);
-    expect(u?.failed_login_count).toBe(0); // lần đúng sau đó đã xóa
+    const lk = await rows(`SELECT 1 FROM core.auth_lockouts WHERE user_id = $1`, [n.userId]);
+    expect(lk).toHaveLength(0); // lần đúng sau đó đã xóa dòng khóa của máy
     const results = (await rows(`SELECT result FROM audit.login_logs WHERE device = $1`, [d.id])).map((x) => x.result);
     expect(results.filter((x) => x === 'DEVICE_PROOF_INVALID').length).toBe(5);
     expect(results.filter((x) => x === 'DEVICE_NONCE_REUSED').length).toBe(2);

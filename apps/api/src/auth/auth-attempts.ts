@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { TransactionHost } from '@nestjs-cls/transactional';
 import { ClsService } from 'nestjs-cls';
@@ -5,13 +6,55 @@ import type { Tx } from '../common/audit-outbox.service';
 import { AppError } from '../common/errors';
 import type { RequestStore } from '../common/request-context';
 import { AuditWriterService, type LoginResult } from '../infra/audit-writer.service';
+import { ipBucket } from '../infra/rate-limiter.service';
 import { withArgonSlot } from './password';
 import { MFA_CHALLENGE_MAX_ATTEMPTS } from './tokens';
 
-/** SEC5: 5 lần sai liên tiếp ⇒ khóa 15 phút, mỗi lần khóa sau gấp đôi, trần 24 giờ (ADR-012, ADR-021) */
+/**
+ * SEC5 (ADR-012/021, sửa theo ADR-030): 5 lần sai liên tiếp từ MỘT nguồn ⇒ khóa cặp (tài khoản, nguồn) 15 phút, mỗi lần
+ * khóa sau gấp đôi, trần 24 giờ; mức khóa tự về 0 sau 24 giờ không có lần sai. Nguồn = mạng IP (/64 với IPv6) cho
+ * login/2FA/mã khôi phục, = máy POS cho PIN ⇒ kẻ ẩn danh chỉ khóa được chính nguồn của mình.
+ * ≥ 10 nguồn cùng đang bị khóa ⇒ khóa TOÀN tài khoản 1 giờ (tấn công phân tán) + log LOCKED_GLOBAL.
+ * Xác thực lại TRONG phiên đã đăng nhập (step-up, mật khẩu hiện tại) đếm theo phiên: sai 5 lần ⇒ thu hồi phiên đó;
+ * không bị khóa đăng nhập chặn (kẻ ẩn danh không làm tê liệt được Master đang làm việc).
+ */
 export const MAX_FAILED = 5;
 const LOCK_BASE_MIN = 15;
 const LOCK_MAX_MIN = 24 * 60;
+export const GLOBAL_LOCK_SOURCES = 10;
+const GLOBAL_LOCK_MIN = 60;
+
+/**
+ * Master mở khóa / đặt lại PIN: xóa mọi khóa tạm của tài khoản (theo nguồn + toàn tài khoản). Người gọi đã giữ khóa
+ * `auth:<id>` trong transaction.
+ */
+export async function clearAllLocks(
+  tx: { $executeRaw: (q: TemplateStringsArray, ...v: unknown[]) => Promise<number> },
+  userId: string,
+): Promise<void> {
+  await tx.$executeRaw`DELETE FROM core.auth_lockouts WHERE user_id = ${userId}::uuid`;
+  await tx.$executeRaw`
+    UPDATE core.users SET locked_until = NULL, lock_count = 0, failed_login_count = 0 WHERE id = ${userId}::uuid`;
+}
+
+/** Đang có khóa tạm nào (theo nguồn hoặc toàn tài khoản)? */
+export async function hasTempLock(
+  tx: { $queryRaw: <T>(q: TemplateStringsArray, ...v: unknown[]) => Promise<T> },
+  userId: string,
+): Promise<boolean> {
+  const [r] = await tx.$queryRaw<{ locked: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM core.auth_lockouts WHERE user_id = ${userId}::uuid AND locked_until > now())
+        OR EXISTS (SELECT 1 FROM core.users WHERE id = ${userId}::uuid AND locked_until > now()) AS locked`;
+  return !!r?.locked;
+}
+
+/** phạm vi đếm sai: theo nguồn (luồng đăng nhập) hoặc theo phiên (xác thực lại khi đã đăng nhập) */
+export type AttemptScope = { source: string } | { sessionId: string };
+
+/** nguồn IP: bucket (IPv4 / IPv6 /64) băm — không lưu IP thô vào bảng khóa */
+export const ipSource = (ip: string | undefined) =>
+  `ip:${createHash('sha256').update(ipBucket(ip), 'utf8').digest('base64url').slice(0, 22)}`;
+export const deviceSource = (deviceId: string) => `dev:${deviceId.toLowerCase()}`;
 
 export const challengeInvalid = () =>
   new AppError('MFA_CHALLENGE_INVALID', 'Phiên xác minh 2FA không hợp lệ hoặc đã hết hạn — đăng nhập lại');
@@ -35,6 +78,8 @@ export interface AttemptGuard {
   dummy?: () => Promise<void>;
   /** khóa giới hạn suất Argon2; mặc định theo IP */
   slot?: string;
+  /** mặc định: nguồn IP của request */
+  scope?: AttemptScope;
 }
 
 /**
@@ -60,9 +105,11 @@ export class AuthAttempts {
   }
 
   async run<T>(g: AttemptGuard, check: () => Promise<boolean>, onSuccess: () => Promise<T>): Promise<T> {
+    const scope = g.scope ?? { source: this.ipSource() };
+    let globalLocked = false;
     type Out =
       | { kind: 'ok'; value: T }
-      | { kind: 'busy' | 'challenge' | 'fail' }
+      | { kind: 'busy' | 'challenge' | 'fail' | 'reauth_revoked' }
       | { kind: 'locked'; status: string; until: Date | null };
     const run = (): Promise<Out> =>
       this.txHost.withTransaction(async (): Promise<Out> => {
@@ -76,9 +123,20 @@ export class AuthAttempts {
         const [st] = await this.tx.$queryRaw<{ status: string; locked_until: Date | null; locked: boolean }[]>`
           SELECT status::text AS status, locked_until, (locked_until IS NOT NULL AND locked_until > now()) AS locked
           FROM core.users WHERE id = ${g.userId}::uuid`;
-        if (!st || st.status !== 'ACTIVE' || st.locked) {
+        // trạng thái LOCKED/DISABLED chặn mọi luồng; khóa TẠM toàn tài khoản chỉ chặn luồng đăng nhập (không chặn phiên)
+        const tempLocked = 'source' in scope && !!st?.locked;
+        if (!st || st.status !== 'ACTIVE' || tempLocked) {
           if (g.dummy) await g.dummy();
-          return { kind: 'locked', status: st?.status ?? 'DISABLED', until: st?.locked ? st.locked_until : null };
+          return { kind: 'locked', status: st?.status ?? 'DISABLED', until: tempLocked ? st.locked_until : null };
+        }
+        if ('source' in scope) {
+          const [lo] = await this.tx.$queryRaw<{ locked_until: Date | null; locked: boolean }[]>`
+            SELECT locked_until, (locked_until IS NOT NULL AND locked_until > now()) AS locked
+            FROM core.auth_lockouts WHERE user_id = ${g.userId}::uuid AND source = ${scope.source} FOR UPDATE`;
+          if (lo?.locked) {
+            if (g.dummy) await g.dummy();
+            return { kind: 'locked', status: 'ACTIVE', until: lo.locked_until };
+          }
         }
         if (g.challengeId) {
           const c = await this.tx.authChallenge.updateMany({
@@ -93,14 +151,49 @@ export class AuthAttempts {
           if (c.count !== 1) return { kind: 'challenge' };
         }
         if (!(await check())) {
-          await this.tx.$executeRaw`
-            UPDATE core.users SET
-              lock_count = CASE WHEN failed_login_count + 1 >= ${MAX_FAILED} THEN lock_count + 1 ELSE lock_count END,
-              locked_until = CASE WHEN failed_login_count + 1 >= ${MAX_FAILED}
-                THEN now() + make_interval(mins => LEAST(${LOCK_BASE_MIN} * (2 ^ LEAST(lock_count, 7))::int, ${LOCK_MAX_MIN}))
-                ELSE locked_until END,
-              failed_login_count = CASE WHEN failed_login_count + 1 >= ${MAX_FAILED} THEN 0 ELSE failed_login_count + 1 END
-            WHERE id = ${g.userId}::uuid`;
+          if ('sessionId' in scope) {
+            const [r] = await this.tx.$queryRaw<{ n: number }[]>`
+              UPDATE core.sessions SET reauth_failed_count = reauth_failed_count + 1
+              WHERE id = ${scope.sessionId}::uuid AND revoked_at IS NULL RETURNING reauth_failed_count AS n`;
+            if ((r?.n ?? MAX_FAILED) >= MAX_FAILED) {
+              await this.tx.$executeRaw`
+                UPDATE core.sessions SET revoked_at = now(), revoke_reason = 'REAUTH_FAILED'
+                WHERE id = ${scope.sessionId}::uuid AND revoked_at IS NULL`;
+              return { kind: 'reauth_revoked' };
+            }
+            return { kind: 'fail' };
+          }
+          // một nguồn: mức khóa/bộ đếm về 0 sau 24 giờ không có lần sai
+          const [lo] = await this.tx.$queryRaw<{ failed: number; locks: number }[]>`
+            INSERT INTO core.auth_lockouts AS l (user_id, source, failed_count, lock_count, updated_at)
+            VALUES (${g.userId}::uuid, ${scope.source}, 0, 0, now())
+            ON CONFLICT (user_id, source) DO UPDATE SET
+              failed_count = CASE WHEN l.updated_at < now() - interval '24 hours' THEN 0 ELSE l.failed_count END,
+              lock_count = CASE WHEN l.updated_at < now() - interval '24 hours' THEN 0 ELSE l.lock_count END
+            RETURNING failed_count AS failed, lock_count AS locks`;
+          const failed = (lo?.failed ?? 0) + 1;
+          const locks = lo?.locks ?? 0;
+          if (failed >= MAX_FAILED) {
+            const mins = Math.min(LOCK_BASE_MIN * 2 ** Math.min(locks, 7), LOCK_MAX_MIN);
+            await this.tx.$executeRaw`
+              UPDATE core.auth_lockouts SET failed_count = 0, lock_count = lock_count + 1,
+                locked_until = now() + make_interval(mins => ${mins}::int), updated_at = now()
+              WHERE user_id = ${g.userId}::uuid AND source = ${scope.source}`;
+            const [c] = await this.tx.$queryRaw<{ n: number }[]>`
+              SELECT count(*)::int AS n FROM core.auth_lockouts
+              WHERE user_id = ${g.userId}::uuid AND locked_until > now()`;
+            if ((c?.n ?? 0) >= GLOBAL_LOCK_SOURCES) {
+              await this.tx.$executeRaw`
+                UPDATE core.users SET locked_until = GREATEST(COALESCE(locked_until, now()),
+                  now() + make_interval(mins => ${GLOBAL_LOCK_MIN}::int))
+                WHERE id = ${g.userId}::uuid`;
+              globalLocked = true;
+            }
+          } else {
+            await this.tx.$executeRaw`
+              UPDATE core.auth_lockouts SET failed_count = ${failed}::int, updated_at = now()
+              WHERE user_id = ${g.userId}::uuid AND source = ${scope.source}`;
+          }
           return { kind: 'fail' };
         }
         return { kind: 'ok', value: await onSuccess() };
@@ -129,8 +222,12 @@ export class AuthAttempts {
       case 'locked':
         await this.log(g.userId, out.status === 'DISABLED' ? 'DISABLED' : 'LOCKED', g.identifierHash);
         throw g.publicError ? g.publicError() : this.lockedError(out.until);
+      case 'reauth_revoked':
+        await this.log(g.userId, 'REAUTH_REVOKED', g.identifierHash);
+        throw new AppError('SESSION_REVOKED', 'Xác thực lại sai quá 5 lần — phiên đã bị thu hồi, đăng nhập lại');
       case 'fail':
         await this.log(g.userId, g.failResult, g.identifierHash);
+        if (globalLocked) await this.log(g.userId, 'LOCKED_GLOBAL', g.identifierHash);
         throw g.publicError ? g.publicError() : g.failError ? g.failError() : otpInvalid();
     }
   }
@@ -138,6 +235,11 @@ export class AuthAttempts {
   /** Khóa giới hạn suất Argon2 theo nguồn (IP đã qua trust proxy) */
   ipSlot(): string {
     return `ip:${this.cls.get('ip') ?? '?'}`;
+  }
+
+  /** nguồn khóa của request hiện tại (mạng IP) */
+  ipSource(): string {
+    return ipSource(this.cls.get('ip'));
   }
 
   lockedError(until?: Date | null): AppError {
@@ -148,13 +250,29 @@ export class AuthAttempts {
     );
   }
 
-  /** Lần thử đúng (trong transaction của `run`, đã giữ khóa tài khoản): full = đăng nhập trọn vẹn, xóa cả mức khóa. */
-  async clearFailures(userId: string, full: boolean): Promise<void> {
-    await this.tx.user.update({
-      where: { id: userId },
-      data: { failedLoginCount: 0, ...(full ? { lockCount: 0, lockedUntil: null, lastLoginAt: new Date() } : {}) },
-      select: { id: true },
-    });
+  /**
+   * Lần thử đúng (trong transaction của `run`, đã giữ khóa tài khoản). Theo nguồn: full = đăng nhập trọn vẹn ⇒ xóa dòng
+   * khóa của nguồn đó (cả mức tăng dần) + ghi lastLoginAt; không full (mật khẩu đúng nhưng chưa có 2FA) ⇒ chỉ xóa bộ đếm.
+   * Theo phiên: xóa bộ đếm xác thực lại của phiên.
+   */
+  async clearFailures(userId: string, full: boolean, scope?: AttemptScope): Promise<void> {
+    const sc = scope ?? { source: this.ipSource() };
+    if ('sessionId' in sc) {
+      await this.tx.$executeRaw`UPDATE core.sessions SET reauth_failed_count = 0 WHERE id = ${sc.sessionId}::uuid`;
+      return;
+    }
+    if (full) {
+      await this.tx
+        .$executeRaw`DELETE FROM core.auth_lockouts WHERE user_id = ${userId}::uuid AND source = ${sc.source}`;
+      await this.tx.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() }, select: { id: true } });
+    } else {
+      await this.tx.$executeRaw`
+        UPDATE core.auth_lockouts SET failed_count = 0 WHERE user_id = ${userId}::uuid AND source = ${sc.source}`;
+    }
+  }
+
+  async clearAllLocks(userId: string): Promise<void> {
+    await clearAllLocks(this.tx, userId);
   }
 
   async log(userId: string | null, result: LoginResult, identifierHash: Uint8Array | null): Promise<void> {

@@ -357,6 +357,27 @@ void main() {
       ); // chỉ lượt refresh của ping; sessionLost không gọi thêm
     },
   );
+
+  testWidgets(
+    'request chạy muộn của phiên CŨ không đá văng phiên của nhân viên mới',
+    (t) async {
+      final c = await start(t);
+      await register(t);
+      fake.deviceStatus = 'ACTIVE';
+      await t.tap(find.byKey(const Key('to_pin')));
+      await t.pumpAndSettle();
+      await pin(t, 'NV01', '246813');
+      final old = c.session!;
+      await c.lock();
+      await t.pumpAndSettle();
+      await pin(t, 'NV01', '246813');
+      expect(c.stage, Stage.home);
+      c.sessionLost(ApiException(401, 'SESSION_REVOKED', 'x'), old);
+      await t.pumpAndSettle();
+      expect(c.stage, Stage.home);
+      expect(c.session, isNotNull);
+    },
+  );
 }
 
 class _BrokenStore extends MemoryDeviceStore {

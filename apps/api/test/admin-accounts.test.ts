@@ -356,6 +356,42 @@ describe('quản trị tài khoản (CP03 lát 8a)', () => {
     expect((await c.get(`/v1/admin/users/${t.userId}/sessions`)).status).toBe(403);
   });
 
+  it('ADR-030 — Master gỡ được khóa TẠM (nhập sai) của Master khác; tài khoản không bị khóa ⇒ 409', async () => {
+    const x = await createMaster(db.roleUrl('app_rw'), `tl-${hex().toLowerCase()}@fruit.test`, {
+      mustChangePassword: false,
+    });
+    const none = await http()
+      .post(`/v1/admin/users/${x.userId}/unlock`)
+      .set('Authorization', master)
+      .send({ reason: 'thử mở' });
+    expect([none.status, none.body.code]).toEqual([409, 'INVALID_STATE_TRANSITION']);
+    for (let i = 0; i < 5; i++)
+      await http()
+        .post('/v1/auth/login')
+        .set('X-Forwarded-For', '203.0.113.9')
+        .send({ email: x.email, password: 'sai' });
+    const [lk] = await rows(
+      `SELECT count(*)::int AS n FROM core.auth_lockouts WHERE user_id = $1 AND locked_until > now()`,
+      [x.userId],
+    );
+    expect(lk?.n).toBe(1);
+    const u = await http()
+      .post(`/v1/admin/users/${x.userId}/unlock`)
+      .set('Authorization', master)
+      .send({ reason: 'nạn nhân bị dò mật khẩu' });
+    expect(u.status).toBe(200);
+    expect(await rows(`SELECT 1 FROM core.auth_lockouts WHERE user_id = $1`, [x.userId])).toHaveLength(0);
+    const ok = await http()
+      .post('/v1/auth/login')
+      .set('X-Forwarded-For', '203.0.113.9')
+      .send({ email: x.email, password: x.password });
+    expect(ok.status).toBe(200);
+    const [a] = await rows(`SELECT before FROM audit.logs WHERE resource_id = $1 AND action = 'user.unlock'`, [
+      x.userId,
+    ]);
+    expect(a?.before).toMatchObject({ status: 'ACTIVE', temporary_lock: true });
+  });
+
   it('NC-22 — mật khẩu tạm phải đổi trước khi đăng ký 2FA; sai mật khẩu hiện tại ⇒ 422; challenge cũ chết; chưa kích hoạt quá 72 giờ ⇒ không đăng nhập', async () => {
     const m = await createMaster(db.roleUrl('app_rw'), `nc22-${hex().toLowerCase()}@fruit.test`); // CLI thật: bắt đổi
     const l = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });

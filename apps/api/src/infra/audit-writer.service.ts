@@ -19,6 +19,9 @@ export type LoginResult =
   | 'REFRESH_REUSE'
   | 'STEP_UP_FAILED'
   | 'RATE_LIMITED'
+  // ADR-030: khóa toàn tài khoản (≥ 10 nguồn cùng bị khóa); phiên bị thu hồi vì xác thực lại sai 5 lần
+  | 'LOCKED_GLOBAL'
+  | 'REAUTH_REVOKED'
   // nhân viên POS (lát 4 — ADR-022)
   | 'STORE_NOT_ALLOWED'
   | 'DEVICE_NOT_ACTIVE'

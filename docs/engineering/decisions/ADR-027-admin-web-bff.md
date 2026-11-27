@@ -33,7 +33,7 @@
 4. **Làm mới token một lần duy nhất (single-flight).** Refresh token chỉ dùng được một lần; dùng lại thì cả phiên bị thu
    hồi (SEC4). Khi access vừa hết hạn, trình duyệt bắn song song nhiều request mang cùng refresh cookie.
    - BFF gộp các lần refresh theo token trong bộ nhớ tiến trình (`globalThis`, dùng chung cho proxy.ts và route handler). Kết
-     quả được dùng lại trong 60 giây.
+     quả THÀNH CÔNG được dùng lại trong 15 giây (sửa sau kiểm thử — xem bên dưới).
    - Lỗi tạm (429/5xx) không giữ trong bộ đệm và không đăng xuất. API từ chối hẳn (400/401/403) thì xóa cookie.
    - **Ràng buộc:** admin-web chạy MỘT bản. Nếu nhân bản thì phải chuyển bộ gộp sang Redis.
 5. **`proxy.ts` (Next 16).**

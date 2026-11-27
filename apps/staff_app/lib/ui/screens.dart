@@ -344,7 +344,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } on ApiException catch (e) {
       if (e.sessionEnded || e.deviceGone) {
-        c.sessionLost(e);
+        c.sessionLost(e, s);
         return;
       }
       if (mounted) setState(() => _check = e.message);

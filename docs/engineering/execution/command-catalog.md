@@ -37,7 +37,18 @@ Yêu cầu: Node 24.22.3, pnpm 11.2.2 (Corepack), Flutter 3.44.6 / Dart 3.12.2, 
 | Test shared_models | `packages/shared_models` | `dart analyze --fatal-infos && dart test` |
 | Analyze + test app | `apps/customer_app` hoặc `apps/staff_app` | `flutter analyze --fatal-infos && flutter test` |
 | Build POS Windows | `apps/staff_app` | `flutter build windows --release` |
-| Spike cổng COM trên Windows | `apps/staff_app` | `flutter test integration_test -d windows` |
+| Spike cổng COM trên Windows | `apps/staff_app` | `flutter test integration_test/serial_spike_test.dart -d windows` |
+| Chạy staff app trỏ API | `apps/staff_app` | `flutter run -d windows --dart-define=API_BASE_URL=http://localhost:8080` (bản release BẮT BUỘC https: `flutter build windows --release --dart-define=API_BASE_URL=https://…`) |
+| E2E staff app chạy thật Windows ↔ API (cần Docker, Flutter, VS Build Tools có C++ ATL) | gốc | `pnpm --filter @fruit/api run test:e2e -- staff-app` |
+
+## Admin web (Next.js BFF)
+
+| Mục đích | cwd | Lệnh |
+|---|---|---|
+| Dev (cần API chạy sẵn) | `apps/admin-web` | `API_INTERNAL_URL=http://127.0.0.1:3000 ADMIN_ORIGIN=http://localhost:3001 pnpm dev` |
+| Typecheck + lint + build | gốc | `pnpm --filter @fruit/admin-web run typecheck && pnpm --filter @fruit/admin-web run lint && pnpm --filter @fruit/admin-web run build` |
+| E2E (Chromium + API thật, cần Docker; build trước — e2e từ chối bản build cũ) | gốc | `pnpm --filter @fruit/admin-web run build && pnpm --filter @fruit/api run test:e2e -- admin-web` |
+| Cài Chromium cho Playwright (một lần) | `apps/api` | `npx playwright install chromium` |
 
 ## Chạy local bằng Docker
 

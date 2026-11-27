@@ -412,6 +412,7 @@ export class AuthService {
         argon: true,
         failResult: 'BAD_CREDENTIALS',
         slot: `user:${p.userId}`,
+        scope: { sessionId: p.sessionId },
         failError: () =>
           new AppError('CURRENT_PASSWORD_INVALID', 'Mật khẩu hiện tại không đúng', { field: 'current_password' }),
       },
@@ -431,7 +432,7 @@ export class AuthService {
       async () => {
         const w = await this.tx.user.updateMany({
           where: { id: p.userId, passwordHash: hashChecked },
-          data: { passwordHash: newHash, mustChangePassword: false, failedLoginCount: 0 },
+          data: { passwordHash: newHash, mustChangePassword: false },
         });
         if (w.count !== 1) throw new AppError('INVALID_STATE_TRANSITION', 'Mật khẩu vừa được đổi ở nơi khác — thử lại');
         // L2 (review NC-22): challenge MFA phát bằng mật khẩu cũ không còn dùng được
@@ -608,14 +609,21 @@ export class AuthService {
     if (!u.totpEnabledAt) throw new AppError('INVALID_STATE_TRANSITION', 'Chưa bật 2FA');
     let step: number | undefined;
     return this.attempts.run(
-      { userId: u.id, identifierHash: null, argon: false, failResult: 'STEP_UP_FAILED' },
+      // ADR-030: đếm theo PHIÊN (sai 5 lần ⇒ thu hồi phiên), không bị khóa đăng nhập của tài khoản chặn
+      {
+        userId: u.id,
+        identifierHash: null,
+        argon: false,
+        failResult: 'STEP_UP_FAILED',
+        scope: { sessionId: p.sessionId },
+      },
       () => {
         step = totpStep(this.totpSecret(u), code, u.totpLastStep);
         return Promise.resolve(step !== undefined);
       },
       async () => {
         await this.useTotpStep(u.id, step ?? -1);
-        await this.attempts.clearFailures(u.id, false);
+        await this.attempts.clearFailures(u.id, false, { sessionId: p.sessionId });
         const until = new Date(Date.now() + STEP_UP_TTL_S * 1000);
         // phiên phải còn hiệu lực (thu hồi song song ⇒ 0 dòng)
         const s = await this.tx.session.updateMany({

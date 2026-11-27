@@ -142,7 +142,18 @@ class AppController extends ChangeNotifier {
         ? 'Đã tự khóa sau ${idleLock.inMinutes} phút không thao tác.'
         : null;
     notifyListeners();
-    if (id != null && s != null) await api.logout(id, s);
+    if (id != null && s != null) {
+      // đang refresh dở ⇒ chờ xong để logout bằng access MỚI (không thì phiên mồ côi sống tới 24 giờ ở server)
+      final pending = s.refreshing;
+      if (pending != null) {
+        try {
+          await pending;
+        } catch (_) {
+          // refresh lỗi ⇒ phiên đã chết / sẽ hết hạn — vẫn thử logout
+        }
+      }
+      await api.logout(id, s);
+    }
   }
 
   /// Gọi mỗi khi người dùng thao tác — đặt lại đồng hồ tự khóa.
@@ -162,7 +173,10 @@ class AppController extends ChangeNotifier {
   }
 
   /// Phiên chết phía server (thu hồi / hết hạn) khi đang làm việc ⇒ về màn PIN.
-  void sessionLost(ApiException e) {
+  /// [lost] = phiên mà request lỗi thuộc về. Request chạy muộn của phiên CŨ (đã khóa màn hình, người khác đã đăng nhập)
+  /// không được đá văng phiên hiện tại (review cổng CP03).
+  void sessionLost(ApiException e, [StaffSession? lost]) {
+    if (lost != null && !identical(lost, session)) return;
     final id = identity;
     final s = session;
     // chỉ khi phiên CÓ THỂ còn sống ở server (chữ ký bị từ chối vì lệch giờ): thu hồi best-effort, không refresh

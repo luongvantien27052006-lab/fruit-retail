@@ -79,4 +79,5 @@ jobs:
       - working-directory: apps/staff_app
         run: flutter build windows --release
       - working-directory: apps/staff_app
-        run: flutter test integration_test -d windows
+        # chỉ spike COM — integration_test/live_api_test.dart cần API + điều phối (apps/api/test-e2e/staff-app.e2e.ts)
+        run: flutter test integration_test/serial_spike_test.dart -d windows

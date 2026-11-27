@@ -236,6 +236,11 @@ auth_challenges, otp_challenges, viewer_profiles(+assignments), `reporting_priva
 (stores, warehouses, registers, pos_devices — CP04 mở rộng). `code_sequences` chuyển CP07. Thêm
 `infra/sql/001_extension_privileges.sql`.
 
+**CP03 sau lát 1:** pos_enrollment_codes (0003, ADR-022), files.final_key (0006), users.must_change_password (0007,
+NC-22), auth_lockouts + sessions.reauth_failed_count (0008, ADR-030 — khóa theo (tài khoản, nguồn)). Thứ tự khóa xác
+thực: advisory `auth:<user_id>` → `core.users` → `core.sessions` (ORDER BY id) → `core.pos_devices`; `auth_lockouts` chỉ
+được khóa bên trong khóa `auth:<user_id>`.
+
 | Nhóm | CP | Prisma | infra/sql |
 |---|---|---|---|
 | M01 nền | CP02 | — | `000_bootstrap.sql` (extension postgis, pgcrypto, pg_trgm, unaccent; schema core/reporting/reporting_private/audit/integration; role theo ADR-011, KHÔNG default privilege cho viewer; REVOKE EXECUTE FROM PUBLIC; `integration.sql_migrations`; `raise_immutable()`) — các nhóm sau nhúng SQL tay trong `migration.sql` của Prisma (ADR-017) |

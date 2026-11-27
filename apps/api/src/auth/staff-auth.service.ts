@@ -6,7 +6,7 @@ import type { Tx } from '../common/audit-outbox.service';
 import { findSqlState } from '../common/db-errors';
 import { AppError } from '../common/errors';
 import type { RequestStore } from '../common/request-context';
-import { AuthAttempts } from './auth-attempts';
+import { AuthAttempts, deviceSource } from './auth-attempts';
 import type { TokenPair } from './auth.service';
 import type { DeviceProof } from './device-proof';
 import { dummyHash, verifySecret, withArgonSlot } from './password';
@@ -107,6 +107,8 @@ export class StaffAuthService {
         failResult: 'BAD_CREDENTIALS',
         dummy,
         slot,
+        // ADR-030: khóa theo (nhân viên, máy) — nhập sai trên một máy không khóa nhân viên ở máy khác
+        scope: { source: deviceSource(device.id) },
       },
       async () => {
         // L1' (kiểm thử DB lát 6): ĐỌC LẠI mã băm PIN + ngày nghỉ trong transaction đang giữ khóa `auth:<id>` — mã băm đọc
@@ -128,7 +130,7 @@ export class StaffAuthService {
       async () => {
         // kiểm lại trong transaction (vai trò có thể vừa bị thu hồi)
         if (!(await this.allowedOnStore(staff.userId, device.storeId))) throw invalidPin();
-        await this.attempts.clearFailures(staff.userId, true);
+        await this.attempts.clearFailures(staff.userId, true, { source: deviceSource(device.id) });
         const pair = await this.createSession(staff.userId, device);
         await this.attempts.log(staff.userId, 'SUCCESS', identifierHash);
         return {

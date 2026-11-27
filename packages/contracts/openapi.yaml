@@ -450,6 +450,9 @@ paths:
       operationId: postAuthStepUp
       tags: [auth]
       summary: 'Xác thực lại 2FA, hiệu lực 5 phút (SEC2)'
+      description: >-
+        Đếm sai theo PHIÊN (ADR-030): sai 5 lần ⇒ phiên bị thu hồi (401 SESSION_REVOKED). Khóa đăng nhập do người khác
+        nhập sai mật khẩu KHÔNG chặn step-up của phiên đã đăng nhập.
       x-permission: 'auth:*'
       x-spec-ref: '§2.4'
       x-detail-cp: CP03
@@ -6040,6 +6043,9 @@ paths:
       operationId: postAdminUsersIdUnlock
       tags: [admin]
       summary: 'Mở khóa tài khoản'
+      description: >-
+        Mở tài khoản LOCKED (Master khóa) hoặc gỡ khóa TẠM do nhập sai (theo nguồn / toàn tài khoản — ADR-030) của tài
+        khoản ACTIVE. Không bị khóa gì ⇒ 409 INVALID_STATE_TRANSITION.
       x-permission: 'staff:write'
       x-master-only: true # cửa hàng trưởng không mở khóa (không đảo quyết định khóa — ADR-024/026)
       x-step-up: true

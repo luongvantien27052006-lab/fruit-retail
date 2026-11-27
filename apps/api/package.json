@@ -10,22 +10,32 @@
     "start:worker": "node dist/worker.js",
     "typecheck": "prisma generate && tsc -p tsconfig.json --noEmit",
     "lint": "eslint src test",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1166.0",
+    "@aws-sdk/s3-request-presigner": "3.1166.0",
     "@fruit/money_weight": "workspace:*",
+    "@nestjs-cls/transactional": "4.0.2",
+    "@nestjs-cls/transactional-adapter-prisma": "2.0.2",
     "@nestjs/common": "12.5.1",
     "@nestjs/core": "12.5.1",
     "@nestjs/platform-express": "12.5.1",
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
+    "bullmq": "6.7.4",
     "ioredis": "6.0.0",
+    "jose": "6.2.16",
+    "nestjs-cls": "7.0.2",
     "nestjs-pino": "5.3.1",
+    "otplib": "13.6.0",
     "pg": "8.23.1",
     "pino": "10.4.0",
     "pino-http": "11.0.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
+    "uuid": "14.0.3",
     "zod": "4.6.7"
   },
   "devDependencies": {
@@ -36,10 +46,14 @@
     "@types/express": "5.0.6",
     "@types/pg": "8.23.1",
     "@types/supertest": "7.2.1",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "playwright": "1.65.0",
     "prisma": "7.10.1",
     "supertest": "7.3.2",
     "testcontainers": "12.2.1",
     "unplugin-swc": "2.0.0",
-    "vitest": "5.1.0"
+    "vitest": "5.1.0",
+    "yaml": "2.9.1"
   }
 }

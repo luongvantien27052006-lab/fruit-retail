@@ -22,6 +22,7 @@ const ALLOWED_DIFF = new Map([
   ['/pos/wholesale-orders/{id}/accept', 'NC-16: dùng start-picking'],
   ['/pos/wholesale-orders/{id}/reject', 'NC-16: đơn sỉ không có bước từ chối'],
   ['/pos/wholesale-orders/{id}/report-shortage', 'NC-16: thiếu hàng đơn sỉ xử lý ở Master'],
+  ['/pos/markdowns/{id}/approve', 'NC-21: giảm giá cận hạn chỉ Master duyệt — qua /admin/approvals'],
 ]);
 const paths = new Set([...oas.matchAll(/^ {2}(\/[^:\s]+):$/gm)].map((m) => m[1]));
 const rows = section(/^### 13\.2\./, /^### 13\.3\./).filter(
@@ -29,8 +30,14 @@ const rows = section(/^### 13\.2\./, /^### 13\.3\./).filter(
 );
 const want = new Set();
 for (const row of rows) {
-  const cell = row.split('|')[2] || '';
-  if (/CRUD theo mục/.test(cell)) continue;
+  // chỉ cắt '|' NGOÀI backtick: `ship|receive`, `pick|deliver`… là các route thay thế trong cùng ô
+  // hàng Admin mở đầu "CRUD theo mục §10.1;" — chỉ bỏ cụm đó, vẫn kiểm các route liệt kê sau nó
+  const cell = (
+    row
+      .replace(/`[^`]*`/g, (m) => m.replaceAll('|', '\u0001'))
+      .split('|')[2]
+      ?.replaceAll('\u0001', '|') ?? ''
+  ).replace(/CRUD theo mục[^;]*;/, '');
   let lastBase = '';
   for (const raw of cell.split('·')) {
     const m = raw.match(/(?:(?:GET|POST|PATCH|DELETE|CRUD)\s+)?(`?)(\/[^\s`?]+)/);
@@ -45,7 +52,7 @@ for (const row of rows) {
       .replace(/:([a-z_]+)/g, '{$1}')
       .split('|')
       .map((x, i, arr) => (i === 0 ? x : x.includes('/') ? x : arr[0].replace(/[^/]+$/, x)))) {
-      want.add(alt.replace(/\{provider\}/, '{provider}'));
+      want.add(alt);
     }
   }
 }
@@ -54,6 +61,11 @@ for (const a of ['accept', 'reject', 'weigh-line', 'report-shortage', 'pack', 'd
   want.add(`/pos/wholesale-orders/{id}/${a}`);
 let missing = 0;
 for (const p of want) {
+  // route đã được miễn (bỏ có chủ đích) mà xuất hiện lại trong openapi ⇒ lỗi: quyết định NC bị lặng lẽ đảo ngược
+  if (paths.has(p) && ALLOWED_DIFF.has(p)) {
+    err(`route ${p} đã bỏ theo ${ALLOWED_DIFF.get(p)} nhưng lại có trong openapi`);
+    continue;
+  }
   if (paths.has(p)) continue;
   if (p.endsWith('/*') && [...paths].some((x) => x.startsWith(p.slice(0, -1)))) continue;
   if (ALLOWED_DIFF.has(p)) {

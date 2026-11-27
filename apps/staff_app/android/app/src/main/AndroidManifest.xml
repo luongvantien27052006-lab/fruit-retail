@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- bản release gọi API qua mạng (review lát 9: trước chỉ có ở debug/profile) -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="staff_app"
+        android:label="Nhân viên"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

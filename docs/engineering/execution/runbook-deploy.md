@@ -41,6 +41,23 @@ sshd -T | grep -Ei '^(passwordauthentication|permitrootlogin)'   # phải ra "no
 Docker tự mở cổng qua iptables (bỏ qua ufw) — compose staging chỉ publish 80/443 của Caddy; postgres/redis/api chỉ trong
 network nội bộ.
 
+### 1b. IPv6 — BẮT BUỘC trước khi công bố bản ghi AAAA (review cổng CP03 TB-2)
+
+Docker mặc định dùng userland-proxy cho cổng publish. Nếu mạng compose chỉ có IPv4, kết nối IPv6 vào cổng 443 bị chuyển
+tiếp và Caddy thấy nguồn là gateway `172.x.0.1`. Hệ quả: mọi client IPv6 chung một "IP", nên một kẻ tấn công IPv6 làm cạn
+giới hạn tần suất (ADR-023) và khóa theo nguồn (ADR-030) của tất cả người dùng IPv6. `login_logs` cũng mất IP thật.
+
+Chọn **một** trong các cách sau:
+1. Không công bố AAAA, chỉ có bản ghi A. Cách này đơn giản nhất cho pilot.
+2. Tắt userland-proxy. Đặt `/etc/docker/daemon.json` có `{"userland-proxy": false, "ip6tables": true}` rồi chạy `systemctl
+   restart docker`. Sau đó cho mạng mặc định của compose `enable_ipv6: true`, kèm một subnet ULA (ví dụ `fd00:f1::/64`),
+   trong override staging.
+3. Cho Caddy chạy `network_mode: host`. Cách này phải đổi upstream sang `127.0.0.1` và mở cổng api/admin-web ở loopback.
+
+**Kiểm sau khi bật:** từ một máy có IPv6 thật, chạy `curl -6 https://<domain>/v1/health`. Sau đó gọi
+`/v1/auth/login` với email bịa, rồi xem trong `audit.login_logs` (lệnh `psql` như mục 5) cột `ip` có đúng địa chỉ
+IPv6 của máy thử không. Nếu thấy `172.x` hoặc `::ffff:172.x`, nghĩa là chưa đạt.
+
 ## 2. Triển khai lần đầu (user deploy)
 
 ```bash

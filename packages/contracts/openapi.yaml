@@ -57,6 +57,8 @@ paths:
       x-permission: 'public'
       x-spec-ref: '§2.4'
       x-detail-cp: CP03
+      description: >-
+        Bắt buộc X-Device-Id. Cùng một phản hồi dù SĐT đã có tài khoản hay chưa. Mã mới thay mã cũ. Giới hạn gửi theo SĐT (1/60 giây, 5/giờ, 10/ngày), thiết bị (5/giờ, 20/ngày), IP (IPv4; IPv6 theo /64, /56, /48) và toàn hệ thống (theo giờ và theo ngày); SĐT đang bị khóa xác minh (sai 10 lần/giờ) cũng 429; vượt ⇒ 429 OTP_RATE_LIMITED kèm details.retry_after_s. Chưa cấu hình nhà cung cấp ⇒ 503 CONFIGURATION_NOT_READY; Redis lỗi hoặc gửi lỗi ⇒ 503 DEPENDENCY_UNAVAILABLE.
       parameters:
         - $ref: '#/components/parameters/RequestId'
         - $ref: '#/components/parameters/DeviceId'
@@ -65,14 +67,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthOtpRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthOtpRequestResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -96,6 +98,8 @@ paths:
       x-permission: 'public'
       x-spec-ref: '§2.4'
       x-detail-cp: CP03
+      description: >-
+        Bắt buộc X-Device-Id. Mã sai / hết hạn / đã dùng / quá 5 lần nhập ⇒ cùng 401 OTP_INVALID. Sai 10 lần trong một giờ theo SĐT ⇒ 429 OTP_RATE_LIMITED. Lần đầu xác minh đúng ⇒ tạo tài khoản khách. SĐT thuộc tài khoản nội bộ hoặc khách bị khóa ⇒ 403 ACTION_FORBIDDEN.
       parameters:
         - $ref: '#/components/parameters/RequestId'
         - $ref: '#/components/parameters/DeviceId'
@@ -104,14 +108,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthOtpVerifyRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthOtpVerifyResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -137,19 +141,20 @@ paths:
       x-detail-cp: CP03
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/ClientDeviceId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthLoginRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthLoginResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -176,19 +181,20 @@ paths:
       x-detail-cp: CP03
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/ClientDeviceId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthCodeRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthTokenPair'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -216,19 +222,20 @@ paths:
       x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/ClientDeviceId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthRecoverRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthRecoverResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -260,14 +267,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/EmptyRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthTotpSetupResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -299,14 +306,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthCodeRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthTotpConfirmResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -339,14 +346,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/EmptyRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthRecoveryCodesResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -378,14 +385,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthPinRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthPinResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -419,14 +426,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/PosDeviceRegisterRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/PosDeviceRegisterResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -446,6 +453,9 @@ paths:
       operationId: postAuthStepUp
       tags: [auth]
       summary: 'Xác thực lại 2FA, hiệu lực 5 phút (SEC2)'
+      description: >-
+        Đếm sai theo PHIÊN (ADR-030): sai 5 lần ⇒ phiên bị thu hồi (401 SESSION_REVOKED). Khóa đăng nhập do người khác
+        nhập sai mật khẩu KHÔNG chặn step-up của phiên đã đăng nhập.
       x-permission: 'auth:*'
       x-spec-ref: '§2.4'
       x-detail-cp: CP03
@@ -456,14 +466,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthCodeRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthStepUpResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -495,14 +505,55 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AuthRefreshRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthTokenPair'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /auth/password:
+    post:
+      operationId: postAuthPassword
+      tags: [auth]
+      summary: 'Đổi mật khẩu (Master/Viewer) — mật khẩu tạm phải đổi trước khi đăng ký 2FA'
+      description: >-
+        Mật khẩu hiện tại sai ⇒ 422 CURRENT_PASSWORD_INVALID và tính một lần sai (khóa SEC5). Mật khẩu tạm quá 72 giờ ⇒ 403 ACTION_FORBIDDEN (nhờ Master cấp lại); refresh phiên đó ⇒ 401 SESSION_REVOKED. Thành công cũng vô hiệu mọi mfa_challenge còn treo. Mật khẩu mới 12–256 ký tự, khác mật khẩu cũ, không
+        chứa tên email. Thành công ⇒ thu hồi mọi phiên KHÁC của tài khoản. Đi được khi phiên chưa có 2FA (ENROLLMENT_REQUIRED).
+      x-permission: 'auth:*'
+      x-spec-ref: '§2.4'
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true # Tiến duyệt NC-22 (2026-11-27)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthPasswordRequest'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthPasswordResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -532,14 +583,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/EmptyRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/OkResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -571,7 +622,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuthSessionList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -637,14 +688,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/FilePresignRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/FilePresignResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -683,14 +734,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/EmptyRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/FileCompleteResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -731,7 +782,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/FileDownloadUrlResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1555,7 +1606,7 @@ paths:
       x-permission: 'pos:sell'
       x-conditional-permissions:
         'line.weight_source=MANUAL': 'pos:manual_weight (người duyệt tại chỗ: thẻ + PIN quản lý)'
-        'line.discount_amount>0': 'pos:discount (trong hạn mức §2.3; dưới giá sàn chỉ Master)'
+        'line.discount_amount>0': 'chỉ từ tem giảm giá cận hạn của lô (markdown Master đã duyệt) — giảm giá tay đã bỏ (NC-21)'
         'line.voided_after_weigh': 'pos:void_line (ghi log đặc biệt)'
       x-spec-ref: '§6.3'
       x-detail-cp: CP07
@@ -1600,7 +1651,6 @@ paths:
         'SPOILAGE': 'spoilage:approve'
         'STOCKTAKE_ADJUST': 'stocktake:approve'
         'INTERNAL_USE': 'internal_use:approve'
-        'MARKDOWN': 'markdown:approve'
         'CASH_DIFFERENCE': 'cash:approve'
         'SALE_VOID': 'pos:void_sale'
         'REFUND': 'pos:refund'
@@ -1645,7 +1695,6 @@ paths:
         'SPOILAGE': 'spoilage:approve'
         'STOCKTAKE_ADJUST': 'stocktake:approve'
         'INTERNAL_USE': 'internal_use:approve'
-        'MARKDOWN': 'markdown:approve'
         'CASH_DIFFERENCE': 'cash:approve'
         'SALE_VOID': 'pos:void_sale'
         'REFUND': 'pos:refund'
@@ -1703,7 +1752,6 @@ paths:
         'SPOILAGE': 'spoilage:approve'
         'STOCKTAKE_ADJUST': 'stocktake:approve'
         'INTERNAL_USE': 'internal_use:approve'
-        'MARKDOWN': 'markdown:approve'
         'CASH_DIFFERENCE': 'cash:approve'
         'SALE_VOID': 'pos:void_sale'
         'REFUND': 'pos:refund'
@@ -2039,7 +2087,7 @@ paths:
       x-permission: 'pos:sell'
       x-conditional-permissions:
         'line.weight_source=MANUAL': 'pos:manual_weight (người duyệt tại chỗ: thẻ + PIN quản lý)'
-        'line.discount_amount>0': 'pos:discount (trong hạn mức §2.3; dưới giá sàn chỉ Master)'
+        'line.discount_amount>0': 'chỉ từ tem giảm giá cận hạn của lô (markdown Master đã duyệt) — giảm giá tay đã bỏ (NC-21)'
         'line.voided_after_weigh': 'pos:void_line (ghi log đặc biệt)'
         'type=NO_SALE_OPEN': 'pos:no_sale_open (PIN cửa hàng trưởng + lý do)'
         'cần duyệt': 'cash:approve'
@@ -3238,54 +3286,6 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
-  /pos/markdowns/{id}/approve:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    post:
-      operationId: postPosMarkdownsIdApprove
-      tags: [inventory]
-      summary: 'Duyệt giảm giá lô'
-      x-permission: 'markdown:approve'
-      x-spec-ref: '§5.8'
-      x-detail-cp: CP17
-      parameters:
-        - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/RequestId'
-        - $ref: '#/components/parameters/DeviceId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PendingBody'
-      responses:
-        '200':
-          description: Thành công
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PendingBody'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/Unprocessable'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '503':
@@ -4518,7 +4518,8 @@ paths:
       operationId: getAdminZones
       tags: [admin]
       summary: 'Danh sách vùng giao'
-      x-permission: 'report:read'
+      x-permission: 'zone:read'
+      x-scope: store
       x-spec-ref: '§8.2'
       x-detail-cp: CP13
       parameters:
@@ -4589,7 +4590,8 @@ paths:
       operationId: getAdminZonesId
       tags: [admin]
       summary: 'Chi tiết vùng giao'
-      x-permission: 'report:read'
+      x-permission: 'zone:read'
+      x-scope: store
       x-spec-ref: '§8.2'
       x-detail-cp: CP13
       parameters:
@@ -4670,7 +4672,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/StaffList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4686,6 +4688,7 @@ paths:
       tags: [admin]
       summary: 'Tạo nhân viên (không gồm tài khoản admin)'
       x-permission: 'staff:write'
+      x-step-up: true # gán vai trò kèm khi tạo — cùng rào với role-assignments (Master); nhân viên miễn (ADR-024)
       x-scope: store
       x-assignable-roles: 'MASTER: mọi vai trò trừ MASTER_ADMIN/VIEW_ONLY_ADMIN (đi qua /admin/admin-accounts); STORE_MANAGER: chỉ CASHIER, PICKER của cửa hàng mình (§2.2)'
       x-spec-ref: '§4.8'
@@ -4698,14 +4701,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/StaffCreateRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Staff'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4745,7 +4748,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Staff'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4775,14 +4778,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/StaffUpdateRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Staff'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5838,14 +5841,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/RoleAssignmentRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/RoleAssignment'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5906,6 +5909,7 @@ paths:
       tags: [admin]
       summary: 'Cấu hình hạn mức duyệt (chỉ Master)'
       x-permission: 'settings:write'
+      x-master-only: true
       x-step-up: true
       x-spec-ref: '§2.3'
       x-detail-cp: CP03
@@ -5917,14 +5921,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/ApprovalLimitsPutRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/ApprovalLimitsResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5958,14 +5962,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/AdminAccountCreateRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AdminAccountCreateResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -5993,6 +5997,7 @@ paths:
       tags: [admin]
       summary: 'Khóa tài khoản (thu hồi mọi phiên); admin cần step-up; chặn khóa Master cuối cùng'
       x-permission: 'staff:write'
+      x-scope: store # cửa hàng trưởng chỉ khóa nhân viên CASHIER/PICKER của cửa hàng mình (ADR-026)
       x-step-up: true
       x-spec-ref: '§2.4 SEC2'
       x-detail-cp: CP03
@@ -6005,14 +6010,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/ReasonRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/UserLockResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6041,7 +6046,11 @@ paths:
       operationId: postAdminUsersIdUnlock
       tags: [admin]
       summary: 'Mở khóa tài khoản'
+      description: >-
+        Mở tài khoản LOCKED (Master khóa) hoặc gỡ khóa TẠM do nhập sai (theo nguồn / toàn tài khoản — ADR-030) của tài
+        khoản ACTIVE. Không bị khóa gì ⇒ 409 INVALID_STATE_TRANSITION.
       x-permission: 'staff:write'
+      x-master-only: true # cửa hàng trưởng không mở khóa (không đảo quyết định khóa — ADR-024/026)
       x-step-up: true
       x-spec-ref: '§2.4 SEC2'
       x-detail-cp: CP03
@@ -6054,14 +6063,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/ReasonRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/UserUnlockResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6104,14 +6113,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/ReasonRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/TwoFactorResetResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6153,7 +6162,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AdminSessionList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6191,14 +6200,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/ReasonRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/SessionRevokeResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6276,19 +6285,68 @@ paths:
       x-not-in-spec-13-2: true # đã duyệt NC-09
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PENDING, ACTIVE, REVOKED]
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/PosDeviceList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/pos-devices/enrollment-codes:
+    post:
+      operationId: postAdminPosDevicesEnrollmentCodes
+      tags: [admin]
+      summary: 'Tạo mã ghi danh thiết bị POS (dùng một lần, hạn 30 phút)'
+      description: >-
+        Máy POS nhập mã này khi gọi /auth/devices/register — máy không có mã không vào được hàng chờ kích hoạt. Tối đa
+        10 mã còn dùng được mỗi cửa hàng (vượt ⇒ 429). Cửa hàng ngoài phạm vi ⇒ 404. Không dùng Idempotency-Key: response
+        chứa bí mật, không được lưu lại để phát lại.
+      x-permission: 'device:write'
+      x-scope: store
+      x-spec-ref: '§2.4'
+      x-detail-cp: CP03
+      x-not-in-spec-13-2: true # Tiến duyệt 2026-11-25 (NC-20, sửa M1 lát 4)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PosEnrollmentCodeRequest'
+      responses:
+        '201':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosEnrollmentCodeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '503':
@@ -6306,6 +6364,7 @@ paths:
       tags: [admin]
       summary: 'Kích hoạt thiết bị POS'
       x-permission: 'device:write'
+      x-scope: store
       x-spec-ref: '§2.4'
       x-detail-cp: CP03
       parameters:
@@ -6316,14 +6375,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/PosDeviceActivateRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/PosDevice'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6353,6 +6412,7 @@ paths:
       tags: [admin]
       summary: 'Thu hồi thiết bị POS'
       x-permission: 'device:write'
+      x-scope: store
       x-spec-ref: '§2.4'
       x-detail-cp: CP03
       parameters:
@@ -6363,14 +6423,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/PosDeviceRevokeRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/PosDeviceRevokeResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6755,17 +6815,58 @@ paths:
       tags: [admin]
       summary: 'Tra cứu nhật ký'
       x-permission: 'audit:read'
+      x-master-only: true # nhật ký toàn chuỗi, không lọc phạm vi (ADR-026)
       x-spec-ref: '§14'
       x-detail-cp: CP03
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - name: action
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: actor_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/AuditLogList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7472,6 +7573,53 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /admin/approvals:
+    get:
+      operationId: getAdminApprovals
+      tags: [admin]
+      summary: 'Yêu cầu chờ Master duyệt (vượt hạn mức cửa hàng, giảm giá cận hạn — NC-21)'
+      description: >-
+        Mỗi dòng chỉ hiện khi người gọi có mã quyền của loại đó (x-permission-map). Giảm giá cận hạn theo lô (MARKDOWN)
+        chỉ Master duyệt (NC-21) nên chỉ có ở đây, không có ở /pos/approvals.
+      x-permission: 'approval:by-type'
+      x-master-only: true # cửa hàng trưởng duyệt trong hạn mức qua /pos/approvals*; markdown chỉ Master (NC-21)
+      x-permission-map:
+        'SPOILAGE': 'spoilage:approve'
+        'STOCKTAKE_ADJUST': 'stocktake:approve'
+        'INTERNAL_USE': 'internal_use:approve'
+        'MARKDOWN': 'markdown:approve'
+        'CASH_DIFFERENCE': 'cash:approve'
+        'SALE_VOID': 'pos:void_sale'
+        'REFUND': 'pos:refund'
+        'PO': 'po:approve'
+      x-spec-ref: '§2.3'
+      x-detail-cp: CP06
+      x-not-in-spec-13-2: true # Tiến duyệt NC-21 (2026-11-26): Master cần danh sách để lấy id duyệt
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [SPOILAGE, STOCKTAKE_ADJUST, INTERNAL_USE, MARKDOWN, CASH_DIFFERENCE, SALE_VOID, REFUND, PO]
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingBody'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /admin/approvals/{id}/approve:
     parameters:
       - name: id
@@ -7485,6 +7633,7 @@ paths:
       tags: [admin]
       summary: 'Master duyệt yêu cầu vượt hạn mức (quyền theo loại; người duyệt ≠ người tạo)'
       x-permission: 'approval:by-type'
+      x-master-only: true # cửa hàng trưởng duyệt trong hạn mức qua /pos/approvals*; markdown chỉ Master (NC-21)
       x-permission-map:
         'SPOILAGE': 'spoilage:approve'
         'STOCKTAKE_ADJUST': 'stocktake:approve'
@@ -7541,6 +7690,7 @@ paths:
       tags: [admin]
       summary: 'Master từ chối yêu cầu'
       x-permission: 'approval:by-type'
+      x-master-only: true # cửa hàng trưởng duyệt trong hạn mức qua /pos/approvals*; markdown chỉ Master (NC-21)
       x-permission-map:
         'SPOILAGE': 'spoilage:approve'
         'STOCKTAKE_ADJUST': 'stocktake:approve'
@@ -8379,6 +8529,16 @@ components:
       required: false
       schema:
         type: string
+    ClientDeviceId:
+      name: X-Device-Id
+      in: header
+      required: false
+      description: >-
+        Định danh trình duyệt / app (không phải thiết bị POS): admin-web gửi cookie `__Host-fa_dev` (ngẫu nhiên, base64url 32 ký
+        tự). Ghi vào `sessions.client_device`; dùng nhận ra đăng nhập từ thiết bị đã thấy (không phát `auth.new_device_login`).
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9._:-]{8,128}$'
     DeviceId:
       name: X-Device-Id
       in: header
@@ -8470,6 +8630,1068 @@ components:
             redis:
               type: string
               enum: [ok, down]
+    EmptyRequest:
+      type: object
+      description: Thân rỗng `{}` (route không nhận tham số).
+      additionalProperties: false
+    OkResponse:
+      type: object
+      required: [ok]
+      additionalProperties: false
+      properties:
+        ok:
+          type: boolean
+          const: true
+    AuthLoginRequest:
+      type: object
+      required: [email, password]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+          description: Không phân biệt hoa/thường (server chuẩn hóa chữ thường)
+        password:
+          type: string
+          minLength: 1
+          maxLength: 256
+    AuthCodeRequest:
+      type: object
+      required: [code]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          pattern: '^\d{6}$'
+          description: Mã TOTP 6 số; mã đã dùng (cùng bước 30 s hoặc cũ hơn) bị từ chối
+    AuthRecoverRequest:
+      type: object
+      required: [recovery_code]
+      additionalProperties: false
+      properties:
+        recovery_code:
+          type: string
+          minLength: 16
+          maxLength: 40
+          description: '`xxxx-xxxx-xxxx-xxxx`, không phân biệt hoa/thường, gạch/khoảng trắng bỏ qua'
+    AuthRefreshRequest:
+      type: object
+      required: [refresh_token]
+      additionalProperties: false
+      properties:
+        refresh_token:
+          type: string
+          minLength: 1
+          maxLength: 128
+        device_proof:
+          $ref: '#/components/schemas/DeviceProof'
+          description: Bắt buộc với phiên nhân viên POS (mục đích refresh, kèm X-Device-Id của phiên)
+    AuthAmr:
+      type: string
+      enum: [pwd, otp, rcv, pin]
+      description: 'Phương thức xác thực của phiên: pwd mật khẩu, otp TOTP, rcv mã khôi phục, pin PIN nhân viên trên thiết bị POS'
+    AuthTokenPair:
+      type: object
+      required: [access_token, access_token_expires_at, refresh_token, session_id, amr]
+      additionalProperties: false
+      properties:
+        access_token:
+          type: string
+          description: JWT EdDSA 15 phút (header kid, typ at+jwt) — ADR-012
+        access_token_expires_at:
+          type: string
+          format: date-time
+        refresh_token:
+          type: string
+          description: 256 bit, dùng MỘT lần (xoay vòng); dùng lại ⇒ thu hồi cả phiên
+        session_id:
+          type: string
+          format: uuid
+        amr:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthAmr'
+    AuthPasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      additionalProperties: false
+      properties:
+        current_password:
+          type: string
+          minLength: 1
+          maxLength: 256
+        new_password:
+          type: string
+          minLength: 12
+          maxLength: 256
+    AuthPasswordResponse:
+      type: object
+      required: [revoked_sessions]
+      additionalProperties: false
+      properties:
+        revoked_sessions:
+          type: integer
+          minimum: 0
+    AuthLoginResponse:
+      description: |
+        MFA_REQUIRED — đã bật 2FA: gọi /auth/2fa/verify hoặc /auth/2fa/recover với `Authorization: Bearer <mfa_challenge>`
+        (5 phút, 1 lần, tối đa 5 lần thử). ENROLLMENT_REQUIRED — chưa đăng ký 2FA: phiên chỉ gọi được /auth/2fa/setup,
+        /auth/2fa/confirm, /auth/password, /auth/logout (route khác ⇒ 403 TWO_FACTOR_ENROLLMENT_REQUIRED).
+        password_change_required = true (mật khẩu tạm — NC-22) ⇒ phải đổi mật khẩu qua /auth/password trước, 2FA setup/confirm
+        trả 403 PASSWORD_CHANGE_REQUIRED. Mật khẩu tạm chưa đổi quá 72 giờ ⇒ đăng nhập 401 chung.
+      oneOf:
+        - type: object
+          required: [status, mfa_challenge, mfa_challenge_expires_at]
+          additionalProperties: false
+          properties:
+            status:
+              type: string
+              const: MFA_REQUIRED
+            mfa_challenge:
+              type: string
+            mfa_challenge_expires_at:
+              type: string
+              format: date-time
+        - type: object
+          required:
+            [status, password_change_required, access_token, access_token_expires_at, refresh_token, session_id, amr]
+          additionalProperties: false
+          properties:
+            status:
+              type: string
+              const: ENROLLMENT_REQUIRED
+            password_change_required:
+              type: boolean
+            access_token:
+              type: string
+            access_token_expires_at:
+              type: string
+              format: date-time
+            refresh_token:
+              type: string
+            session_id:
+              type: string
+              format: uuid
+            amr:
+              type: array
+              items:
+                $ref: '#/components/schemas/AuthAmr'
+    AuthRecoverResponse:
+      type: object
+      required: [access_token, access_token_expires_at, refresh_token, session_id, amr, recovery_codes_remaining]
+      additionalProperties: false
+      properties:
+        access_token:
+          type: string
+        access_token_expires_at:
+          type: string
+          format: date-time
+        refresh_token:
+          type: string
+        session_id:
+          type: string
+          format: uuid
+        amr:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthAmr'
+        recovery_codes_remaining:
+          type: integer
+          minimum: 0
+          maximum: 10
+    AuthTotpSetupResponse:
+      type: object
+      required: [secret, otpauth_uri, issuer]
+      additionalProperties: false
+      properties:
+        secret:
+          type: string
+          description: Base32 — chỉ trả MỘT lần lúc đăng ký; lưu mã hóa AES-256-GCM (ADR-015)
+        otpauth_uri:
+          type: string
+          description: 'otpauth://totp/… để hiển thị QR'
+        issuer:
+          type: string
+    AuthTotpConfirmResponse:
+      type: object
+      required: [recovery_codes, access_token, access_token_expires_at, session_id, amr]
+      additionalProperties: false
+      properties:
+        recovery_codes:
+          type: array
+          minItems: 10
+          maxItems: 10
+          items:
+            type: string
+          description: 10 mã dùng một lần — chỉ hiện MỘT lần
+        access_token:
+          type: string
+        access_token_expires_at:
+          type: string
+          format: date-time
+        session_id:
+          type: string
+          format: uuid
+        amr:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthAmr'
+    AuthRecoveryCodesResponse:
+      type: object
+      required: [recovery_codes]
+      additionalProperties: false
+      properties:
+        recovery_codes:
+          type: array
+          minItems: 10
+          maxItems: 10
+          items:
+            type: string
+    AuthStepUpResponse:
+      type: object
+      required: [step_up_until, access_token, access_token_expires_at]
+      additionalProperties: false
+      properties:
+        step_up_until:
+          type: string
+          format: date-time
+        access_token:
+          type: string
+        access_token_expires_at:
+          type: string
+          format: date-time
+    AuthSession:
+      type: object
+      required: [id, created_at, last_used_at, expires_at, client_device, user_agent, amr, current]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        client_device:
+          type: [string, 'null']
+          description: X-Device-Id lúc tạo phiên (định danh trình duyệt / app khách); admin-web không đưa giá trị này ra trình duyệt
+        user_agent:
+          type: [string, 'null']
+        amr:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthAmr'
+        current:
+          type: boolean
+    AuthSessionList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/AuthSession'
+    DeviceProof:
+      type: object
+      description: |
+        Chữ ký thiết bị POS (SEC3, ADR-022). Thông điệp ký (UTF-8, nối bằng "\n"):
+        `fruit-device-proof/v1`, mục đích (`register` | `pin` | `refresh`), X-Device-Id (chữ thường), `ts`, `nonce`, ràng buộc.
+        Ràng buộc: register = mã ghi danh dạng chuẩn (chữ HOA, bỏ gạch) + "\n" + `public_key`; pin = mã NV đã chuẩn hóa (NFC, trim, chữ HOA);
+        refresh = base64url(SHA-256(refresh_token)). `ts` lệch đồng hồ server quá 120 s ⇒ 401; nonce dùng lại ⇒ 401.
+      required: [ts, nonce, signature]
+      additionalProperties: false
+      properties:
+        ts:
+          type: integer
+          minimum: 1
+          description: epoch giây theo đồng hồ thiết bị
+        nonce:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{22,43}$'
+          description: 16–32 byte ngẫu nhiên, base64url không đệm, mỗi request một nonce mới
+        signature:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{86}$'
+          description: chữ ký Ed25519 64 byte của thông điệp, base64url không đệm
+    AuthPinRequest:
+      type: object
+      required: [staff_code, pin, device_proof]
+      additionalProperties: false
+      properties:
+        staff_code:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{1,32}$'
+          description: Mã nhân viên (không phân biệt hoa/thường)
+        pin:
+          type: string
+          pattern: '^\d{6}$'
+        device_proof:
+          $ref: '#/components/schemas/DeviceProof'
+    StaffRoleSpec:
+      type: object
+      required: [role]
+      additionalProperties: false
+      description: Vai trò cửa hàng cần store_id; WAREHOUSE_STAFF cần warehouse_id. Cửa hàng trưởng chỉ gán CASHIER, PICKER ở cửa hàng mình.
+      properties:
+        role:
+          type: string
+          enum: [STORE_MANAGER, CASHIER, PICKER, SHIPPER, WAREHOUSE_STAFF]
+        store_id:
+          type: [string, 'null']
+          format: uuid
+        warehouse_id:
+          type: [string, 'null']
+          format: uuid
+    StaffCreateRequest:
+      type: object
+      required: [staff_code, full_name, pin, role]
+      additionalProperties: false
+      properties:
+        staff_code:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{1,32}$'
+          description: chuẩn hóa chữ HOA; DB yêu cầu 2–20 ký tự [A-Z0-9_-]
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        pin:
+          type: string
+          pattern: '^[0-9]{6}$'
+          description: PIN 6 số; PIN dễ đoán (lặp, dãy liên tiếp, phổ biến) bị từ chối 400
+        hired_at:
+          type: [string, 'null']
+          format: date
+        role:
+          $ref: '#/components/schemas/StaffRoleSpec'
+    StaffUpdateRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      description: >-
+        Đổi PIN hoặc khóa (DISABLED) ⇒ thu hồi mọi phiên của nhân viên. Không tự sửa chính mình. Đổi `status` hoặc `pin` bởi Master
+        cần step-up còn hạn (403 STEP_UP_REQUIRED); tài khoản LOCKED không mở bằng PATCH (409 — dùng /admin/users/{id}/unlock).
+      properties:
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        hired_at:
+          type: [string, 'null']
+          format: date
+        left_at:
+          type: [string, 'null']
+          format: date
+        status:
+          type: string
+          enum: [ACTIVE, DISABLED]
+        pin:
+          type: string
+          pattern: '^[0-9]{6}$'
+    StaffRoleAssignment:
+      type: object
+      required: [id, role, scope_type, store_id, warehouse_id]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        role:
+          type: string
+        scope_type:
+          type: string
+          enum: [ALL, STORE, WAREHOUSE]
+        store_id:
+          type: [string, 'null']
+          format: uuid
+        warehouse_id:
+          type: [string, 'null']
+          format: uuid
+    Staff:
+      type: object
+      required: [user_id, staff_code, full_name, hired_at, left_at, status, roles]
+      additionalProperties: false
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        staff_code:
+          type: string
+        full_name:
+          type: string
+        hired_at:
+          type: [string, 'null']
+          format: date
+        left_at:
+          type: [string, 'null']
+          format: date
+        status:
+          type: string
+          enum: [ACTIVE, LOCKED, DISABLED]
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/StaffRoleAssignment'
+    StaffList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Staff'
+    RoleAssignmentRequest:
+      type: object
+      required: [user_id, role]
+      additionalProperties: false
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [STORE_MANAGER, CASHIER, PICKER, SHIPPER, WAREHOUSE_STAFF]
+        store_id:
+          type: [string, 'null']
+          format: uuid
+        warehouse_id:
+          type: [string, 'null']
+          format: uuid
+    RoleAssignment:
+      type: object
+      required: [id, user_id, role, store_id, warehouse_id, created_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+        store_id:
+          type: [string, 'null']
+          format: uuid
+        warehouse_id:
+          type: [string, 'null']
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+    ApprovalLimitItem:
+      type: object
+      required: [role, action, allowed, max_amount, max_pct_bp]
+      additionalProperties: false
+      description: >-
+        Cả hai ngưỡng null = không giới hạn; hai ngưỡng: ANY = đạt một (NC-19(c)), ALL = đạt cả hai. allowed=false thì không
+        có ngưỡng. DB chặn LINE_DISCOUNT (NC-21), MARKDOWN ngoài MASTER_ADMIN (NC-21), MASTER_ADMIN LINE_DELETE/NO_SALE_OPEN
+        (NC-19(d)) ⇒ 400.
+      properties:
+        role:
+          type: string
+          enum: [MASTER_ADMIN, STORE_MANAGER, CASHIER, PICKER, WAREHOUSE_STAFF, SHIPPER]
+        action:
+          type: string
+          enum:
+            [LINE_DELETE, SALE_VOID, REFUND, SPOILAGE_APPROVE, STOCKTAKE_ADJUST, MANUAL_WEIGHT, NO_SALE_OPEN, MARKDOWN]
+        allowed:
+          type: boolean
+        max_amount:
+          type: [integer, 'null']
+          minimum: 0
+          description: VND
+        max_pct_bp:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 10000
+          description: phần trăm theo basis point (10% = 1000)
+        limit_mode:
+          type: string
+          enum: [ANY, ALL]
+        same_day_only:
+          type: boolean
+        requires_pin:
+          type: boolean
+        requires_note:
+          type: boolean
+    ApprovalLimitsPutRequest:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/ApprovalLimitItem'
+    ApprovalLimitsResponse:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApprovalLimitItem'
+    FilePresignRequest:
+      type: object
+      required: [kind, mime, bytes, sha256, capture_source]
+      additionalProperties: false
+      description: >-
+        Ảnh ≤ 5 MB, image/jpeg hoặc image/webp. PHOTO_SPOILAGE, PHOTO_WEIGHT, PHOTO_COMPLAINT (SPEC §8.8) chỉ nhận capture_source = CAMERA (app chụp
+        trực tiếp). Khách chỉ được PHOTO_COMPLAINT; loại khác chỉ nhân viên/Master (403). Tối đa 20 file tạo mỗi giờ và 100
+        file mỗi ngày mỗi người, mọi trạng thái (429). Thiếu cấu hình S3 ⇒ 503.
+      properties:
+        kind:
+          type: string
+          enum: [PHOTO_SPOILAGE, PHOTO_WEIGHT, PHOTO_COMPLAINT, PHOTO_RECEIPT, PHOTO_PRODUCT]
+        mime:
+          type: string
+          enum: [image/jpeg, image/webp]
+        bytes:
+          type: integer
+          minimum: 1
+          maximum: 5242880
+        sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        capture_source:
+          type: string
+          enum: [CAMERA, GALLERY]
+        captured_at:
+          type: [string, 'null']
+          format: date-time
+    FilePresignResponse:
+      type: object
+      required: [id, upload_url, method, headers, expires_at]
+      additionalProperties: false
+      description: PUT nội dung file vào upload_url trong 5 phút, kèm đúng các header (Content-Type, Content-Length ký trong URL).
+      properties:
+        id:
+          type: string
+          format: uuid
+        upload_url:
+          type: string
+        method:
+          type: string
+          const: PUT
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+    FileCompleteResponse:
+      type: object
+      required: [id, status, reject_reason, bytes, sha256, duplicate_of_id, warnings]
+      additionalProperties: false
+      description: >-
+        Server tự tải lại và tính sha256 + kích thước + định dạng theo byte đầu. Lệch khai báo ⇒ REJECTED (SIZE_MISMATCH,
+        SHA256_MISMATCH, CONTENT_TYPE_MISMATCH, EXPIRED). Trùng nội dung với file đã nhận ⇒ READY kèm duplicate_of_id và
+        cảnh báo DUPLICATE_CONTENT (FR-INV-16). Chưa PUT ⇒ 409.
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [READY, REJECTED]
+        reject_reason:
+          type: [string, 'null']
+        bytes:
+          type: [integer, 'null']
+        sha256:
+          type: [string, 'null']
+        duplicate_of_id:
+          type: [string, 'null']
+          format: uuid
+        warnings:
+          type: array
+          items:
+            type: string
+            enum: [DUPLICATE_CONTENT]
+    FileDownloadUrlResponse:
+      type: object
+      required: [url, expires_at]
+      additionalProperties: false
+      description: Presigned GET 60 giây. Hiện chỉ người tải lên hoặc Master; quyền theo chủ sở hữu thêm khi nghiệp vụ gắn file (CP06+).
+      properties:
+        url:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+    ReasonRequest:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    AdminAccountCreateRequest:
+      type: object
+      required: [email, role]
+      additionalProperties: false
+      description: VIEW_ONLY_ADMIN cần đúng một viewer_profile_id; MASTER_ADMIN không có hồ sơ xem.
+      properties:
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+        role:
+          type: string
+          enum: [MASTER_ADMIN, VIEW_ONLY_ADMIN]
+        viewer_profile_id:
+          type: [string, 'null']
+          format: uuid
+    AdminAccountCreateResponse:
+      type: object
+      required: [user_id, email, type, role, temporary_password, two_factor_required]
+      additionalProperties: false
+      description: Mật khẩu tạm chỉ trả MỘT lần (no-store, không lưu rõ); đăng nhập lần đầu phải đăng ký 2FA.
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        type:
+          type: string
+          enum: [MASTER, VIEWER]
+        role:
+          type: string
+          enum: [MASTER_ADMIN, VIEW_ONLY_ADMIN]
+        temporary_password:
+          type: string
+        two_factor_required:
+          type: boolean
+    UserLockResponse:
+      type: object
+      required: [user_id, status, revoked_sessions]
+      additionalProperties: false
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          const: LOCKED
+        revoked_sessions:
+          type: integer
+          minimum: 0
+    UserUnlockResponse:
+      type: object
+      required: [user_id, status]
+      additionalProperties: false
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          const: ACTIVE
+    TwoFactorResetResponse:
+      type: object
+      required: [user_id, two_factor_enabled, revoked_sessions]
+      additionalProperties: false
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        two_factor_enabled:
+          type: boolean
+          const: false
+        revoked_sessions:
+          type: integer
+          minimum: 0
+    AdminSessionList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required:
+              [
+                id,
+                user_type,
+                amr,
+                created_at,
+                last_used_at,
+                expires_at,
+                revoked_at,
+                revoke_reason,
+                pos_device_id,
+                user_agent,
+                active,
+              ]
+            additionalProperties: false
+            properties:
+              id:
+                type: string
+                format: uuid
+              user_type:
+                type: string
+                enum: [MASTER, VIEWER, STAFF, CUSTOMER]
+              amr:
+                type: array
+                items:
+                  type: string
+              created_at:
+                type: string
+                format: date-time
+              last_used_at:
+                type: string
+                format: date-time
+              expires_at:
+                type: string
+                format: date-time
+              revoked_at:
+                type: [string, 'null']
+                format: date-time
+              revoke_reason:
+                type: [string, 'null']
+              pos_device_id:
+                type: [string, 'null']
+                format: uuid
+              user_agent:
+                type: [string, 'null']
+              active:
+                type: boolean
+    SessionRevokeResponse:
+      type: object
+      required: [session_id, revoked]
+      additionalProperties: false
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        revoked:
+          type: boolean
+    AuditLogList:
+      type: object
+      required: [items, next_cursor]
+      additionalProperties: false
+      properties:
+        next_cursor:
+          type: [string, 'null']
+          format: uuid
+        items:
+          type: array
+          items:
+            type: object
+            required:
+              [id, at, action, resource_type, resource_id, actor_id, actor_type, reason, before, after, request_id]
+            additionalProperties: false
+            properties:
+              id:
+                type: string
+                format: uuid
+              at:
+                type: string
+                format: date-time
+              action:
+                type: string
+              resource_type:
+                type: string
+              resource_id:
+                type: [string, 'null']
+              actor_id:
+                type: [string, 'null']
+                format: uuid
+              actor_type:
+                type: [string, 'null']
+              reason:
+                type: [string, 'null']
+              before: {}
+              after: {}
+              request_id:
+                type: [string, 'null']
+    AuthOtpRequest:
+      type: object
+      required: [phone]
+      additionalProperties: false
+      properties:
+        phone:
+          type: string
+          minLength: 9
+          maxLength: 20
+          pattern: '^[+0-9 .-]+$'
+          description: SĐT di động Việt Nam (0912…, 84912…, +84912…); server chuẩn hóa E.164
+    AuthOtpRequestResponse:
+      type: object
+      required: [expires_at, resend_after_s]
+      additionalProperties: false
+      properties:
+        expires_at:
+          type: string
+          format: date-time
+        resend_after_s:
+          type: integer
+          minimum: 1
+    AuthOtpVerifyRequest:
+      type: object
+      required: [phone, code]
+      additionalProperties: false
+      properties:
+        phone:
+          type: string
+          minLength: 9
+          maxLength: 20
+          pattern: '^[+0-9 .-]+$'
+        code:
+          type: string
+          pattern: '^[0-9]{6}$'
+    AuthOtpVerifyResponse:
+      description: Phiên khách 60 ngày tuyệt đối (refresh không gia hạn); amr = [otp].
+      type: object
+      required: [access_token, access_token_expires_at, refresh_token, session_id, amr, customer]
+      additionalProperties: false
+      properties:
+        access_token:
+          type: string
+        access_token_expires_at:
+          type: string
+          format: date-time
+        refresh_token:
+          type: string
+        session_id:
+          type: string
+          format: uuid
+        amr:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthAmr'
+        customer:
+          type: object
+          required: [user_id, is_new]
+          additionalProperties: false
+          properties:
+            user_id:
+              type: string
+              format: uuid
+            is_new:
+              type: boolean
+    AuthPinResponse:
+      description: |
+        Phiên nhân viên gắn thiết bị, hạn tuyệt đối 24 giờ (refresh không gia hạn). Mọi request sau phải gửi X-Device-Id của
+        thiết bị này; /auth/refresh kèm `device_proof`. Sai mã NV / sai PIN / tạm khóa / không thuộc cửa hàng của thiết bị ⇒
+        cùng một lỗi 401.
+      type: object
+      required: [access_token, access_token_expires_at, refresh_token, session_id, amr, staff, device_id]
+      additionalProperties: false
+      properties:
+        access_token:
+          type: string
+        access_token_expires_at:
+          type: string
+          format: date-time
+        refresh_token:
+          type: string
+        session_id:
+          type: string
+          format: uuid
+        amr:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthAmr'
+        device_id:
+          type: string
+          format: uuid
+        staff:
+          type: object
+          required: [user_id, staff_code, full_name]
+          additionalProperties: false
+          properties:
+            user_id:
+              type: string
+              format: uuid
+            staff_code:
+              type: string
+            full_name:
+              type: string
+    PosDeviceRegisterRequest:
+      type: object
+      description: >-
+        X-Device-Id = UUID do thiết bị tự sinh một lần (thành `device_id`). Cửa hàng lấy từ mã ghi danh (không gửi mã
+        cửa hàng). Ràng buộc chữ ký `register` = mã ghi danh dạng chuẩn (chữ HOA, bỏ gạch) + `\n` + public_key. Mã sai,
+        đã dùng, hết hạn hoặc cửa hàng ngừng hoạt động ⇒ cùng một lỗi 401.
+      required: [enrollment_code, name, platform, public_key, device_proof]
+      additionalProperties: false
+      properties:
+        enrollment_code:
+          type: string
+          pattern: '^[A-Za-z2-7]{4}-?[A-Za-z2-7]{4}-?[A-Za-z2-7]{4}$'
+          description: mã ghi danh dùng một lần do Master/cửa hàng trưởng tạo (POST /admin/pos-devices/enrollment-codes)
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        platform:
+          type: string
+          enum: [windows, android]
+        public_key:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{43}$'
+          description: khóa công khai Ed25519 thô 32 byte, base64url không đệm
+        device_proof:
+          $ref: '#/components/schemas/DeviceProof'
+    PosEnrollmentCodeRequest:
+      type: object
+      required: [store_id]
+      additionalProperties: false
+      properties:
+        store_id:
+          type: string
+          format: uuid
+    PosEnrollmentCodeResponse:
+      type: object
+      description: Mã rõ chỉ trả một lần (server chỉ lưu SHA-256); dùng một lần, hạn 30 phút.
+      required: [id, store_id, code, expires_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        store_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          pattern: '^[A-Z2-7]{4}-[A-Z2-7]{4}-[A-Z2-7]{4}$'
+        expires_at:
+          type: string
+          format: date-time
+    PosDeviceRegisterResponse:
+      type: object
+      required: [device_id, status, pairing_code, registered_at]
+      additionalProperties: false
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          const: PENDING
+        pairing_code:
+          type: string
+          pattern: '^[A-Z2-7]{5}-[A-Z2-7]{5}$'
+          description: Hiển thị trên thiết bị (50 bit fingerprint khóa); người kích hoạt nhập mã đọc từ máy — API danh sách không trả mã này
+        registered_at:
+          type: string
+          format: date-time
+    PosDevice:
+      type: object
+      required:
+        [
+          id,
+          store_id,
+          register_id,
+          name,
+          platform,
+          status,
+          registered_at,
+          activated_at,
+          revoked_at,
+          revoke_reason,
+          last_seen_at,
+        ]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        store_id:
+          type: string
+          format: uuid
+        register_id:
+          type: [string, 'null']
+          format: uuid
+        name:
+          type: string
+        platform:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, ACTIVE, REVOKED]
+        registered_at:
+          type: string
+          format: date-time
+        activated_at:
+          type: [string, 'null']
+          format: date-time
+        revoked_at:
+          type: [string, 'null']
+          format: date-time
+        revoke_reason:
+          type: [string, 'null']
+        last_seen_at:
+          type: [string, 'null']
+          format: date-time
+    PosDeviceList:
+      type: object
+      description: |
+        Tối đa 200 thiết bị mới nhất trong phạm vi cửa hàng của người gọi. PENDING quá 7 ngày không bao giờ hiện; mặc định
+        (không lọc status) ẩn REVOKED — lọc status=REVOKED để xem.
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PosDevice'
+    PosDeviceActivateRequest:
+      type: object
+      required: [pairing_code]
+      additionalProperties: false
+      properties:
+        pairing_code:
+          type: string
+          pattern: '^[A-Za-z2-7]{5}-?[A-Za-z2-7]{5}$'
+        register_id:
+          type: [string, 'null']
+          format: uuid
+          description: Quầy thuộc cùng cửa hàng của thiết bị
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+    PosDeviceRevokeRequest:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    PosDeviceRevokeResponse:
+      description: Thu hồi thiết bị ⇒ mọi phiên đang mở trên thiết bị bị thu hồi trong cùng transaction.
+      type: object
+      required: [device, revoked_sessions]
+      additionalProperties: false
+      properties:
+        device:
+          $ref: '#/components/schemas/PosDevice'
+        revoked_sessions:
+          type: integer
+          minimum: 0
     PendingBody:
       type: object
       description: Khung — schema chi tiết được định nghĩa ở CP ghi trong x-detail-cp của route.
@@ -8515,6 +9737,8 @@ components:
         - PAYMENT_NOT_CONFIRMED
         - IMPORT_VALIDATION_FAILED
         - TWO_FACTOR_ENROLLMENT_REQUIRED
+        - PASSWORD_CHANGE_REQUIRED
+        - CURRENT_PASSWORD_INVALID
         - SESSION_REVOKED
         - DEVICE_REVOKED
         - LAST_MASTER_REQUIRED
@@ -8522,6 +9746,7 @@ components:
         - MFA_CHALLENGE_INVALID
         - RATE_LIMITED
         - OTP_RATE_LIMITED
+        - INTERNAL_ERROR
         - CONFIGURATION_NOT_READY
         - DEPENDENCY_UNAVAILABLE
       x-http-status:
@@ -8562,6 +9787,8 @@ components:
         PAYMENT_NOT_CONFIRMED: 422
         IMPORT_VALIDATION_FAILED: 422
         TWO_FACTOR_ENROLLMENT_REQUIRED: 403
+        PASSWORD_CHANGE_REQUIRED: 403
+        CURRENT_PASSWORD_INVALID: 422
         SESSION_REVOKED: 401
         DEVICE_REVOKED: 403
         LAST_MASTER_REQUIRED: 422
@@ -8569,6 +9796,7 @@ components:
         MFA_CHALLENGE_INVALID: 401
         RATE_LIMITED: 429
         OTP_RATE_LIMITED: 429
+        INTERNAL_ERROR: 500
         CONFIGURATION_NOT_READY: 503
         DEPENDENCY_UNAVAILABLE: 503
     Error:
@@ -8586,7 +9814,7 @@ components:
           type: string
     PermissionCode:
       type: string
-      description: Mã quyền SPEC §19.6 + §21.8; x-added-outside-spec là mã bổ sung đã được Tiến duyệt (NC-08).
+      description: Mã quyền SPEC §19.6 + §21.8; x-added-outside-spec là mã bổ sung đã được Tiến duyệt (NC-08, NC-19). pos:discount đã bỏ (NC-21).
       enum:
         - 'auth:*'
         - 'catalog:read'
@@ -8616,7 +9844,6 @@ components:
         - 'pos:void_line'
         - 'pos:void_sale'
         - 'pos:refund'
-        - 'pos:discount'
         - 'pos:manual_weight'
         - 'pos:no_sale_open'
         - 'shift:open'
@@ -8670,9 +9897,13 @@ components:
         - 'payment:reconcile'
         - 'processing:create'
         - 'complaint:resolve'
+        - 'zone:read'
+        - 'pos_log:read'
       x-added-outside-spec:
         - 'customer:self'
         - 'settings:write'
         - 'payment:reconcile'
         - 'processing:create'
         - 'complaint:resolve'
+        - 'zone:read'
+        - 'pos_log:read'

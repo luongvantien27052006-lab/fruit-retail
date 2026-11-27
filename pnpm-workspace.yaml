@@ -13,6 +13,7 @@ allowBuilds:
   cpu-features: false
   protobufjs: false
   ssh2: false
+  msgpackr-extract: false # native tùy chọn của msgpackr (BullMQ) — chạy bản JS, không chạy script cài đặt
 
 # Bảo vệ chuỗi cung ứng (ghi rõ, không dựa mặc định): gói phải phát hành ≥ 24 giờ; gói mới có script cài đặt → lỗi.
 minimumReleaseAge: 1440

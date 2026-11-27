@@ -32,8 +32,9 @@
 		}
 	}
 	handle {
-		# Next.js chèn script inline khi hydrate → tạm 'unsafe-inline'; CP03 chuyển sang CSP nonce.
-		header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
-		reverse_proxy admin-web:3001
+		# CSP do admin-web đặt (proxy.ts: nonce mỗi request, không 'unsafe-inline' — ADR-027). Caddy KHÔNG đặt CSP ở đây.
+		reverse_proxy admin-web:3001 {
+			header_up X-Request-Id {http.request.uuid}
+		}
 	}
 }

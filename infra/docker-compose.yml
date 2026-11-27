@@ -35,15 +35,21 @@ services:
     cap_drop: [ALL]
     # entrypoint của image chown /data rồi hạ quyền xuống user redis → cần CHOWN/SETGID/SETUID.
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    # ACL theo user (ADR-029): default TẮT; ops toàn quyền (vận hành); api chỉ rl:*; worker chỉ bull:*; không lệnh nguy hiểm
+    entrypoint: ['sh', '/usr/local/bin/fruit-redis-start.sh']
+    # maxmemory: mật khẩu api/worker lộ không lấp đầy được RAM của máy (noeviction ⇒ ghi thêm bị từ chối, không mất dữ liệu)
     command:
-      - sh
-      - -c
-      - exec docker-entrypoint.sh redis-server --appendonly yes --appendfsync everysec --maxmemory-policy noeviction --requirepass "$$REDIS_PASSWORD"
+      ['--appendonly', 'yes', '--appendfsync', 'everysec', '--maxmemory', '256mb', '--maxmemory-policy', 'noeviction']
+    mem_limit: 384m
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD bắt buộc}
-    volumes: [redisdata:/data]
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD bắt buộc (user ops)}
+      REDIS_API_PASSWORD: ${REDIS_API_PASSWORD:?REDIS_API_PASSWORD bắt buộc — xem infra/.env.example}
+      REDIS_WORKER_PASSWORD: ${REDIS_WORKER_PASSWORD:?REDIS_WORKER_PASSWORD bắt buộc — xem infra/.env.example}
+    volumes:
+      - redisdata:/data
+      - ./redis/start.sh:/usr/local/bin/fruit-redis-start.sh:ro
     healthcheck:
-      test: ['CMD-SHELL', 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      test: ['CMD-SHELL', 'REDISCLI_AUTH="$$REDIS_API_PASSWORD" redis-cli --user api ping | grep -q PONG']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -80,9 +86,23 @@ services:
       DATABASE_URL_VIEWER: postgresql://viewer_ro:${PG_VIEWER_RO_PASSWORD}@postgres:5432/fruit
       DATABASE_URL_VIEWER_ACT: postgresql://viewer_act:${PG_VIEWER_ACT_PASSWORD}@postgres:5432/fruit
       DATABASE_URL_AUDIT: postgresql://audit_writer:${PG_AUDIT_WRITER_PASSWORD}@postgres:5432/fruit
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      REDIS_URL: redis://api:${REDIS_API_PASSWORD}@redis:6379
       TZ: Asia/Ho_Chi_Minh
       BUSINESS_DAY_CUTOFF: '04:00'
+      # Khóa xác thực (ADR-012/015/021) — chỉ API có; thiếu/sai ⇒ API không khởi động
+      JWT_SIGNING_KEYS: ${JWT_SIGNING_KEYS:?bắt buộc — xem infra/.env.example}
+      PII_ENC_KEYS: ${PII_ENC_KEYS:?bắt buộc — xem infra/.env.example}
+      PII_HASH_PEPPER: ${PII_HASH_PEPPER:?bắt buộc — xem infra/.env.example}
+      # OTP khách (ADR-023): trống ⇒ route OTP 503; dev có thể đặt TEST_DOUBLE
+      OTP_PROVIDER: ${OTP_PROVIDER:-}
+      # File (ADR-014/025): trống ⇒ /files/* 503
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
     depends_on:
       db-bootstrap: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
@@ -102,7 +122,7 @@ services:
       NODE_ENV: development
       DATABASE_URL_APP: postgresql://app_rw:${PG_APP_RW_PASSWORD}@postgres:5432/fruit
       DATABASE_URL_PROJECTOR: postgresql://projector_rw:${PG_PROJECTOR_RW_PASSWORD}@postgres:5432/fruit
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      REDIS_URL: redis://worker:${REDIS_WORKER_PASSWORD}@redis:6379
       TZ: Asia/Ho_Chi_Minh
       BUSINESS_DAY_CUTOFF: '04:00'
     depends_on:
@@ -114,6 +134,12 @@ services:
     <<: *hardening
     build: { context: .., dockerfile: apps/admin-web/Dockerfile }
     image: fruit-retail/admin-web:${IMAGE_TAG:-local}
+    environment:
+      # BFF gọi API qua mạng nội bộ; ADMIN_ORIGIN dùng kiểm Origin chống CSRF (ADR-027)
+      API_INTERNAL_URL: http://api:3000
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN:-http://localhost:8080}
+    depends_on:
+      api: { condition: service_healthy }
     restart: unless-stopped
 
   caddy:

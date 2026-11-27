@@ -31,7 +31,7 @@ preflight() {
   grep -Eq "^[A-Z_]+=[\"']" "$ENV_FILE" && bad+=("$ENV_FILE có giá trị bọc nháy — bỏ nháy")
   # Mật khẩu: ≥ 24 ký tự, chỉ [A-Za-z0-9_-] (đi thẳng vào DATABASE_URL/REDIS_URL không encode), không trùng nhau
   local seen=" "
-  for k in PG_OWNER_PASSWORD PG_APP_RW_PASSWORD PG_PROJECTOR_RW_PASSWORD PG_VIEWER_RO_PASSWORD PG_VIEWER_ACT_PASSWORD PG_AUDIT_WRITER_PASSWORD REDIS_PASSWORD; do
+  for k in PG_OWNER_PASSWORD PG_APP_RW_PASSWORD PG_PROJECTOR_RW_PASSWORD PG_VIEWER_RO_PASSWORD PG_VIEWER_ACT_PASSWORD PG_AUDIT_WRITER_PASSWORD REDIS_PASSWORD REDIS_API_PASSWORD REDIS_WORKER_PASSWORD; do
     v=$(val "$k")
     if (( ${#v} < 24 )) || [[ "$v" == *change-me* ]]; then bad+=("$k < 24 ký tự hoặc còn giá trị mẫu");
     elif [[ ! "$v" =~ ^[A-Za-z0-9_-]+$ ]]; then bad+=("$k chỉ được dùng [A-Za-z0-9_-]");

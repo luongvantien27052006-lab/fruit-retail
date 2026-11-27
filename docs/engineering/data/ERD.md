@@ -24,7 +24,7 @@ Cột "Mig" = nhóm migration (mục 4). Module chủ = module NestJS duy nhất
 
 | Bảng | Module chủ | Quan hệ chính | Mig |
 |---|---|---|---|
-| users | auth | — | M02 |
+| users | auth | — ; + totp_last_step (chống dùng lại TOTP — ADR-021, migration 0002) | M02 |
 | staff | auth | users | M02 |
 | user_role_assignments | rbac | users; scope → stores/warehouses | M02 |
 | approval_limits | rbac | — | M02 |
@@ -37,6 +37,7 @@ Cột "Mig" = nhóm migration (mục 4). Module chủ = module NestJS duy nhất
 | registers | pos | stores | M03 |
 | devices | pos | stores, registers | M03 |
 | pos_devices | auth | stores, registers, users(activated_by); + public_key, status (ADR-012) | M03 |
+| pos_enrollment_codes | auth | stores, users(created_by), pos_devices(used_by_device_id); code_hash, hạn ≤ 1 giờ, dùng một lần (ADR-022, NC-20) | M03 |
 | categories | catalog | categories(parent) | M04 |
 | products | catalog | categories | M04 |
 | skus | catalog | products | M04 |
@@ -222,9 +223,23 @@ erDiagram
   wholesale_customers ||--o{ wholesale_receivables : "công nợ"
 ```
 
-## 4. Thứ tự migration (chưa chạy)
+## 4. Thứ tự migration (M01–M02 đã chạy; cách áp: ADR-020)
 
-Prisma tạo bảng theo nhóm; `infra/sql` chạy sau mỗi nhóm cần ràng buộc đặc biệt. Số `NNN` là đề xuất.
+Prisma tạo bảng theo nhóm; SQL tay (CHECK, trigger, GRANT, RLS, seed) nhúng cuối `migration.sql` của mỗi nhóm
+(`apps/api/prisma/migrations/NNNN_<tên>/`); `infra/sql` chỉ còn phần trước Prisma. Cột "infra/sql" dưới đây từ M03 trở
+đi là tên gợi ý cho phần SQL tay, không còn là file riêng (ADR-020).
+
+**M02 đã làm (CP03 lát 1, `0001_foundation`):** users, recovery_codes, staff, staff_badges, permissions,
+role_permissions, user_role_assignments, user_permission_grants, approval_limits, sessions, refresh_tokens,
+auth_challenges, otp_challenges, viewer_profiles(+assignments), `reporting_private.viewer_profile_scopes`, files,
+`audit.logs/login_logs/export_logs/viewer_access`, `integration.outbox/processed_events/idempotency_keys` + M03 tối thiểu
+(stores, warehouses, registers, pos_devices — CP04 mở rộng). `code_sequences` chuyển CP07. Thêm
+`infra/sql/001_extension_privileges.sql`.
+
+**CP03 sau lát 1:** pos_enrollment_codes (0003, ADR-022), files.final_key (0006), users.must_change_password (0007,
+NC-22), auth_lockouts + sessions.reauth_failed_count (0008, ADR-030 — khóa theo (tài khoản, nguồn)). Thứ tự khóa xác
+thực: advisory `auth:<user_id>` → `core.users` → `core.sessions` (ORDER BY id) → `core.pos_devices`; `auth_lockouts` chỉ
+được khóa bên trong khóa `auth:<user_id>`.
 
 | Nhóm | CP | Prisma | infra/sql |
 |---|---|---|---|
@@ -277,7 +292,7 @@ chưa có lệnh của Tiến.
 | Dòng bán/mua (`pos_sale_lines`, `app_order_lines`, `wholesale_order_lines`, `goods_receipt_lines`, `purchase_order_lines`, `return_lines`, `supplier_return_lines`) | `sku_unit_id`, `unit_qty`, `base_qty_g`, `base_qty_units`; FK composite `(sku_unit_id, sku_id)` → `sku_units(id, sku_id)` | §21.3.1, T26 |
 | `skus` | `alert_days_before_expiry`, `stop_app_days_before_expiry`; `inventory_batches` CHECK `alert_date <= expiry_date AND stop_sell_app_date <= expiry_date` | §21.3.7 |
 | Chứng từ kho/mua (`goods_receipts`, `supplier_returns`, `transfers`, `stocktakes`, `spoilage_logs`, `internal_use_logs`, `processing_orders`) | `created_by`, `status`, `submitted_at`, `completed_at/by`, `approved_by`, `cancelled_at/by`, `cancel_reason`; trigger chặn sửa khi khác `DRAFT`; DELETE chỉ `DRAFT` của người tạo; `CHECK (status <> 'CANCELLED' OR (cancelled_by IS NOT NULL AND cancel_reason IS NOT NULL))`; `spoilage_logs.stocktake_id` (T30) | FR-INV-07, §21.3.2 |
-| Người tạo ≠ người duyệt | `CHECK (approved_by IS NULL OR approved_by <> created_by)` trên `spoilage_logs`, `internal_use_logs`, `stocktakes`, `cash_movements`, `refunds`, `markdowns(proposed_by)`; `pos_sale_lines.discount_approved_by`, `staff_id`; `shifts.variance_approved_by` | FR-INV-14 |
+| Người tạo ≠ người duyệt | `CHECK (approved_by IS NULL OR approved_by <> created_by)` trên `spoilage_logs`, `internal_use_logs`, `stocktakes`, `cash_movements`, `refunds`, `markdowns(proposed_by)`; `pos_sale_lines.staff_id` (`discount_approved_by` bỏ — NC-21 không còn giảm giá tay; CP07); `shifts.variance_approved_by` | FR-INV-14 |
 | `payments`, `refunds`, `shipments`, `cash_entries` | exclusive arc: `pos_sale_id`, `app_order_id`, `wholesale_order_id` nullable + `CHECK (num_nonnulls(...) = 1)` thay cho `ref_type/ref_id`; `payments`: `UNIQUE(provider_txn_id)`, `UNIQUE(sepay_va) WHERE status IN ('PENDING','UNKNOWN')`, `va_status` tách khỏi `status`; `refunds`: khóa nguồn duy nhất (`complaint_id` / `payment_id`) | toàn vẹn tiền |
 | `app_orders` | `CHECK (refunded_amount <= paid_amount)`; `channel APP\|PHONE`, `fulfillment_type DELIVERY\|PICKUP`, `zone_id` nullable khi PICKUP, `pickup_at`, `tracking_token_hash`; `business_date`, `device_occurred_at`, `is_late_posted` | §21.3.12, §21.3.13 |
 | `pos_sales`, `cash_movements`, `shifts` | `business_date`, `device_occurred_at`, `is_late_posted` | FR-INV-13 |

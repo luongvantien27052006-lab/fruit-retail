@@ -3,6 +3,7 @@ import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redi
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { testAuthEnv } from './helpers/auth-env';
 import { createApp } from '../src/bootstrap';
 import { loadEnv } from '../src/config/env';
 
@@ -23,6 +24,7 @@ describe('GET /v1/health', () => {
       REDIS_URL: redis.getConnectionUrl(),
       PORT: '0',
       LOG_LEVEL: 'silent',
+      ...testAuthEnv(),
     });
     app = await createApp(env, { logger: false });
     await app.init();

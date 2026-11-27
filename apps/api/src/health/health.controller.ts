@@ -1,4 +1,5 @@
 import { Controller, Get, HttpException, HttpStatus, Logger, Req } from '@nestjs/common';
+import { Public } from '../common/access';
 import type { Request } from 'express';
 import { PrismaService } from '../infra/prisma.service';
 import { RedisService } from '../infra/redis.service';
@@ -30,6 +31,7 @@ export class HealthController {
     private readonly redis: RedisService,
   ) {}
 
+  @Public()
   @Get()
   async health(@Req() req: Request): Promise<{ status: 'ok'; checks: Record<string, Check> }> {
     const [db, redis] = await Promise.all([

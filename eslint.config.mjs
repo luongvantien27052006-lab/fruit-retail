@@ -23,4 +23,23 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // ADR-016/020: nghiệp vụ truy cập DB qua TransactionHost (client chặn ghi ngoài transaction); client thô chỉ cho hạ tầng
+    files: ['apps/api/src/**/*.ts'],
+    ignores: ['apps/api/src/infra/**', 'apps/api/src/health/**', 'apps/api/src/db/**', 'apps/api/src/worker*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/infra/prisma.service', '**/generated/prisma/client'],
+              importNames: ['PrismaService', 'PrismaClient'],
+              message: 'Dùng TransactionHost (client TX_PRISMA) — không dùng Prisma thô ngoài src/infra (ADR-016).',
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

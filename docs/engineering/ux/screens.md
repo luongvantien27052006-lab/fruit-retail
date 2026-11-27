@@ -92,7 +92,7 @@ chung (mục 0) + nhánh riêng của màn.
 | A06 | Mặt hàng đẩy & thông báo | `/admin/push-deals*`, `/admin/notifications` | Tồn khả dụng < hạn mức → cảnh báo + gợi ý điều chuyển; giới hạn tần suất push | CP13 |
 | A07 | Đơn app | `/admin/app-orders*`, `/admin/refunds`, `/admin/complaints/{id}/resolve` | Can thiệp trạng thái bắt buộc lý do | CP14 |
 | A08 | Kho | tồn, phiếu nhập, chi phí nhập, điều chuyển, kiểm kê, `/admin/approvals/*` | Người duyệt ≠ người tạo (`APPROVER_MUST_DIFFER`) | CP06 |
-| A09 | Kiểm soát POS | báo cáo log xóa dòng/cân tay/giảm giá/hủy/mở két | — | CP10 |
+| A09 | Kiểm soát POS | báo cáo log xóa dòng/cân tay/hủy/mở két (`pos_log:read`; giảm giá tay đã bỏ — NC-21) | — | CP10 |
 | A10 | Danh mục | `/admin/categories|products|skus|units|barcode-rules`, `/admin/prices`, `/admin/imports`, `/admin/plu-export` | Nhập Excel dry-run, trùng mã: bỏ qua/cập nhật/dừng | CP04 |
 | A11 | Cửa hàng & vùng giao | `/admin/stores|devices|zones`, `/admin/pos-devices/*` | Vẽ đa giác chồng lấn → cảnh báo | CP04/CP13 |
 | A12 | Giao hàng | shipper, sổ COD, cấu hình 3PL | 3PL thiếu cấu hình → `CONFIGURATION_NOT_READY` | CP15 |
@@ -120,8 +120,8 @@ chung (mục 0) + nhánh riêng của màn.
 | P15 | Treo hóa đơn | Treo/gọi lại hóa đơn; tự hủy sau N giờ (cấu hình), có log | §6.7 | CP07 |
 | P16 | Kiểm tra thiết bị | Trạng thái cân (ổn định/0/mất kết nối), máy in (hết giấy, lỗi, mất kết nối), két; in thử; lỗi máy in không chặn chốt hóa đơn nhưng hiện đỏ + cho in lại | §6.13, ADR-008 | CP07 |
 | P17 | Tạm dừng nhận đơn app | Tự chuyển `PAUSED` khi POS mất kết nối > 2 phút; cửa hàng trưởng bật/tắt tay | §6.12, §4.6 | CP14 |
-| P18 | Duyệt tại chỗ | Thẻ + PIN quản lý cho hủy hóa đơn, cân tay, mở két, giảm giá; route `/pos/approvals/*` | §21.3.9, §2.3 | CP08 |
-| T09 | Duyệt giảm giá cận hạn | Cửa hàng trưởng ≤ 20%; dưới giá sàn chỉ Master (`PRICE_BELOW_FLOOR`) | §5.8 | CP17 |
+| P18 | Duyệt tại chỗ | Thẻ + PIN quản lý cho hủy hóa đơn, cân tay, mở két (không có giảm giá tay — NC-21); route `/pos/approvals/*` | §21.3.9, §2.3 | CP08 |
+| T09 | Đề xuất giảm giá cận hạn | Cửa hàng trưởng xem/đề xuất; chỉ Master duyệt qua `GET /admin/approvals` + `/admin/approvals/{id}/approve` (NC-21) | §5.8 | CP17 |
 | T10 | Phiếu lắp giỏ / đóng gói | Chọn công thức, cân thành phần, ATP giỏ + "nút cổ chai" (T41) | §5.11, §21.3.18 | CP17 |
 | T02+ | Soạn đơn app — nhánh thêm | `DELIVERY_FAILED`: giao lại / nhập lại kho / hủy hàng; 3PL không tìm được tài xế → về `PACKED`, gán lại | §8.7 | CP15 |
 | P14+ | Đơn điện thoại — nhánh thêm | Giờ lấy/giao, PICKUP hay DELIVERY, gửi link theo dõi; quá giờ lấy N giờ → nhắc, quá hạn → hủy, nhả tồn | §21.3.12 | CP14 |

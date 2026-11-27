@@ -1,0 +1,2 @@
+# Prisma đọc file này cho --from-migrations; dự án áp migration bằng bộ chạy riêng (ADR-020).
+provider = "postgresql"

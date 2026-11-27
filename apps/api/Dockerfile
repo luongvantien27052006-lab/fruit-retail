@@ -19,6 +19,7 @@ COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /out/package.json ./package.json
 COPY --from=build /repo/apps/api/dist ./dist
 COPY infra/sql ./infra/sql
+COPY apps/api/prisma/migrations ./prisma/migrations
 USER node
 EXPOSE 3000
 CMD ["node", "dist/main.js"]

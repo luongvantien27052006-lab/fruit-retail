@@ -51,8 +51,36 @@
       "exact": null
     },
     "@nestjs-cls/transactional": {
-      "line": "latest-stable@CP02",
-      "exact": null
+      "line": "4",
+      "exact": "4.0.2"
+    },
+    "nestjs-cls": {
+      "line": "7",
+      "exact": "7.0.2"
+    },
+    "@nestjs-cls/transactional-adapter-prisma": {
+      "line": "2",
+      "exact": "2.0.2"
+    },
+    "uuid": {
+      "line": "14",
+      "exact": "14.0.3"
+    },
+    "otplib": {
+      "line": "13",
+      "exact": "13.6.0"
+    },
+    "jose": {
+      "line": "6",
+      "exact": "6.2.16"
+    },
+    "ajv (dev, test hợp đồng)": {
+      "line": "8",
+      "exact": "8.20.0"
+    },
+    "ajv-formats (dev)": {
+      "line": "3",
+      "exact": "3.0.1"
     }
   },
   "web": {

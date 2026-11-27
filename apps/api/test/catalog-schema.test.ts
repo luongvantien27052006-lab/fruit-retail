@@ -520,9 +520,22 @@ describe('0009_catalog', () => {
     };
     await expect(loc(storeId, wh, 'SHELF')).rejects.toThrow(/locations_one_owner/);
     await expect(loc(null, null, 'SHELF')).rejects.toThrow(/locations_one_owner/);
-    const transit = await loc(storeId, null, 'IN_TRANSIT');
+    // 0010: tạo cửa hàng / kho ⇒ tự có đúng một IN_TRANSIT; thêm cái thứ hai bị chặn; không lưu trữ được
+    const own = async (col: 'store_id' | 'warehouse_id', v: string) =>
+      (await db.q(`SELECT id, code FROM core.locations WHERE ${col} = $1 AND type = 'IN_TRANSIT'`, [v])) as {
+        id: string;
+        code: string;
+      }[];
+    const [st] = await own('store_id', storeId);
+    const [wt] = await own('warehouse_id', wh);
+    expect(st?.code).toBe('IN_TRANSIT');
+    expect(wt?.code).toBe('IN_TRANSIT');
+    const transit = st?.id as string;
     await expect(loc(storeId, null, 'IN_TRANSIT')).rejects.toThrow(/locations_one_in_transit/);
-    await loc(null, wh, 'IN_TRANSIT');
+    await expect(loc(null, wh, 'IN_TRANSIT')).rejects.toThrow(/locations_one_in_transit/);
+    await expect(app(`UPDATE core.locations SET archived_at = now() WHERE id = $1`, [transit])).rejects.toThrow(
+      /không lưu trữ được/,
+    );
     const shelf = await loc(storeId, null, 'SHELF');
     const whCold = await loc(null, wh, 'COLD_ROOM');
     const s = await sku('WEIGHT');

@@ -340,6 +340,10 @@ bán/tồn), dòng cha khóa `FOR SHARE` khi gắn con (danh mục con, sản ph
 lọt. Hướng khóa cha–con: `skus` trước `products` (sửa SKU) hoặc chỉ `products` (tạo SKU) — luồng sau này (lưu trữ sản phẩm kéo
 theo SKU, nhập file) **không** được khóa `products` rồi mới khóa `skus` đã có. Mọi INSERT có cha / đổi cha danh mục (kể cả
 nhập file sau này) lấy advisory `catalog:category_tree` TRƯỚC mọi khóa dòng `categories`.
+Tổ chức & NCC (CP04 lát 4): `skus` (FOR SHARE) → `stores` / `warehouses` / `suppliers` (FOR SHARE khi gắn con: vị trí, quầy, vị trí
+mặc định, SKU cung cấp; FOR NO KEY UPDATE khi sửa chính nó) → `registers` / `locations` (FOR NO KEY UPDATE khi sửa; FOR SHARE khi
+gắn máy POS / vị trí mặc định) → `sku_default_locations` / `supplier_skus`. Sửa cửa hàng chờ lô giá đang giữ `stores FOR SHARE`
+(lô giá không khóa gì sau `stores` ⇒ chỉ chờ, không vòng). Vị trí IN_TRANSIT do trigger 0010 tạo cùng INSERT cửa hàng / kho.
 
 ### 6.3. Khóa ngoại tham chiếu nhóm sau — đã xử lý
 `pos_sale_lines.markdown_id` (markdowns chuyển lên M07) · `sessions.device_id`, `files.device_id` (FK thêm ở M03) ·

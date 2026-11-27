@@ -26,6 +26,7 @@ export interface Client {
   post(u: string, b: object): request.Test;
   put(u: string, b: object): request.Test;
   patch(u: string, b: object): request.Test;
+  delete(u: string): request.Test;
 }
 
 export interface AdminEnv {
@@ -38,7 +39,7 @@ export interface AdminEnv {
   /** Master step-up còn hạn (5 phút) */
   masterStepUp(): Promise<Client>;
   /** cửa hàng trưởng đăng nhập PIN trên máy POS đã kích hoạt của một cửa hàng mới */
-  storeManager(): Promise<Client & { storeId: string }>;
+  storeManager(o?: { grants?: string[] }): Promise<Client & { storeId: string; userId: string }>;
   hex(n?: number): string;
   close(): Promise<void>;
 }
@@ -74,6 +75,7 @@ export async function startAdminEnv(): Promise<AdminEnv> {
       post: (u, b) => h(http().post(`/v1${u}`)).send(b),
       put: (u, b) => h(http().put(`/v1${u}`)).send(b),
       patch: (u, b) => h(http().patch(`/v1${u}`)).send(b),
+      delete: (u) => h(http().delete(`/v1${u}`)),
     };
   };
   const totp = async (userId: string) => {
@@ -106,7 +108,8 @@ export async function startAdminEnv(): Promise<AdminEnv> {
     return bearerClient(`Bearer ${r.body.access_token as string}`);
   }
 
-  async function storeManager() {
+  /** grants: mã quyền cấp riêng phạm vi STORE (cửa hàng của chính người này) — cấp TRƯỚC khi đăng nhập */
+  async function storeManager(o: { grants?: string[] } = {}) {
     const storeId = randomUUID();
     const sc = `S${hex()}`;
     await db.q(`INSERT INTO core.stores (id, code, name) VALUES ($1, $2, $2)`, [storeId, sc]);
@@ -122,6 +125,12 @@ export async function startAdminEnv(): Promise<AdminEnv> {
       `INSERT INTO core.user_role_assignments (id, user_id, role, scope_type, scope_id) VALUES ($1, $2, 'STORE_MANAGER', 'STORE', $3)`,
       [randomUUID(), userId, storeId],
     );
+    for (const g of o.grants ?? [])
+      await db.q(
+        `INSERT INTO core.user_permission_grants (id, user_id, permission_code, scope_type, scope_id, granted_by)
+         VALUES ($1, $2, $3, 'STORE', $4, $5)`,
+        [randomUUID(), userId, g, storeId, m.userId],
+      );
     const { privateKey, publicKey } = generateKeyPairSync('ed25519');
     const id = randomUUID();
     const pub = (publicKey.export({ format: 'jwk' }) as { x: string }).x;
@@ -160,7 +169,7 @@ export async function startAdminEnv(): Promise<AdminEnv> {
       .set('X-Device-Id', id)
       .send({ staff_code: code, pin, device_proof: proof('pin', code) });
     expect(pl.status).toBe(200);
-    return { ...bearerClient(`Bearer ${pl.body.access_token as string}`, id), storeId };
+    return { ...bearerClient(`Bearer ${pl.body.access_token as string}`, id), storeId, userId };
   }
 
   return {

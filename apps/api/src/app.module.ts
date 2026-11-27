@@ -8,6 +8,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
 import { CatalogModule } from './catalog/catalog.module';
+import { OrgModule } from './org/org.module';
 import { FilesModule } from './files/files.controller';
 import { AccessGuard } from './common/access.guard';
 import { AuditOutboxService } from './common/audit-outbox.service';
@@ -106,6 +107,7 @@ export class AppModule {
         AuthModule,
         AdminModule,
         CatalogModule,
+        OrgModule,
         FilesModule,
         ...(extras.imports ?? []),
       ],

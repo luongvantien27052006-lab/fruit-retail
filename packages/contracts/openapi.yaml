@@ -4285,16 +4285,49 @@ paths:
       summary: 'Danh sách nhà cung cấp'
       x-permission: 'supplier:read'
       x-spec-ref: '§4.5'
-      x-detail-cp: CP05
+      x-detail-cp: CP04
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+            description: 'tên / mã chứa; hoặc SĐT đúng'
+        - name: type
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/SupplierType'
+        - name: include_archived
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: after
+          in: query
+          required: false
+          schema:
+            type: string
+            description: 'trang sau: next_after của trang trước (mã NCC)'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/SupplierList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4311,7 +4344,7 @@ paths:
       summary: 'Tạo nhà cung cấp'
       x-permission: 'supplier:write'
       x-spec-ref: '§4.5'
-      x-detail-cp: CP05
+      x-detail-cp: CP04
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/RequestId'
@@ -4320,14 +4353,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/SupplierCreateRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Supplier'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4353,10 +4386,10 @@ paths:
     get:
       operationId: getAdminSuppliersId
       tags: [admin]
-      summary: 'Chi tiết nhà cung cấp'
+      summary: 'Chi tiết nhà cung cấp (SĐT đầy đủ, số tài khoản che)'
       x-permission: 'supplier:read'
       x-spec-ref: '§4.5'
-      x-detail-cp: CP05
+      x-detail-cp: CP04
       parameters:
         - $ref: '#/components/parameters/RequestId'
       responses:
@@ -4365,7 +4398,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Supplier'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4381,10 +4414,10 @@ paths:
     patch:
       operationId: patchAdminSuppliersId
       tags: [admin]
-      summary: 'Sửa nhà cung cấp'
+      summary: 'Sửa / lưu trữ nhà cung cấp'
       x-permission: 'supplier:write'
       x-spec-ref: '§4.5'
-      x-detail-cp: CP05
+      x-detail-cp: CP04
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/RequestId'
@@ -4393,14 +4426,183 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/SupplierUpdateRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Supplier'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/suppliers/{id}/bank-account/reveal:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: postAdminSuppliersIdBankAccountReveal
+      tags: [admin]
+      summary: 'Xem đủ số tài khoản ngân hàng NCC (ghi audit)'
+      x-permission: 'supplier:write'
+      x-master-only: true
+      x-step-up: true
+      x-spec-ref: '§4.5'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplierBankAccount'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/suppliers/{id}/skus:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getAdminSuppliersIdSkus
+      tags: [admin]
+      summary: 'SKU nhà cung cấp cung cấp'
+      x-permission: 'supplier:read'
+      x-spec-ref: '§4.5'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplierSkuList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/suppliers/{id}/skus/{sku_id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: sku_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: putAdminSuppliersIdSkusSkuId
+      tags: [admin]
+      summary: 'Thêm / sửa SKU cung cấp (mã hàng phía NCC)'
+      x-permission: 'supplier:write'
+      x-spec-ref: '§4.5'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SupplierSkuSetRequest'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplierSkuLink'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      operationId: deleteAdminSuppliersIdSkusSkuId
+      tags: [admin]
+      summary: 'Bỏ SKU khỏi danh sách NCC cung cấp'
+      x-permission: 'supplier:write'
+      x-spec-ref: '§4.5'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplierSkuRemoved'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4421,19 +4623,26 @@ paths:
     get:
       operationId: getAdminStores
       tags: [admin]
-      summary: 'Danh sách cửa hàng'
+      summary: 'Danh sách cửa hàng (trong phạm vi)'
       x-permission: 'report:read'
+      x-scope: store
       x-spec-ref: '§4.6'
       x-detail-cp: CP04
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - name: include_archived
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/StoreList'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4447,10 +4656,13 @@ paths:
     post:
       operationId: postAdminStores
       tags: [admin]
-      summary: 'Tạo cửa hàng'
+      summary: 'Tạo cửa hàng (cần phạm vi toàn chuỗi)'
       x-permission: 'store:write'
+      x-scope: store
       x-spec-ref: '§4.6'
       x-detail-cp: CP04
+      description: >-
+        Cửa hàng mới CLOSED + PAUSED; tự có vị trí "đang vận chuyển" (IN_TRANSIT). Phạm vi store:write không phải ALL ⇒ 403.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/RequestId'
@@ -4459,14 +4671,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/StoreCreateRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Store'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4494,6 +4706,7 @@ paths:
       tags: [admin]
       summary: 'Chi tiết cửa hàng'
       x-permission: 'report:read'
+      x-scope: store
       x-spec-ref: '§4.6'
       x-detail-cp: CP04
       parameters:
@@ -4504,7 +4717,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Store'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -4520,10 +4733,13 @@ paths:
     patch:
       operationId: patchAdminStoresId
       tags: [admin]
-      summary: 'Sửa cửa hàng'
+      summary: 'Sửa cửa hàng (giờ mở, OPEN/CLOSED, ONLINE/PAUSED, năng lực/giờ, lưu trữ)'
       x-permission: 'store:write'
+      x-scope: store
       x-spec-ref: '§4.6'
       x-detail-cp: CP04
+      description: >-
+        status / archived cần phạm vi ALL (403). Lưu trữ khi còn máy POS ACTIVE ⇒ 422. ONLINE cần tọa độ + giờ mở + năng lực > 0 (422). Lưu trữ / INACTIVE ⇒ CLOSED + PAUSED.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/RequestId'
@@ -4532,14 +4748,538 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/StoreUpdateRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/Store'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/stores/{id}/registers:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getAdminStoresIdRegisters
+      tags: [admin]
+      summary: 'Quầy thu ngân của cửa hàng'
+      x-permission: 'report:read'
+      x-scope: store
+      x-spec-ref: '§4.6'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: include_archived
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: postAdminStoresIdRegisters
+      tags: [admin]
+      summary: 'Tạo quầy thu ngân'
+      x-permission: 'store:write'
+      x-scope: store
+      x-spec-ref: '§4.6'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterCreateRequest'
+      responses:
+        '201':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Register'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/registers/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      operationId: patchAdminRegistersId
+      tags: [admin]
+      summary: 'Sửa / lưu trữ quầy (còn máy POS ACTIVE ⇒ 422)'
+      x-permission: 'store:write'
+      x-scope: store
+      x-spec-ref: '§4.6'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterUpdateRequest'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Register'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/stores/{id}/default-locations:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getAdminStoresIdDefaultLocations
+      tags: [admin]
+      summary: 'Vị trí mặc định theo SKU (theo lộ trình vị trí)'
+      x-permission: 'stock:read'
+      x-scope: store
+      x-spec-ref: '§21.3.19'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: sku_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkuDefaultLocationList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/stores/{id}/default-locations/{sku_id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: sku_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: putAdminStoresIdDefaultLocationsSkuId
+      tags: [admin]
+      summary: 'Đặt / bỏ vị trí mặc định của SKU tại cửa hàng'
+      x-permission: 'store:write'
+      x-scope: store
+      x-spec-ref: '§21.3.19'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkuDefaultLocationSetRequest'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkuDefaultLocationResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/warehouses:
+    get:
+      operationId: getAdminWarehouses
+      tags: [admin]
+      summary: 'Danh sách kho'
+      x-permission: 'stock:read'
+      x-spec-ref: '§4.6'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: include_archived
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarehouseList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: postAdminWarehouses
+      tags: [admin]
+      summary: 'Tạo kho (cần phạm vi toàn chuỗi)'
+      x-permission: 'store:write'
+      x-spec-ref: '§4.6'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WarehouseCreateRequest'
+      responses:
+        '201':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Warehouse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/warehouses/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getAdminWarehousesId
+      tags: [admin]
+      summary: 'Chi tiết kho'
+      x-permission: 'stock:read'
+      x-spec-ref: '§4.6'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Warehouse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    patch:
+      operationId: patchAdminWarehousesId
+      tags: [admin]
+      summary: 'Sửa / lưu trữ kho (cần phạm vi toàn chuỗi)'
+      x-permission: 'store:write'
+      x-spec-ref: '§4.6'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WarehouseUpdateRequest'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Warehouse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/locations:
+    get:
+      operationId: getAdminLocations
+      tags: [admin]
+      summary: 'Vị trí của một cửa hàng / kho (thứ tự lộ trình)'
+      x-permission: 'stock:read'
+      x-scope: store
+      x-spec-ref: '§4.6'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: store_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: warehouse_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: type
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/LocationType'
+        - name: include_archived
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: postAdminLocations
+      tags: [admin]
+      summary: 'Tạo vị trí (kho lạnh, kệ, tủ mát, khu chín…)'
+      x-permission: 'store:write'
+      x-scope: store
+      x-spec-ref: '§4.6'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationCreateRequest'
+      responses:
+        '201':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Location'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/locations/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      operationId: patchAdminLocationsId
+      tags: [admin]
+      summary: 'Sửa / lưu trữ vị trí'
+      x-permission: 'store:write'
+      x-scope: store
+      x-spec-ref: '§4.6'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationUpdateRequest'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Location'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -9826,6 +10566,735 @@ components:
         changed_at:
           type: [string, 'null']
           format: date-time
+    OpeningHours:
+      type: object
+      description: >-
+        Giờ mở cửa theo thứ (mon…sun), mỗi ngày tối đa 3 khung [bắt đầu, kết thúc] HH:MM (kết thúc tối đa 24:00), tăng dần,
+        không chồng nhau. Thiếu ngày = nghỉ.
+      additionalProperties: false
+      properties:
+        mon:
+          type: array
+          maxItems: 3
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items:
+              type: string
+              pattern: '^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$'
+        tue:
+          type: array
+          maxItems: 3
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items:
+              type: string
+              pattern: '^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$'
+        wed:
+          type: array
+          maxItems: 3
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items:
+              type: string
+              pattern: '^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$'
+        thu:
+          type: array
+          maxItems: 3
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items:
+              type: string
+              pattern: '^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$'
+        fri:
+          type: array
+          maxItems: 3
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items:
+              type: string
+              pattern: '^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$'
+        sat:
+          type: array
+          maxItems: 3
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items:
+              type: string
+              pattern: '^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$'
+        sun:
+          type: array
+          maxItems: 3
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items:
+              type: string
+              pattern: '^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$'
+    StoreStatus:
+      type: string
+      enum: [ACTIVE, INACTIVE]
+    StorePosStatus:
+      type: string
+      enum: [OPEN, CLOSED]
+    StoreAppStatus:
+      type: string
+      enum: [ONLINE, PAUSED]
+    LocationType:
+      type: string
+      enum: [STORAGE, COLD_ROOM, SHELF, CHILLER, RIPENING, IN_TRANSIT]
+    SupplierType:
+      type: string
+      enum: [FARM, COOPERATIVE, WHOLESALER, IMPORTER, OTHER]
+    Store:
+      type: object
+      description: >-
+        Cửa hàng (§4.6). Địa chỉ cửa hàng là thông tin công khai.
+      required:
+        [
+          id,
+          code,
+          name,
+          address,
+          status,
+          lat,
+          lng,
+          opening_hours,
+          pos_status,
+          app_status,
+          app_capacity_per_hour,
+          created_at,
+          updated_at,
+          archived_at,
+        ]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        address:
+          type: [string, 'null']
+          maxLength: 300
+        status:
+          $ref: '#/components/schemas/StoreStatus'
+        lat:
+          type: [number, 'null']
+          minimum: -90
+          maximum: 90
+        lng:
+          type: [number, 'null']
+          minimum: -180
+          maximum: 180
+        opening_hours:
+          oneOf:
+            - $ref: '#/components/schemas/OpeningHours'
+            - type: 'null'
+        pos_status:
+          $ref: '#/components/schemas/StorePosStatus'
+        app_status:
+          $ref: '#/components/schemas/StoreAppStatus'
+        app_capacity_per_hour:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 10000
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: [string, 'null']
+          format: date-time
+    StoreList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Store'
+    StoreCreateRequest:
+      type: object
+      description: >-
+        lat / lng đi cặp.
+      required: [code, name]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z0-9][A-Z0-9_-]{0,15}$'
+          description: 'chữ thường được đổi thành HOA'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        address:
+          type: [string, 'null']
+          maxLength: 300
+        lat:
+          type: [number, 'null']
+          minimum: -90
+          maximum: 90
+        lng:
+          type: [number, 'null']
+          minimum: -180
+          maximum: 180
+        opening_hours:
+          oneOf:
+            - $ref: '#/components/schemas/OpeningHours'
+            - type: 'null'
+        app_capacity_per_hour:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 10000
+    StoreUpdateRequest:
+      type: object
+      description: >-
+        Ít nhất một trường; lat / lng đi cặp.
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        address:
+          type: [string, 'null']
+          maxLength: 300
+        lat:
+          type: [number, 'null']
+          minimum: -90
+          maximum: 90
+        lng:
+          type: [number, 'null']
+          minimum: -180
+          maximum: 180
+        opening_hours:
+          oneOf:
+            - $ref: '#/components/schemas/OpeningHours'
+            - type: 'null'
+        status:
+          $ref: '#/components/schemas/StoreStatus'
+        pos_status:
+          $ref: '#/components/schemas/StorePosStatus'
+        app_status:
+          $ref: '#/components/schemas/StoreAppStatus'
+        app_capacity_per_hour:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 10000
+        archived:
+          type: boolean
+    Warehouse:
+      type: object
+      required: [id, code, name, address, created_at, archived_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        address:
+          type: [string, 'null']
+          maxLength: 300
+        created_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: [string, 'null']
+          format: date-time
+    WarehouseList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Warehouse'
+    WarehouseCreateRequest:
+      type: object
+      required: [code, name]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z0-9][A-Z0-9_-]{0,15}$'
+          description: 'chữ thường được đổi thành HOA'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        address:
+          type: [string, 'null']
+          maxLength: 300
+    WarehouseUpdateRequest:
+      type: object
+      description: >-
+        Ít nhất một trường.
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        address:
+          type: [string, 'null']
+          maxLength: 300
+        archived:
+          type: boolean
+    Location:
+      type: object
+      description: >-
+        Vị trí trong cửa hàng hoặc kho (đúng một chủ). sort = thứ tự lộ trình nhặt hàng. IN_TRANSIT do hệ thống tạo, không lưu trữ được.
+      required: [id, store_id, warehouse_id, type, code, name, sort, created_at, archived_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        store_id:
+          type: [string, 'null']
+          format: uuid
+        warehouse_id:
+          type: [string, 'null']
+          format: uuid
+        type:
+          $ref: '#/components/schemas/LocationType'
+        code:
+          type: string
+        name:
+          type: string
+        sort:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: [string, 'null']
+          format: date-time
+    LocationList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Location'
+    LocationCreateRequest:
+      type: object
+      description: >-
+        Đúng một trong store_id / warehouse_id; type không được là IN_TRANSIT; mã không bắt đầu bằng IN_TRANSIT.
+      required: [type, code, name]
+      additionalProperties: false
+      properties:
+        store_id:
+          type: string
+          format: uuid
+        warehouse_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [STORAGE, COLD_ROOM, SHELF, CHILLER, RIPENING]
+        code:
+          type: string
+          pattern: '^[A-Z0-9][A-Z0-9_-]{0,31}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        sort:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+    LocationUpdateRequest:
+      type: object
+      description: >-
+        Ít nhất một trường. Lưu trữ vị trí đang là vị trí mặc định của SKU ⇒ 422.
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        sort:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+        archived:
+          type: boolean
+    Register:
+      type: object
+      description: >-
+        Quầy thu ngân (§4.6).
+      required: [id, store_id, code, name, created_at, archived_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        store_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: [string, 'null']
+          maxLength: 100
+        created_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: [string, 'null']
+          format: date-time
+    RegisterList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Register'
+    RegisterCreateRequest:
+      type: object
+      required: [code]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z0-9][A-Z0-9_-]{0,15}$'
+          description: 'chữ thường được đổi thành HOA'
+        name:
+          type: [string, 'null']
+          maxLength: 100
+    RegisterUpdateRequest:
+      type: object
+      description: >-
+        Ít nhất một trường.
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z0-9][A-Z0-9_-]{0,15}$'
+          description: 'chữ thường được đổi thành HOA'
+        name:
+          type: [string, 'null']
+          maxLength: 100
+        archived:
+          type: boolean
+    SkuDefaultLocation:
+      type: object
+      required: [sku_id, sku_code, sku_name, location_id, location_code, location_name, location_sort]
+      additionalProperties: false
+      properties:
+        sku_id:
+          type: string
+          format: uuid
+        sku_code:
+          type: string
+        sku_name:
+          type: string
+        location_id:
+          type: string
+          format: uuid
+        location_code:
+          type: string
+        location_name:
+          type: string
+        location_sort:
+          type: integer
+    SkuDefaultLocationList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SkuDefaultLocation'
+    SkuDefaultLocationSetRequest:
+      type: object
+      description: >-
+        location_id null = bỏ vị trí mặc định. Vị trí phải thuộc cửa hàng, đang dùng, không phải IN_TRANSIT (422).
+      required: [location_id]
+      additionalProperties: false
+      properties:
+        location_id:
+          type: [string, 'null']
+          format: uuid
+    SkuDefaultLocationResult:
+      type: object
+      required: [store_id, sku_id, location_id]
+      additionalProperties: false
+      properties:
+        store_id:
+          type: string
+          format: uuid
+        sku_id:
+          type: string
+          format: uuid
+        location_id:
+          type: [string, 'null']
+          format: uuid
+    Supplier:
+      type: object
+      description: >-
+        Nhà cung cấp (§4.5). phone chỉ có ở chi tiết / sau khi ghi (danh sách: null); số tài khoản luôn che (bank_account_masked) — xem đủ qua reveal.
+      required:
+        [
+          id,
+          code,
+          name,
+          type,
+          contact_name,
+          phone,
+          phone_masked,
+          bank_name,
+          bank_account_masked,
+          payment_terms_days,
+          note,
+          created_at,
+          updated_at,
+          archived_at,
+        ]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/SupplierType'
+        contact_name:
+          type: [string, 'null']
+          maxLength: 100
+        phone:
+          type: [string, 'null']
+          description: 'E.164 (+84…)'
+        phone_masked:
+          type: [string, 'null']
+        bank_name:
+          type: [string, 'null']
+          maxLength: 100
+        bank_account_masked:
+          type: [string, 'null']
+          description: '••••1234'
+        payment_terms_days:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 365
+        note:
+          type: [string, 'null']
+          maxLength: 2000
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        archived_at:
+          type: [string, 'null']
+          format: date-time
+    SupplierList:
+      type: object
+      required: [items, next_after]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Supplier'
+        next_after:
+          type: [string, 'null']
+    BankAccountInput:
+      type: object
+      required: [account_number, account_holder]
+      additionalProperties: false
+      properties:
+        account_number:
+          type: string
+          description: '6–20 chữ số (bỏ khoảng trắng / chấm / gạch)'
+        account_holder:
+          type: string
+          minLength: 1
+          maxLength: 100
+    SupplierCreateRequest:
+      type: object
+      description: >-
+        phone: SĐT Việt Nam (di động / cố định) — sai ⇒ 400.
+      required: [code, name, type]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          pattern: '^[A-Z0-9][A-Z0-9_-]{0,31}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        type:
+          $ref: '#/components/schemas/SupplierType'
+        contact_name:
+          type: [string, 'null']
+          maxLength: 100
+        phone:
+          type: [string, 'null']
+          maxLength: 20
+        bank_name:
+          type: [string, 'null']
+          maxLength: 100
+        bank_account:
+          oneOf:
+            - $ref: '#/components/schemas/BankAccountInput'
+            - type: 'null'
+        payment_terms_days:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 365
+        note:
+          type: [string, 'null']
+          maxLength: 2000
+    SupplierUpdateRequest:
+      type: object
+      description: >-
+        Ít nhất một trường; null = xóa giá trị.
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        type:
+          $ref: '#/components/schemas/SupplierType'
+        contact_name:
+          type: [string, 'null']
+          maxLength: 100
+        phone:
+          type: [string, 'null']
+          maxLength: 20
+        bank_name:
+          type: [string, 'null']
+          maxLength: 100
+        bank_account:
+          oneOf:
+            - $ref: '#/components/schemas/BankAccountInput'
+            - type: 'null'
+        payment_terms_days:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 365
+        note:
+          type: [string, 'null']
+          maxLength: 2000
+        archived:
+          type: boolean
+    SupplierBankAccount:
+      type: object
+      required: [supplier_id, bank_name, account_number, account_holder]
+      additionalProperties: false
+      properties:
+        supplier_id:
+          type: string
+          format: uuid
+        bank_name:
+          type: [string, 'null']
+          maxLength: 100
+        account_number:
+          type: string
+        account_holder:
+          type: string
+    SupplierSku:
+      type: object
+      required: [sku_id, sku_code, sku_name, sku_archived, supplier_sku_code, created_at]
+      additionalProperties: false
+      properties:
+        sku_id:
+          type: string
+          format: uuid
+        sku_code:
+          type: string
+        sku_name:
+          type: string
+        sku_archived:
+          type: boolean
+        supplier_sku_code:
+          type: [string, 'null']
+          maxLength: 64
+        created_at:
+          type: string
+          format: date-time
+    SupplierSkuList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupplierSku'
+    SupplierSkuSetRequest:
+      type: object
+      required: [supplier_sku_code]
+      additionalProperties: false
+      properties:
+        supplier_sku_code:
+          type: [string, 'null']
+          maxLength: 64
+    SupplierSkuLink:
+      type: object
+      required: [supplier_id, sku_id, supplier_sku_code]
+      additionalProperties: false
+      properties:
+        supplier_id:
+          type: string
+          format: uuid
+        sku_id:
+          type: string
+          format: uuid
+        supplier_sku_code:
+          type: [string, 'null']
+          maxLength: 64
+    SupplierSkuRemoved:
+      type: object
+      required: [supplier_id, sku_id, removed]
+      additionalProperties: false
+      properties:
+        supplier_id:
+          type: string
+          format: uuid
+        sku_id:
+          type: string
+          format: uuid
+        removed:
+          type: boolean
+          const: true
     VndAmount:
       type: string
       pattern: '^-?[0-9]{1,18}$'

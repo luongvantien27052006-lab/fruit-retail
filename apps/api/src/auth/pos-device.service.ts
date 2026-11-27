@@ -240,9 +240,13 @@ export class PosDeviceService {
     if (normalizePairingCode(b.pairing_code) !== normalizePairingCode(pairingCode(d.fingerprint)))
       throw new AppError('INVALID_REQUEST', 'Mã ghép đôi không khớp với thiết bị', { field: 'pairing_code' });
     if (b.register_id) {
-      const reg = await this.tx.register.findUnique({ where: { id: b.register_id }, select: { storeId: true } });
-      if (reg?.storeId !== d.storeId)
+      // FOR SHARE: chặn "lưu trữ quầy" song song (CP04 lát 4 — lưu trữ quầy còn máy ACTIVE ⇒ 422)
+      const [reg] = await this.tx.$queryRaw<{ store_id: string; archived: boolean }[]>`
+        SELECT store_id::text, archived_at IS NOT NULL AS archived FROM core.registers
+        WHERE id = ${b.register_id}::uuid FOR SHARE`;
+      if (reg?.store_id !== d.storeId)
         throw new AppError('INVALID_REQUEST', 'Quầy không thuộc cửa hàng của thiết bị', { field: 'register_id' });
+      if (reg.archived) throw new AppError('INVALID_REQUEST', 'Quầy đã lưu trữ', { field: 'register_id' });
     }
     const r = await this.tx.posDevice.updateMany({
       where: { id, status: 'PENDING' },

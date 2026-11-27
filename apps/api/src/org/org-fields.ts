@@ -9,6 +9,9 @@ export const isControl = (c: string) => {
     (n >= 0x7f && n <= 0x9f) ||
     (n >= 0x202a && n <= 0x202e) ||
     (n >= 0x2066 && n <= 0x2069) ||
+    (n >= 0x200b && n <= 0x200f) || // độ rộng 0, LRM/RLM (review bảo mật G6)
+    n === 0x061c ||
+    n === 0xfeff ||
     n === 0x2028 ||
     n === 0x2029
   );

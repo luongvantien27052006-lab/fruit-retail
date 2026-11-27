@@ -1,9 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { TransactionHost } from '@nestjs-cls/transactional';
+import { ClsService } from 'nestjs-cls';
 import { v7 as uuidv7 } from 'uuid';
 import { PiiCipher } from '../auth/pii-cipher';
 import { AuditOutboxService, type Tx } from '../common/audit-outbox.service';
 import { AppError } from '../common/errors';
+import type { RequestStore } from '../common/request-context';
 import { catalogWrite } from '../catalog/catalog-db';
 import { escapeLike, rule } from '../catalog/catalog-rules';
 import type { Supplier } from '../generated/prisma/client';
@@ -38,14 +40,15 @@ export const supplierBankAad = (id: string) => `suppliers:bank_enc:${id}`;
  */
 export function normalizeSupplierPhone(raw: string): string | null {
   const s = raw.replace(/[\s.()-]/g, '');
-  const m = /^(?:\+84|84|0)([1-9]\d{8,9})$/.exec(s);
+  // '+84 (0) 912…' ⇒ '+840912…' cũng nhận (review TS lát 4)
+  const m = /^(?:\+?840?|0)([1-9]\d{8,9})$/.exec(s);
   return m?.[1] ? `+84${m[1]}` : null;
 }
 
 /** Che SĐT: giữ mã nước + 3 số cuối (`+84•••••••123`) */
 const maskPhone = (e164: string) => `${e164.slice(0, 3)}${'•'.repeat(Math.max(0, e164.length - 6))}${e164.slice(-3)}`;
-/** Che số tài khoản: chỉ 4 số cuối */
-const maskAccount = (n: string) => `••••${n.slice(-4)}`;
+/** Che số tài khoản: 4 số cuối (số ngắn hơn 10 chữ số: 2 số cuối) */
+const maskAccount = (n: string) => `••••${n.slice(n.length >= 10 ? -4 : -2)}`;
 
 /**
  * Danh bạ nhà cung cấp (CP04 lát 4, §4.5, NC-27). SĐT + tài khoản ngân hàng mã hóa AES-256-GCM (ADR-015), SĐT có HMAC tra
@@ -59,7 +62,13 @@ export class SuppliersService {
     @Inject(TransactionHost) private readonly txHost: Tx,
     private readonly ao: AuditOutboxService,
     private readonly cipher: PiiCipher,
+    private readonly cls: ClsService<RequestStore>,
   ) {}
+
+  /** tên ngân hàng + số tài khoản che chỉ cho người có supplier:write — nhân viên kho không cần (review bảo mật G1) */
+  private canSeeBank(): boolean {
+    return this.cls.get('principal')?.permissions.has('supplier:write') ?? false;
+  }
 
   private get tx() {
     return this.txHost.tx;
@@ -74,17 +83,18 @@ export class SuppliersService {
     return JSON.parse(this.cipher.decrypt(s.bankEnc, supplierBankAad(s.id)).toString('utf8')) as BankAccountInput;
   }
 
-  /** wire công khai (không PII) — dùng cho audit và làm nền cho response */
+  /**
+   * Bản ghi cho AUDIT: không SĐT / tài khoản / tên người liên hệ / ghi chú (người nhập hay dán SĐT, STK vào ghi chú; audit
+   * chỉ thêm, không xóa được — review bảo mật lát 4 N1). Trường nào trong số đó đổi ⇒ tên trường ở `changed_pii`.
+   */
   private base(s: Supplier) {
     return {
       id: s.id,
       code: s.code,
       name: s.name,
       type: s.type,
-      contact_name: s.contactName,
       bank_name: s.bankName,
       payment_terms_days: s.paymentTermsDays,
-      note: s.note,
       created_at: s.createdAt.toISOString(),
       updated_at: s.updatedAt.toISOString(),
       archived_at: s.archivedAt ? s.archivedAt.toISOString() : null,
@@ -93,9 +103,13 @@ export class SuppliersService {
 
   private wire(s: Supplier, fullPhone: boolean) {
     const phone = this.phoneOf(s);
-    const bank = this.bankOf(s);
+    const bankOk = this.canSeeBank();
+    const bank = bankOk ? this.bankOf(s) : null;
     return {
       ...this.base(s),
+      bank_name: bankOk ? s.bankName : null,
+      contact_name: s.contactName,
+      note: s.note,
       phone: fullPhone ? phone : null,
       phone_masked: phone ? maskPhone(phone) : null,
       bank_account_masked: bank ? maskAccount(bank.account_number) : null,
@@ -166,7 +180,12 @@ export class SuppliersService {
         },
       }),
     );
-    const changed = [...(phone ? ['phone'] : []), ...(b.bank_account ? ['bank_account'] : [])];
+    const changed = [
+      ...(phone ? ['phone'] : []),
+      ...(b.bank_account ? ['bank_account'] : []),
+      ...(b.contact_name ? ['contact_name'] : []),
+      ...(b.note ? ['note'] : []),
+    ];
     await this.ao.recordAudit({
       action: 'supplier.create',
       resourceType: 'supplier',
@@ -212,6 +231,8 @@ export class SuppliersService {
     const changed = [
       ...(phone !== undefined ? ['phone'] : []),
       ...(b.bank_account !== undefined ? ['bank_account'] : []),
+      ...(b.contact_name !== undefined ? ['contact_name'] : []),
+      ...(b.note !== undefined ? ['note'] : []),
     ];
     await this.ao.recordAudit({
       action: 'supplier.update',
@@ -276,6 +297,9 @@ export class SuppliersService {
       SELECT archived_at IS NOT NULL AS archived FROM core.suppliers WHERE id = ${id}::uuid FOR SHARE`;
     if (!sup.length) throw new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy nhà cung cấp');
     if (sup[0]?.archived) throw rule('Nhà cung cấp đã lưu trữ', { field: 'supplier_id' });
+    // advisory theo (NCC, SKU): hai lần đặt song song lần đầu không cùng ghi audit before = null
+    await this.tx.$executeRaw`
+      SELECT pg_advisory_xact_lock(hashtextextended(${`supplier_sku:${id}:${skuId}`}, 0))`;
     const [before] = await this.tx.$queryRaw<{ supplier_sku_code: string | null }[]>`
       SELECT supplier_sku_code FROM core.supplier_skus
       WHERE supplier_id = ${id}::uuid AND sku_id = ${skuId}::uuid FOR UPDATE`;

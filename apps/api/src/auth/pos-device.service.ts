@@ -229,11 +229,11 @@ export class PosDeviceService {
         'INVALID_STATE_TRANSITION',
         d.status === 'ACTIVE' ? 'Thiết bị đã được kích hoạt' : 'Thiết bị đã bị thu hồi — máy phải đăng ký lại',
       );
-    const store = await this.tx.store.findUnique({
-      where: { id: d.storeId },
-      select: { status: true, archivedAt: true },
-    });
-    if (!store || store.status !== 'ACTIVE' || store.archivedAt)
+    // FOR SHARE: "lưu trữ / ngừng cửa hàng" (FOR NO KEY UPDATE + đếm máy ACTIVE) chờ lần kích hoạt này xong rồi đếm lại
+    // (review TS lát 4 C1). Thứ tự khóa: pos_devices → stores → registers (ERD §6.2)
+    const [store] = await this.tx.$queryRaw<{ status: string; archived: boolean }[]>`
+      SELECT status::text, archived_at IS NOT NULL AS archived FROM core.stores WHERE id = ${d.storeId}::uuid FOR SHARE`;
+    if (!store || store.status !== 'ACTIVE' || store.archived)
       throw new AppError('INVALID_STATE_TRANSITION', 'Cửa hàng của thiết bị không hoạt động');
     if (d.registeredAt <= pendingCutoff())
       throw new AppError('INVALID_STATE_TRANSITION', 'Yêu cầu đăng ký đã quá 7 ngày — thiết bị đăng ký lại');

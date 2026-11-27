@@ -40,6 +40,8 @@ export interface AdminEnv {
   masterStepUp(): Promise<Client>;
   /** cửa hàng trưởng đăng nhập PIN trên máy POS đã kích hoạt của một cửa hàng mới */
   storeManager(o?: { grants?: string[] }): Promise<Client & { storeId: string; userId: string }>;
+  /** máy POS đăng ký xong, PENDING */
+  pendingDevice(storeId: string): Promise<{ id: string; pairingCode: string }>;
   hex(n?: number): string;
   close(): Promise<void>;
 }
@@ -108,29 +110,8 @@ export async function startAdminEnv(): Promise<AdminEnv> {
     return bearerClient(`Bearer ${r.body.access_token as string}`);
   }
 
-  /** grants: mã quyền cấp riêng phạm vi STORE (cửa hàng của chính người này) — cấp TRƯỚC khi đăng nhập */
-  async function storeManager(o: { grants?: string[] } = {}) {
-    const storeId = randomUUID();
-    const sc = `S${hex()}`;
-    await db.q(`INSERT INTO core.stores (id, code, name) VALUES ($1, $2, $2)`, [storeId, sc]);
-    const userId = randomUUID();
-    const code = `NV${hex()}`;
-    const pin = '246813';
-    await db.q(`INSERT INTO core.users (id, type, pin_hash) VALUES ($1, 'STAFF', $2)`, [
-      userId,
-      await hashSecret(pin, ARGON_PROFILES.PASSWORD),
-    ]);
-    await db.q(`INSERT INTO core.staff (user_id, staff_code, full_name) VALUES ($1, $2, $2)`, [userId, code]);
-    await db.q(
-      `INSERT INTO core.user_role_assignments (id, user_id, role, scope_type, scope_id) VALUES ($1, $2, 'STORE_MANAGER', 'STORE', $3)`,
-      [randomUUID(), userId, storeId],
-    );
-    for (const g of o.grants ?? [])
-      await db.q(
-        `INSERT INTO core.user_permission_grants (id, user_id, permission_code, scope_type, scope_id, granted_by)
-         VALUES ($1, $2, $3, 'STORE', $4, $5)`,
-        [randomUUID(), userId, g, storeId, m.userId],
-      );
+  /** Máy POS đã đăng ký (PENDING) ở cửa hàng — chờ Master kích hoạt bằng pairingCode */
+  async function pendingDevice(storeId: string) {
     const { privateKey, publicKey } = generateKeyPairSync('ed25519');
     const id = randomUUID();
     const pub = (publicKey.export({ format: 'jwk' }) as { x: string }).x;
@@ -160,8 +141,39 @@ export async function startAdminEnv(): Promise<AdminEnv> {
         device_proof: proof('register', `${normalizeEnrollmentCode(enroll)}\n${pub}`),
       });
     expect(reg.status).toBe(201);
+    return {
+      id,
+      pairingCode: reg.body.pairing_code as string,
+      proof,
+    };
+  }
+
+  /** grants: mã quyền cấp riêng phạm vi STORE (cửa hàng của chính người này) — cấp TRƯỚC khi đăng nhập */
+  async function storeManager(o: { grants?: string[] } = {}) {
+    const storeId = randomUUID();
+    const sc = `S${hex()}`;
+    await db.q(`INSERT INTO core.stores (id, code, name) VALUES ($1, $2, $2)`, [storeId, sc]);
+    const userId = randomUUID();
+    const code = `NV${hex()}`;
+    const pin = '246813';
+    await db.q(`INSERT INTO core.users (id, type, pin_hash) VALUES ($1, 'STAFF', $2)`, [
+      userId,
+      await hashSecret(pin, ARGON_PROFILES.PASSWORD),
+    ]);
+    await db.q(`INSERT INTO core.staff (user_id, staff_code, full_name) VALUES ($1, $2, $2)`, [userId, code]);
+    await db.q(
+      `INSERT INTO core.user_role_assignments (id, user_id, role, scope_type, scope_id) VALUES ($1, $2, 'STORE_MANAGER', 'STORE', $3)`,
+      [randomUUID(), userId, storeId],
+    );
+    for (const g of o.grants ?? [])
+      await db.q(
+        `INSERT INTO core.user_permission_grants (id, user_id, permission_code, scope_type, scope_id, granted_by)
+         VALUES ($1, $2, $3, 'STORE', $4, $5)`,
+        [randomUUID(), userId, g, storeId, m.userId],
+      );
+    const { id, pairingCode, proof } = await pendingDevice(storeId);
     const act = await master.post(`/admin/pos-devices/${id}/activate`, {
-      pairing_code: reg.body.pairing_code as string,
+      pairing_code: pairingCode,
     });
     expect(act.status).toBe(200);
     const pl = await http()
@@ -180,6 +192,7 @@ export async function startAdminEnv(): Promise<AdminEnv> {
     masterId: m.userId,
     masterStepUp,
     storeManager,
+    pendingDevice,
     hex,
     close: async () => {
       await app.close();

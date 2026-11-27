@@ -38,16 +38,26 @@ SELECT gen_random_uuid(), w.id, 'IN_TRANSIT',
 FROM core.warehouses w
 WHERE NOT EXISTS (SELECT 1 FROM core.locations l WHERE l.warehouse_id = w.id AND l.type = 'IN_TRANSIT' AND l.archived_at IS NULL);
 
--- IN_TRANSIT không lưu trữ được (tồn đang chuyển cần chỗ ghi — CP05/CP06); chặn cả owner để luồng nhập file sau này không lọt
+-- IN_TRANSIT không lưu trữ / đổi loại / xóa được (tồn đang chuyển cần chỗ ghi — CP05/CP06); chặn cả owner để luồng nhập file
+-- sau này không lọt (review bảo mật lát 4 G8: đổi type rồi mới lưu trữ, hoặc DELETE)
 CREATE OR REPLACE FUNCTION core.locations_in_transit_guard() RETURNS trigger
   LANGUAGE plpgsql SET search_path = pg_catalog
 AS $$
 BEGIN
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.type = 'IN_TRANSIT' THEN
+      RAISE EXCEPTION 'locations: vị trí "đang vận chuyển" không xóa được' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN OLD;
+  END IF;
+  IF (OLD.type = 'IN_TRANSIT') <> (NEW.type = 'IN_TRANSIT') THEN
+    RAISE EXCEPTION 'locations: không đổi loại vị trí "đang vận chuyển"' USING ERRCODE = 'check_violation';
+  END IF;
   IF OLD.type = 'IN_TRANSIT' AND NEW.archived_at IS NOT NULL AND OLD.archived_at IS NULL THEN
     RAISE EXCEPTION 'locations: vị trí "đang vận chuyển" không lưu trữ được' USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
 END;
 $$;
-CREATE TRIGGER locations_in_transit_guard BEFORE UPDATE OF archived_at ON core.locations
+CREATE TRIGGER locations_in_transit_guard BEFORE UPDATE OR DELETE ON core.locations
   FOR EACH ROW EXECUTE FUNCTION core.locations_in_transit_guard();

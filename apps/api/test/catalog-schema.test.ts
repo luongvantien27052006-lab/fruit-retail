@@ -536,6 +536,11 @@ describe('0009_catalog', () => {
     await expect(app(`UPDATE core.locations SET archived_at = now() WHERE id = $1`, [transit])).rejects.toThrow(
       /không lưu trữ được/,
     );
+    // owner cũng không đổi loại / xóa được IN_TRANSIT (review bảo mật lát 4 G8)
+    await expect(db.q(`UPDATE core.locations SET type = 'SHELF' WHERE id = $1`, [transit])).rejects.toThrow(
+      /không đổi loại/,
+    );
+    await expect(db.q(`DELETE FROM core.locations WHERE id = $1`, [transit])).rejects.toThrow(/không xóa được/);
     const shelf = await loc(storeId, null, 'SHELF');
     const whCold = await loc(null, wh, 'COLD_ROOM');
     const s = await sku('WEIGHT');

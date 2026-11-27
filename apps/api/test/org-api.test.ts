@@ -87,6 +87,28 @@ describe('API tổ chức + NCC (CP04 lát 4)', () => {
       422,
       'CATALOG_RULE_VIOLATION',
     ]);
+    // giờ mở rỗng (nghỉ cả tuần) ⇒ không nhận đơn app (review TS N1)
+    for (const opening_hours of [{}, { mon: [] }])
+      expect(
+        err(
+          await e.master.patch(`/admin/stores/${id}`, {
+            opening_hours,
+            lat: 10.7769,
+            lng: 106.7009,
+            app_capacity_per_hour: 30,
+            app_status: 'ONLINE',
+          }),
+        ),
+      ).toEqual([422, 'CATALOG_RULE_VIOLATION']);
+    await e.master.patch(`/admin/stores/${id}`, {
+      opening_hours: {
+        mon: [
+          ['07:00', '12:00'],
+          ['13:00', '21:00'],
+        ],
+        sun: [['08:00', '24:00']],
+      },
+    });
     const on = await e.master.patch(`/admin/stores/${id}`, {
       lat: 10.7769,
       lng: 106.7009,
@@ -134,6 +156,23 @@ describe('API tổ chức + NCC (CP04 lát 4)', () => {
     expect((all.body.items as { id: string }[]).some((x) => x.id === s.id)).toBe(true);
     const back = await e.master.patch(`/admin/stores/${s.id}`, { archived: false, status: 'ACTIVE' });
     expect(back.body).toMatchObject({ status: 'ACTIVE', archived_at: null });
+
+    // song song: lưu trữ cửa hàng ↔ kích hoạt máy (review TS C1) — không bao giờ cả hai cùng thành công
+    for (let i = 0; i < 4; i++) {
+      const st = await newStore();
+      const dev = await e.pendingDevice(st.id);
+      const [act, arc] = await Promise.all([
+        e.master.post(`/admin/pos-devices/${dev.id}/activate`, { pairing_code: dev.pairingCode }),
+        e.master.patch(`/admin/stores/${st.id}`, { archived: true }),
+      ]);
+      expect(act.status === 200 && arc.status === 200).toBe(false);
+      const [n] = await e.db.q(
+        `SELECT count(*)::int AS c FROM core.pos_devices d JOIN core.stores s ON s.id = d.store_id
+         WHERE s.id = $1 AND d.status = 'ACTIVE' AND s.archived_at IS NOT NULL`,
+        [st.id],
+      );
+      expect(n?.c).toBe(0);
+    }
   });
 
   it('phạm vi cửa hàng: cửa hàng trưởng chỉ thấy / sửa cửa hàng mình; tạo / lưu trữ cần phạm vi toàn chuỗi', async () => {
@@ -163,6 +202,17 @@ describe('API tổ chức + NCC (CP04 lát 4)', () => {
       'RESOURCE_NOT_FOUND',
     ]);
     expect(err(await sw.patch(`/admin/stores/${sw.storeId}`, { archived: true }))).toEqual([403, 'ACTION_FORBIDDEN']);
+    // tên / địa chỉ / tọa độ: chỉ phạm vi toàn chuỗi (review bảo mật N2); giờ mở / năng lực: được
+    for (const body of [{ name: 'Đổi tên' }, { address: 'x' }, { lat: 10, lng: 106 }])
+      expect(err(await sw.patch(`/admin/stores/${sw.storeId}`, body))).toEqual([403, 'ACTION_FORBIDDEN']);
+    expect(
+      (
+        await sw.patch(`/admin/stores/${sw.storeId}`, {
+          opening_hours: { mon: [['07:00', '21:00']] },
+          app_capacity_per_hour: 10,
+        })
+      ).status,
+    ).toBe(200);
     expect(err(await sw.patch(`/admin/stores/${sw.storeId}`, { status: 'INACTIVE' }))).toEqual([
       403,
       'ACTION_FORBIDDEN',
@@ -327,6 +377,20 @@ describe('API tổ chức + NCC (CP04 lát 4)', () => {
     const list = await e.master.get(`/admin/stores/${sm.storeId}/registers?include_archived=true`);
     expect(schemaErrors('RegisterList', list.body)).toEqual([]);
     expect((await e.master.get(`/admin/stores/${sm.storeId}/registers`)).body.items).toEqual([]);
+    // máy mới (PENDING) kích hoạt vào quầy đã lưu trữ ⇒ 400 field register_id; quầy đang dùng ⇒ 200
+    const dev = await e.pendingDevice(sm.storeId);
+    const bad = await e.master.post(`/admin/pos-devices/${dev.id}/activate`, {
+      pairing_code: dev.pairingCode,
+      register_id: rid,
+    });
+    expect(err(bad)).toEqual([400, 'INVALID_REQUEST']);
+    expect((bad.body as { details: { field: string } }).details.field).toBe('register_id');
+    const r2 = await e.master.post(`/admin/stores/${sm.storeId}/registers`, { code: 'Q2' });
+    const good = await e.master.post(`/admin/pos-devices/${dev.id}/activate`, {
+      pairing_code: dev.pairingCode,
+      register_id: r2.body.id as string,
+    });
+    expect(good.status).toBe(200);
   });
 
   it('NCC: SĐT + tài khoản mã hóa, che khi đọc, không lộ trong audit; tìm theo SĐT; xem đủ tài khoản cần step-up', async () => {
@@ -335,6 +399,7 @@ describe('API tổ chức + NCC (CP04 lát 4)', () => {
       name: 'Vườn Cam Hà Giang',
       type: 'FARM',
       contact_name: 'Anh Tư',
+      note: 'gọi số phụ 0987 111 222, STK cũ 1903 5555 7777',
       phone: '0912 345 678',
       bank_name: 'Vietcombank',
       bank_account: { account_number: '0071-0003-45678', account_holder: 'nguyen van tu' },
@@ -405,10 +470,61 @@ describe('API tổ chức + NCC (CP04 lát 4)', () => {
     const logs = await audits(id);
     expect(logs.map((x) => x.action)).toEqual(['supplier.create', 'supplier.bank_reveal', 'supplier.update']);
     const text = JSON.stringify(logs);
-    for (const leak of ['912345678', '0912', '38221234', '0071000345678', '45678', 'NGUYEN', 'nguyen'])
+    for (const leak of [
+      '912345678',
+      '0912',
+      '38221234',
+      '0071000345678',
+      '45678',
+      'NGUYEN',
+      'nguyen',
+      'Anh Tư',
+      '0987',
+      '1903',
+    ])
       expect(text).not.toContain(leak);
-    expect(logs[0]?.after).toMatchObject({ changed_pii: ['phone', 'bank_account'] });
+    expect(logs[0]?.after).toMatchObject({ changed_pii: ['phone', 'bank_account', 'contact_name', 'note'] });
     expect(logs[2]?.after).toMatchObject({ changed_pii: ['phone', 'bank_account'] });
+
+    // '+84 (0) 912…' chuẩn hóa được; tài khoản ngắn chỉ lộ 2 số cuối
+    const p2 = await e.master.patch(`/admin/suppliers/${id}`, {
+      phone: '+84 (0) 912 345 678',
+      bank_account: { account_number: '123456', account_holder: 'A' },
+    });
+    expect(p2.body).toMatchObject({ phone: '+84912345678', bank_account_masked: '••••56' });
+    // không có supplier:write (chỉ supplier:read) ⇒ không thấy tên NH / số che
+    const rd = await e.storeManager({ grants: ['supplier:read'] });
+    const g = await rd.get(`/admin/suppliers/${id}`);
+    expect(g.status).toBe(200);
+    expect(schemaErrors('Supplier', g.body)).toEqual([]);
+    expect(g.body).toMatchObject({ phone: '+84912345678', bank_name: null, bank_account_masked: null });
+    expect(err(await rd.patch(`/admin/suppliers/${id}`, { name: 'x' }))).toEqual([403, 'ACTION_FORBIDDEN']);
+  });
+
+  it('NCC: phân trang theo mã, kết hợp lọc q / type — không trùng, không sót', async () => {
+    const tag = `PG${e.hex()}`;
+    const codes = ['A', 'B', 'C', 'D'].map((x) => `${tag}-${x}`);
+    for (const [i, code] of codes.entries())
+      expect(
+        (await e.master.post('/admin/suppliers', { code, name: `NCC ${tag} ${i}`, type: i === 2 ? 'FARM' : 'OTHER' }))
+          .status,
+      ).toBe(201);
+    const walk = async (extra: string) => {
+      const seen: string[] = [];
+      let after: string | null = null;
+      for (let n = 0; n < 10; n++) {
+        const r = await e.master.get(
+          `/admin/suppliers?q=${tag}&limit=1${extra}${after ? `&after=${encodeURIComponent(after)}` : ''}`,
+        );
+        expect(r.status).toBe(200);
+        seen.push(...(r.body.items as { code: string }[]).map((x) => x.code));
+        after = r.body.next_after as string | null;
+        if (!after) break;
+      }
+      return seen;
+    };
+    expect(await walk('')).toEqual(codes);
+    expect(await walk('&type=OTHER')).toEqual([codes[0], codes[1], codes[3]]);
   });
 
   it('NCC: SKU cung cấp — thêm / sửa mã phía NCC / bỏ; SKU hoặc NCC lưu trữ ⇒ 422', async () => {
@@ -460,7 +576,11 @@ describe('API tổ chức + NCC (CP04 lát 4)', () => {
       ]);
     });
     const res = (await Promise.all(rounds)).flat();
-    for (const r of res) expect([200, 409]).toContain(r.status); // 409 = version giá lệch giữa các đợt song song
+    for (const r of res) {
+      // 409 = version giá lệch giữa các đợt song song; deadlock (40P01) cũng ra 409 nhưng reason RETRY ⇒ phải không có
+      expect([200, 409]).toContain(r.status);
+      expect((r.body as { details?: { reason?: string } }).details?.reason).not.toBe('RETRY');
+    }
     expect(res.filter((r) => r.status === 200).length).toBeGreaterThanOrEqual(4);
   });
 });

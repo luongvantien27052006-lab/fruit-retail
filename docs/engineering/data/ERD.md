@@ -343,7 +343,9 @@ nhập file sau này) lấy advisory `catalog:category_tree` TRƯỚC mọi khó
 Tổ chức & NCC (CP04 lát 4): `skus` (FOR SHARE) → `stores` / `warehouses` / `suppliers` (FOR SHARE khi gắn con: vị trí, quầy, vị trí
 mặc định, SKU cung cấp; FOR NO KEY UPDATE khi sửa chính nó) → `registers` / `locations` (FOR NO KEY UPDATE khi sửa; FOR SHARE khi
 gắn máy POS / vị trí mặc định) → `sku_default_locations` / `supplier_skus`. Sửa cửa hàng chờ lô giá đang giữ `stores FOR SHARE`
-(lô giá không khóa gì sau `stores` ⇒ chỉ chờ, không vòng). Vị trí IN_TRANSIT do trigger 0010 tạo cùng INSERT cửa hàng / kho.
+(lô giá không khóa gì sau `stores` ⇒ chỉ chờ, không vòng). Vị trí IN_TRANSIT do trigger 0010 tạo cùng INSERT cửa hàng / kho. Kích hoạt máy POS: `pos_devices` → `stores` (FOR SHARE —
+chặn lưu trữ cửa hàng song song) → `registers` (FOR SHARE). Vị trí mặc định / SKU cung cấp: thêm advisory theo cặp khóa trước
+khi đọc dòng cũ (audit before đúng khi ghi song song).
 
 ### 6.3. Khóa ngoại tham chiếu nhóm sau — đã xử lý
 `pos_sale_lines.markdown_id` (markdowns chuyển lên M07) · `sessions.device_id`, `files.device_id` (FK thêm ở M03) ·

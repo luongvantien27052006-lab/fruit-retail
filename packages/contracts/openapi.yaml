@@ -4739,7 +4739,7 @@ paths:
       x-spec-ref: '§4.6'
       x-detail-cp: CP04
       description: >-
-        status / archived cần phạm vi ALL (403). Lưu trữ khi còn máy POS ACTIVE ⇒ 422. ONLINE cần tọa độ + giờ mở + năng lực > 0 (422). Lưu trữ / INACTIVE ⇒ CLOSED + PAUSED.
+        name / address / lat / lng / status / archived cần phạm vi ALL (403); phạm vi cửa hàng chỉ sửa pos_status, app_status, opening_hours, app_capacity_per_hour. Lưu trữ khi còn máy POS ACTIVE ⇒ 422. ONLINE cần tọa độ + ít nhất một khung giờ mở + năng lực > 0 (422). Lưu trữ / INACTIVE ⇒ CLOSED + PAUSED.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/RequestId'
@@ -11063,7 +11063,7 @@ components:
     Supplier:
       type: object
       description: >-
-        Nhà cung cấp (§4.5). phone chỉ có ở chi tiết / sau khi ghi (danh sách: null); số tài khoản luôn che (bank_account_masked) — xem đủ qua reveal.
+        Nhà cung cấp (§4.5). phone chỉ có ở chi tiết / sau khi ghi (danh sách: null); số tài khoản luôn che (bank_account_masked) — xem đủ qua reveal. bank_name / bank_account_masked chỉ trả cho người có supplier:write (khác: null).
       required:
         [
           id,

@@ -116,8 +116,20 @@ export class OrgService {
 
   async updateStore(id: string, b: StoreUpdate) {
     await this.scope.assertStore('store:write', id);
-    if (b.archived !== undefined || b.status !== undefined)
-      await this.assertAll('store:write', 'Chỉ người có quyền toàn chuỗi mới lưu trữ / ngừng hoạt động cửa hàng');
+    // phạm vi cửa hàng chỉ sửa trường vận hành (mở/đóng quầy, nhận đơn app, giờ mở, năng lực); tên / địa chỉ (hiện trên app
+    // khách, hóa đơn), tọa độ (vùng giao — SPEC §2.2 chỉ Master), trạng thái, lưu trữ ⇒ phạm vi ALL (review bảo mật lát 4 N2)
+    if (
+      b.archived !== undefined ||
+      b.status !== undefined ||
+      b.name !== undefined ||
+      b.address !== undefined ||
+      b.lat !== undefined ||
+      b.lng !== undefined
+    )
+      await this.assertAll(
+        'store:write',
+        'Chỉ người có quyền toàn chuỗi mới đổi tên / địa chỉ / tọa độ / trạng thái / lưu trữ cửa hàng',
+      );
     // FOR NO KEY UPDATE: chờ lô giá đang giữ FOR SHARE (lát 3) xong — lô giá không khóa gì sau stores ⇒ không vòng chờ
     const locked = await this.tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM core.stores WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
@@ -151,7 +163,9 @@ export class OrgService {
     const hours = b.opening_hours === undefined ? before.openingHours : b.opening_hours;
     const cap = b.app_capacity_per_hour === undefined ? before.appCapacityPerHour : b.app_capacity_per_hour;
     // nhận đơn app cần tọa độ (vùng giao M13), giờ mở cửa và năng lực/giờ > 0 (§4.6)
-    if (app === 'ONLINE' && (lat === null || hours === null || !cap))
+    const hasHours =
+      hours !== null && Object.values(hours as Record<string, unknown[]>).some((d) => Array.isArray(d) && d.length > 0);
+    if (app === 'ONLINE' && (lat === null || !hasHours || !cap))
       throw rule('Nhận đơn app cần tọa độ, giờ mở cửa và năng lực đơn/giờ > 0', { field: 'app_status' });
 
     const s = await catalogWrite(() =>
@@ -314,6 +328,14 @@ export class OrgService {
       SELECT id FROM core.locations WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
     if (!locked.length) throw notFound('vị trí');
     const before = await this.tx.location.findUniqueOrThrow({ where: { id } });
+    // mở lại một IN_TRANSIT cũ khi nơi đó đã có IN_TRANSIT đang dùng ⇒ 422 rõ (thay vì 409 chung — review TS N6)
+    if (b.archived === false && before.archivedAt !== null && before.type === 'IN_TRANSIT') {
+      const [n] = await this.tx.$queryRaw<{ c: number }[]>`
+        SELECT count(*)::int AS c FROM core.locations
+        WHERE type = 'IN_TRANSIT' AND archived_at IS NULL AND id <> ${id}::uuid
+          AND (store_id = ${before.storeId}::uuid OR warehouse_id = ${before.warehouseId}::uuid)`;
+      if (n && n.c > 0) throw rule('Nơi này đã có vị trí "đang vận chuyển" đang dùng', { field: 'archived' });
+    }
     if (b.archived === true && before.archivedAt === null) {
       if (before.type === 'IN_TRANSIT')
         throw rule('Vị trí "đang vận chuyển" không lưu trữ được', { field: 'archived' });
@@ -403,15 +425,10 @@ export class OrgService {
     const rows = await this.tx.skuDefaultLocation.findMany({
       where: { storeId, ...(skuId ? { skuId } : {}) },
       include: { location: true, sku: { select: { skuCode: true, name: true } } },
+      // lộ trình nhặt hàng: theo thứ tự vị trí, rồi mã SKU (sắp ở DB — trần 5000 dòng cắt xác định)
+      orderBy: [{ location: { sort: 'asc' } }, { location: { code: 'asc' } }, { sku: { skuCode: 'asc' } }],
       take: 5000,
     });
-    // lộ trình nhặt hàng: theo thứ tự vị trí, rồi mã SKU
-    rows.sort(
-      (a, b) =>
-        a.location.sort - b.location.sort ||
-        a.location.code.localeCompare(b.location.code) ||
-        a.sku.skuCode.localeCompare(b.sku.skuCode),
-    );
     return {
       items: rows.map((r) => ({
         sku_id: r.skuId,
@@ -433,6 +450,19 @@ export class OrgService {
     if (!sku.length) throw notFound('SKU');
     if (locationId && sku[0]?.archived) throw rule('SKU đã lưu trữ', { field: 'sku_id' });
     await this.shareOwner({ storeId, warehouseId: null });
+    // locations (FOR SHARE) TRƯỚC sku_default_locations (ERD §6.2 — review TS N5); kiểm trước để báo lỗi rõ (trigger + FK
+    // vẫn là lớp chặn cuối)
+    if (locationId !== null) {
+      const [loc] = await this.tx.$queryRaw<{ store_id: string | null; type: string; archived: boolean }[]>`
+        SELECT store_id::text, type::text, archived_at IS NOT NULL AS archived FROM core.locations
+        WHERE id = ${locationId}::uuid FOR SHARE`;
+      if (loc?.store_id !== storeId) throw rule('Vị trí không thuộc cửa hàng này', { field: 'location_id' });
+      if (loc.archived || loc.type === 'IN_TRANSIT')
+        throw rule('Vị trí đã lưu trữ hoặc là "đang vận chuyển"', { field: 'location_id' });
+    }
+    // advisory theo (cửa hàng, SKU): hai lần đặt song song lần đầu không cùng ghi audit before = null
+    await this.tx.$executeRaw`
+      SELECT pg_advisory_xact_lock(hashtextextended(${`sku_default:${storeId}:${skuId}`}, 0))`;
     const [before] = await this.tx.$queryRaw<{ location_id: string }[]>`
       SELECT location_id::text FROM core.sku_default_locations
       WHERE store_id = ${storeId}::uuid AND sku_id = ${skuId}::uuid FOR UPDATE`;
@@ -441,13 +471,6 @@ export class OrgService {
       await this.tx.$executeRaw`
         DELETE FROM core.sku_default_locations WHERE store_id = ${storeId}::uuid AND sku_id = ${skuId}::uuid`;
     } else {
-      // kiểm trước để báo lỗi rõ (trigger + FK vẫn là lớp chặn cuối)
-      const [loc] = await this.tx.$queryRaw<{ store_id: string | null; type: string; archived: boolean }[]>`
-        SELECT store_id::text, type::text, archived_at IS NOT NULL AS archived FROM core.locations
-        WHERE id = ${locationId}::uuid FOR SHARE`;
-      if (loc?.store_id !== storeId) throw rule('Vị trí không thuộc cửa hàng này', { field: 'location_id' });
-      if (loc.archived || loc.type === 'IN_TRANSIT')
-        throw rule('Vị trí đã lưu trữ hoặc là "đang vận chuyển"', { field: 'location_id' });
       await this.tx.$executeRaw`
         INSERT INTO core.sku_default_locations (store_id, sku_id, location_id)
         VALUES (${storeId}::uuid, ${skuId}::uuid, ${locationId}::uuid)

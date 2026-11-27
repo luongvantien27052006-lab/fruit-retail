@@ -13,7 +13,7 @@ const UNIQUE_FIELDS: [RegExp, string][] = [
 ];
 
 /** Thông điệp RAISE do dự án viết trong trigger danh mục (không chứa dữ liệu người dùng ngoài mã đơn vị/kiểu bán). */
-const OWN_RAISE = /^(categories|sku_units|skus|products|units|sku_default_locations): /;
+const OWN_RAISE = /^(categories|sku_units|skus|products|units|sku_default_locations|locations): /;
 
 function originalMessage(err: unknown): string | undefined {
   const m = (err as { meta?: { driverAdapterError?: { cause?: { originalMessage?: unknown } } } }).meta

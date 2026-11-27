@@ -61,3 +61,4 @@
 | 2026-11-27 | CP03 | Lát 9 staff app Flutter (ADR-028): 38 test + chạy thật Windows với API local. flutter-reviewer 4 vòng → SẠCH (247f953). Lát 9 đóng. |
 | 2026-11-27 | CP03 | Lát 10: Redis ACL (ADR-029). Review tổng lần 1 (code/TS, security, react+flutter) CÒN LỖI; Tiến quyết NC-23 (khóa theo tài khoản + mạng, ADR-030) và NC-24. Đã sửa hết; chờ review tổng lần 2. |
 | 2026-11-27 | CP03 | Cổng CP03: review tổng SẠCH (security lần 5 bfaa2cd, code lần 4, react+flutter lần 3); NC-25 Tiến duyệt. API 190/190, e2e 13, Flutter 39. Chờ Tiến xác nhận ĐẠT. |
+| 2026-11-27 | CP03 | Tiến xác nhận CP03 ĐẠT. |

@@ -35,7 +35,7 @@ Cột "Mig" = nhóm migration (mục 4). Module chủ = module NestJS duy nhất
 | warehouses | catalog (tổ chức) | — | M03 |
 | locations | inventory | stores \| warehouses | M03 |
 | registers | pos | stores | M03 |
-| devices | pos | stores, registers | M03 |
+| devices | pos | stores, registers | M03 → **CP07** (quản lý thiết bị đi cùng POS) |
 | pos_devices | auth | stores, registers, users(activated_by); + public_key, status (ADR-012) | M03 |
 | pos_enrollment_codes | auth | stores, users(created_by), pos_devices(used_by_device_id); code_hash, hạn ≤ 1 giờ, dùng một lần (ADR-022, NC-20) | M03 |
 | categories | catalog | categories(parent) | M04 |
@@ -43,11 +43,11 @@ Cột "Mig" = nhóm migration (mục 4). Module chủ = module NestJS duy nhất
 | skus | catalog | products | M04 |
 | store_prices | pricing | stores, skus | M04 |
 | price_change_logs | pricing | skus | M04 |
-| bundle_templates | catalog | skus | M04 |
-| bundle_items | catalog | bundle_templates, skus | M04 |
-| processing_recipes | catalog | skus | M04 |
-| processing_recipe_inputs | catalog | processing_recipes, skus | M04 |
-| suppliers | purchasing | — | M05 |
+| bundle_templates | catalog | skus | M04 → **CP17** (dùng ở lắp giỏ) |
+| bundle_items | catalog | bundle_templates, skus | M04 → **CP17** |
+| processing_recipes | catalog | skus | M04 → **CP17** |
+| processing_recipe_inputs | catalog | processing_recipes, skus | M04 → **CP17** |
+| suppliers | purchasing | — ; + supplier_skus. Danh bạ cơ bản làm ở **M04/CP04** (NC-27); `phone_hash` index THƯỜNG (hai NCC được trùng SĐT liên hệ) | M04 |
 | goods_receipts | purchasing | suppliers, warehouses | M05 |
 | goods_receipt_lines | purchasing | goods_receipts, skus, inventory_batches | M05 |
 | landed_cost_entries | purchasing | goods_receipts, landed_cost_types | M05 |
@@ -236,6 +236,28 @@ auth_challenges, otp_challenges, viewer_profiles(+assignments), `reporting_priva
 (stores, warehouses, registers, pos_devices — CP04 mở rộng). `code_sequences` chuyển CP07. Thêm
 `infra/sql/001_extension_privileges.sql`.
 
+**CP04 lát 1 (`0009_catalog`):** M04 + mở rộng M03 (stores §4.6: tọa độ, giờ mở, `pos_status`, `app_status`, năng lực;
+registers.name; locations) + units, categories, products, skus, sku_units, store_prices, price_change_logs,
+sku_default_locations, barcode_rules, import_jobs, reason_codes, container_types, brand_settings, suppliers, supplier_skus.
+Lệch so với §12.2 (đã quyết ở lát 1):
+- **Mã vạch chỉ ở `sku_units.barcode`** (unique toàn cục khi chưa lưu trữ; cấm 13 số bắt đầu bằng 2 — dải tem cân), không có
+  `skus.barcode`: một chỗ thì unique được bằng index, tránh trùng chéo hai bảng.
+- **Chưa có `images`** ở products/skus — ảnh app làm ở CP13 qua `file_links` (§6.1).
+- **Kiểu bán, mã SKU, hệ số quy đổi, mã đơn vị bất biến** (quyền theo cột): đổi = tạo mới + lưu trữ bản cũ. Danh mục **không
+  xóa** (app_rw không có DELETE) — chỉ lưu trữ.
+- **Giá có lịch sử bắt buộc:** constraint trigger hoãn tới COMMIT đối chiếu giá hiện hành (skus / sku_units / store_prices)
+  với bản ghi `price_change_logs` mới nhất cùng khóa (sku, cửa hàng, loại giá, đơn vị); bản đầu `old_value NULL`, mỗi bản
+  sau `old_value` = `new_value` bản trước; `changed_at = clock_timestamp()` lấy sau khóa advisory `price:<khóa>`. Đọc
+  theo `ORDER BY changed_at DESC, id DESC` (`core.price_log_latest()`); `changed_at` tăng nghiêm ngặt theo khóa giá
+  (`GREATEST(clock_timestamp(), bản trước + 1 µs)`). Log mà giá thật không đổi cũng bị rollback lúc COMMIT. Giá thực thu luôn là giá chụp trên dòng bán.
+- **Kho tổng + vị trí mặc định (§19.7) không seed** — API lát 4 tạo khi tạo kho / cửa hàng (cùng transaction, gồm một vị trí
+  `IN_TRANSIT`) và bù cho cửa hàng có từ CP03.
+- Trần giá 1 tỷ đồng mọi cột giá; PLU 5 số khác `00000`, unique trong SKU chưa lưu trữ.
+- Đơn vị thùng/sọt có `factor_g` cứng vẫn tạo được để mua; **CP05 quy định nhận hàng luôn cân** (§5.3, §21.3.1) — hệ số chỉ
+  để ước lượng đặt hàng. "Túi 1 kg" (đơn vị đếm, 1000 g) được giá riêng; đơn vị `KG` thì dùng giá/kg của SKU.
+Khóa mới: advisory `catalog:category_tree` (đổi cha danh mục; chỉ READ COMMITTED), `price:<sku>:<cửa hàng>:<loại>:<đơn vị>`
+(ghi lịch sử giá) — lấy SAU khóa dòng giá tương ứng.
+
 **CP03 sau lát 1:** pos_enrollment_codes (0003, ADR-022), files.final_key (0006), users.must_change_password (0007,
 NC-22), auth_lockouts + sessions.reauth_failed_count (0008, ADR-030 — khóa theo (tài khoản, nguồn)). Thứ tự khóa xác
 thực: advisory `auth:<user_id>` → `core.users` → `core.sessions` (ORDER BY id) → `core.pos_devices`; `auth_lockouts` chỉ
@@ -245,8 +267,8 @@ thực: advisory `auth:<user_id>` → `core.users` → `core.sessions` (ORDER BY
 |---|---|---|---|
 | M01 nền | CP02 | — | `000_bootstrap.sql` (extension postgis, pgcrypto, pg_trgm, unaccent; schema core/reporting/reporting_private/audit/integration; role theo ADR-011, KHÔNG default privilege cho viewer; REVOKE EXECUTE FROM PUBLIC; `integration.sql_migrations`; `raise_immutable()`) — các nhóm sau nhúng SQL tay trong `migration.sql` của Prisma (ADR-017) |
 | M02 người dùng, phiên, file, mã | CP03 | users, staff, sessions, user_role_assignments, approval_limits, viewer_profiles(+assignments), files, code_sequences, audit.*, integration.* | `010_audit_append_only.sql` · `011_integration_unique.sql` |
-| M03 tổ chức | CP03/CP04 | stores, warehouses, locations, registers, devices, pos_devices | — |
-| M04 danh mục | CP04 | categories, products, skus, units, sku_units, sku_default_locations, store_prices, price_change_logs, bundle_*, processing_recipe*, barcode_rules, import_jobs | — |
+| M03 tổ chức | CP03/CP04 | stores, warehouses, locations, registers, pos_devices (**đã làm**: 0001 + 0009); devices → CP07 | — |
+| M04 danh mục | CP04 | **đã làm (0009)**: categories, products, skus, units, sku_units, sku_default_locations, store_prices, price_change_logs, barcode_rules, import_jobs, reason_codes, container_types, brand_settings, suppliers, supplier_skus; bundle_*, processing_recipe* → CP17 | — |
 | M05 mua hàng & lô | CP05 | suppliers, landed_cost_types, goods_receipts(+lines), landed_cost_entries/allocations, supplier_returns, supplier_payables, inventory_batches | — |
 | M06 sổ kho | CP06 | stock_movements, stock_balances, stock_reservations, transfers(+lines), stocktakes(+lines), spoilage_logs, internal_use_logs | `020_stock_movements_immutable.sql` · `021_stock_checks.sql` (kho tổng không âm) |
 | M07 POS lõi | CP07 | markdowns, shifts, day_closes, cash_movements, pos_sales, pos_sale_lines, sale_line_batch_allocations | `030_pos_client_txn_unique.sql` |
@@ -309,6 +331,10 @@ chưa có lệnh của Tiến.
 chứng từ gốc (đơn / phiếu) → `payments` → `push_deals` → `push_deal_zones` → `push_deal_customer_usage` →
 `stock_availability` → `stock_balances` (location_id, batch_id tăng dần) → `stock_reservations` → số dư
 (`wholesale_customers`, `shippers`) → `inventory_batches` (đổi status) → `code_sequences` **cuối cùng**.
+
+Danh mục & giá (CP04): `skus` (sku_id tăng dần; khóa dòng SKU cả khi chỉ đổi giá cửa hàng / giá đơn vị) → `sku_units` (id) →
+`store_prices` (store_id, kể cả INSERT/DELETE) → INSERT `price_change_logs` (advisory `price:<khóa>`) — **không** ghi log
+trước khi khóa dòng giá. Đổi cây danh mục: advisory `catalog:category_tree` lấy đầu transaction, READ COMMITTED.
 
 ### 6.3. Khóa ngoại tham chiếu nhóm sau — đã xử lý
 `pos_sale_lines.markdown_id` (markdowns chuyển lên M07) · `sessions.device_id`, `files.device_id` (FK thêm ở M03) ·

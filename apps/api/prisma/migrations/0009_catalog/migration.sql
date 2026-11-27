@@ -669,8 +669,8 @@ DECLARE t core."SaleUnitType"; k core."UnitKind"; fg int; arch timestamptz;
 BEGIN
   SELECT s.sale_unit_type INTO t FROM core.skus s WHERE s.id = NEW.sku_id;
   IF t IS NULL THEN RETURN NEW; END IF; -- FK báo lỗi
+  SELECT u.kind, u.fixed_g, u.archived_at INTO k, fg, arch FROM core.units u WHERE u.code = NEW.unit_code;
   IF TG_OP = 'INSERT' THEN
-    SELECT u.kind, u.fixed_g, u.archived_at INTO k, fg, arch FROM core.units u WHERE u.code = NEW.unit_code;
     IF arch IS NOT NULL THEN
       RAISE EXCEPTION 'sku_units: đơn vị % đã lưu trữ', NEW.unit_code USING ERRCODE = 'check_violation';
     END IF;
@@ -698,7 +698,7 @@ BEGIN
   -- một nguồn giá: đơn vị gốc (kg của hàng cân, 1 đơn vị của hàng đếm) lấy giá của SKU; quả theo cân luôn tính đ/kg
   IF NEW.price_per_unit IS NOT NULL AND (
        t = 'PIECE_BY_WEIGHT'
-    OR (t IN ('WEIGHT', 'PACK_VARIABLE') AND NEW.factor_g = 1000)
+    OR (t IN ('WEIGHT', 'PACK_VARIABLE') AND k = 'WEIGHT') -- kg tính theo giá/kg; "túi 1 kg đóng sẵn" (đơn vị đếm) được giá riêng
     OR (t NOT IN ('WEIGHT', 'PIECE_BY_WEIGHT', 'PACK_VARIABLE') AND NEW.factor_units = 1)) THEN
     RAISE EXCEPTION 'sku_units: đơn vị gốc / quả theo cân dùng giá của SKU, không đặt giá riêng' USING ERRCODE = 'check_violation';
   END IF;
@@ -731,11 +731,12 @@ CREATE TRIGGER store_prices_kind_guard BEFORE INSERT OR UPDATE ON core.store_pri
 --  * khóa advisory theo khóa giá ⇒ các lần ghi cùng khóa nối tiếp nhau;
 --  * changed_at = clock_timestamp() lấy SAU khi có khóa (không phải now() = lúc bắt đầu transaction) ⇒ tăng dần theo khóa;
 --  * old_value phải bằng new_value của bản ghi trước cùng khóa (bản đầu: old_value NULL) ⇒ chuỗi liền, không chen ngang.
--- Thứ tự đọc: ORDER BY changed_at DESC, id DESC. Giá thực thu luôn là giá chụp trên dòng bán; log để tra cứu/kiểm toán.
+-- Thứ tự đọc: ORDER BY changed_at DESC (tăng nghiêm ngặt theo khóa; id chỉ phòng hờ). Giá thực thu luôn là giá chụp trên
+-- dòng bán; log để tra cứu/kiểm toán.
 CREATE OR REPLACE FUNCTION core.price_change_logs_guard() RETURNS trigger
   LANGUAGE plpgsql SET search_path = pg_catalog
 AS $$
-DECLARE t core."SaleUnitType"; prev_found boolean; prev bigint;
+DECLARE t core."SaleUnitType"; prev_found boolean; prev bigint; prev_at timestamptz;
 BEGIN
   SELECT s.sale_unit_type INTO t FROM core.skus s WHERE s.id = NEW.sku_id;
   IF t IS NOT NULL AND NEW.field <> 'SKU_UNIT'
@@ -745,7 +746,7 @@ BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended(
     'price:' || NEW.sku_id::text || ':' || COALESCE(NEW.store_id::text, '-') || ':' || NEW.field::text || ':'
       || COALESCE(NEW.sku_unit_id::text, '-'), 0));
-  SELECT true, l.new_value INTO prev_found, prev FROM core.price_change_logs l
+  SELECT true, l.new_value, l.changed_at INTO prev_found, prev, prev_at FROM core.price_change_logs l
   WHERE l.sku_id = NEW.sku_id AND l.store_id IS NOT DISTINCT FROM NEW.store_id AND l.field = NEW.field
     AND l.sku_unit_id IS NOT DISTINCT FROM NEW.sku_unit_id
   ORDER BY l.changed_at DESC, l.id DESC LIMIT 1;
@@ -755,7 +756,8 @@ BEGIN
   IF NOT COALESCE(prev_found, false) AND NEW.old_value IS NOT NULL THEN
     RAISE EXCEPTION 'price_change_logs: bản ghi đầu của một giá phải có old_value NULL' USING ERRCODE = 'check_violation';
   END IF;
-  NEW.changed_at := clock_timestamp();
+  -- tăng NGHIÊM NGẶT theo khóa giá (review vòng 2 N8): không hòa trong cùng micro-giây, không lùi khi đồng hồ chỉnh
+  NEW.changed_at := GREATEST(clock_timestamp(), COALESCE(prev_at + interval '1 microsecond', '-infinity'));
   RETURN NEW;
 END;
 $$;
@@ -766,8 +768,11 @@ CREATE TRIGGER immutable BEFORE UPDATE OR DELETE ON core.price_change_logs
 CREATE TRIGGER immutable_truncate BEFORE TRUNCATE ON core.price_change_logs
   FOR EACH STATEMENT EXECUTE FUNCTION core.raise_immutable();
 
--- Review lát 1 N1: mọi giá đang có hiệu lực phải khớp bản ghi lịch sử mới nhất của nó — kiểm lúc COMMIT (constraint trigger
--- DEFERRABLE INITIALLY DEFERRED) ⇒ API ghi giá và log trong cùng transaction, thứ tự tùy ý; thiếu log ⇒ rollback.
+-- Review lát 1 N1 + vòng 2 C2: giá hiện hành của mỗi khóa giá (sku, cửa hàng, loại giá, đơn vị) phải bằng new_value của bản
+-- ghi lịch sử mới nhất cùng khóa — kiểm lúc COMMIT (constraint trigger DEFERRABLE INITIALLY DEFERRED) từ CẢ HAI phía: đổi giá
+-- mà không log, và log mà không đổi giá, đều rollback.
+-- Thứ tự khóa (ERD §6.2, tránh deadlock): khóa dòng skus (sku_id tăng dần) → sku_units (id) → store_prices (store_id) → rồi
+-- mới INSERT price_change_logs (lấy advisory price:<khóa>). KHÔNG ghi log trước khi khóa dòng giá.
 CREATE OR REPLACE FUNCTION core.price_log_latest(p_sku uuid, p_store uuid, p_field core."PriceField", p_unit uuid)
   RETURNS TABLE (found boolean, val bigint)
   LANGUAGE sql STABLE SET search_path = pg_catalog
@@ -777,43 +782,55 @@ AS $$
     AND l.sku_unit_id IS NOT DISTINCT FROM p_unit
   ORDER BY l.changed_at DESC, l.id DESC LIMIT 1
 $$;
--- lát 3 dùng để tra giá hiện hành của một khóa giá; trigger dưới chạy với quyền app_rw ⇒ cần EXECUTE
 GRANT EXECUTE ON FUNCTION core.price_log_latest(uuid, uuid, core."PriceField", uuid) TO app_rw;
+-- giá hiện hành của một khóa giá (NULL = chưa có giá / không có giá riêng cửa hàng)
+CREATE OR REPLACE FUNCTION core.price_current(p_sku uuid, p_store uuid, p_field core."PriceField", p_unit uuid)
+  RETURNS bigint
+  LANGUAGE sql STABLE SET search_path = pg_catalog
+AS $$
+  SELECT CASE
+    WHEN p_field = 'SKU_UNIT' THEN (SELECT u.price_per_unit FROM core.sku_units u WHERE u.id = p_unit AND u.sku_id = p_sku)
+    WHEN p_store IS NULL AND p_field = 'PER_KG' THEN (SELECT s.retail_price_per_kg FROM core.skus s WHERE s.id = p_sku)
+    WHEN p_store IS NULL THEN (SELECT s.retail_price_per_unit FROM core.skus s WHERE s.id = p_sku)
+    WHEN p_field = 'PER_KG' THEN (SELECT p.retail_price_per_kg FROM core.store_prices p WHERE p.store_id = p_store AND p.sku_id = p_sku)
+    ELSE (SELECT p.retail_price_per_unit FROM core.store_prices p WHERE p.store_id = p_store AND p.sku_id = p_sku)
+  END
+$$;
+GRANT EXECUTE ON FUNCTION core.price_current(uuid, uuid, core."PriceField", uuid) TO app_rw;
+CREATE OR REPLACE FUNCTION core.price_key_check(p_sku uuid, p_store uuid, p_field core."PriceField", p_unit uuid)
+  RETURNS void
+  LANGUAGE plpgsql SET search_path = pg_catalog
+AS $$
+DECLARE v bigint; cur bigint;
+BEGIN
+  SELECT x.val INTO v FROM core.price_log_latest(p_sku, p_store, p_field, p_unit) x;
+  cur := core.price_current(p_sku, p_store, p_field, p_unit);
+  IF v IS DISTINCT FROM cur THEN
+    RAISE EXCEPTION 'giá % (sku %, cửa hàng %, đơn vị %) không khớp price_change_logs: hiện hành %, lịch sử %',
+      p_field, p_sku, COALESCE(p_store::text, '-'), COALESCE(p_unit::text, '-'), cur, v USING ERRCODE = 'check_violation';
+  END IF;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION core.price_key_check(uuid, uuid, core."PriceField", uuid) TO app_rw;
 CREATE OR REPLACE FUNCTION core.price_log_required() RETURNS trigger
   LANGUAGE plpgsql SET search_path = pg_catalog
 AS $$
-DECLARE cur_kg bigint; cur_unit bigint; cur bigint; f boolean; v bigint; k_sku uuid; k_store uuid;
 BEGIN
   IF TG_TABLE_NAME = 'skus' THEN
-    SELECT s.retail_price_per_kg, s.retail_price_per_unit INTO cur_kg, cur_unit FROM core.skus s WHERE s.id = NEW.id;
-    SELECT x.found, x.val INTO f, v FROM core.price_log_latest(NEW.id, NULL, 'PER_KG', NULL) x;
-    IF COALESCE(v, -1) IS DISTINCT FROM COALESCE(cur_kg, -1) THEN
-      RAISE EXCEPTION 'skus: giá/kg của SKU % đổi mà không ghi price_change_logs', NEW.id USING ERRCODE = 'check_violation';
-    END IF;
-    SELECT x.found, x.val INTO f, v FROM core.price_log_latest(NEW.id, NULL, 'PER_UNIT', NULL) x;
-    IF COALESCE(v, -1) IS DISTINCT FROM COALESCE(cur_unit, -1) THEN
-      RAISE EXCEPTION 'skus: giá/đơn vị của SKU % đổi mà không ghi price_change_logs', NEW.id USING ERRCODE = 'check_violation';
-    END IF;
+    PERFORM core.price_key_check(NEW.id, NULL, 'PER_KG', NULL);
+    PERFORM core.price_key_check(NEW.id, NULL, 'PER_UNIT', NULL);
   ELSIF TG_TABLE_NAME = 'sku_units' THEN
-    SELECT u.price_per_unit INTO cur FROM core.sku_units u WHERE u.id = NEW.id;
-    SELECT x.found, x.val INTO f, v FROM core.price_log_latest(NEW.sku_id, NULL, 'SKU_UNIT', NEW.id) x;
-    IF COALESCE(v, -1) IS DISTINCT FROM COALESCE(cur, -1) THEN
-      RAISE EXCEPTION 'sku_units: giá của đơn vị % đổi mà không ghi price_change_logs', NEW.id USING ERRCODE = 'check_violation';
+    PERFORM core.price_key_check(NEW.sku_id, NULL, 'SKU_UNIT', NEW.id);
+  ELSIF TG_TABLE_NAME = 'store_prices' THEN
+    IF TG_OP = 'DELETE' THEN
+      PERFORM core.price_key_check(OLD.sku_id, OLD.store_id, 'PER_KG', NULL);
+      PERFORM core.price_key_check(OLD.sku_id, OLD.store_id, 'PER_UNIT', NULL);
+    ELSE
+      PERFORM core.price_key_check(NEW.sku_id, NEW.store_id, 'PER_KG', NULL);
+      PERFORM core.price_key_check(NEW.sku_id, NEW.store_id, 'PER_UNIT', NULL);
     END IF;
-  ELSE -- store_prices (INSERT / UPDATE / DELETE)
-    IF TG_OP = 'DELETE' THEN k_sku := OLD.sku_id; k_store := OLD.store_id; ELSE k_sku := NEW.sku_id; k_store := NEW.store_id; END IF;
-    BEGIN
-      SELECT p.retail_price_per_kg, p.retail_price_per_unit INTO cur_kg, cur_unit
-      FROM core.store_prices p WHERE p.store_id = k_store AND p.sku_id = k_sku;
-      SELECT x.found, x.val INTO f, v FROM core.price_log_latest(k_sku, k_store, 'PER_KG', NULL) x;
-      IF COALESCE(v, -1) IS DISTINCT FROM COALESCE(cur_kg, -1) THEN
-        RAISE EXCEPTION 'store_prices: giá/kg riêng cửa hàng đổi mà không ghi price_change_logs' USING ERRCODE = 'check_violation';
-      END IF;
-      SELECT x.found, x.val INTO f, v FROM core.price_log_latest(k_sku, k_store, 'PER_UNIT', NULL) x;
-      IF COALESCE(v, -1) IS DISTINCT FROM COALESCE(cur_unit, -1) THEN
-        RAISE EXCEPTION 'store_prices: giá/đơn vị riêng cửa hàng đổi mà không ghi price_change_logs' USING ERRCODE = 'check_violation';
-      END IF;
-    END;
+  ELSE -- price_change_logs: log phải khớp giá thật lúc COMMIT
+    PERFORM core.price_key_check(NEW.sku_id, NEW.store_id, NEW.field, NEW.sku_unit_id);
   END IF;
   RETURN NULL;
 END;
@@ -824,6 +841,8 @@ CREATE CONSTRAINT TRIGGER price_log_required AFTER INSERT OR UPDATE OF price_per
   ON core.sku_units DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION core.price_log_required();
 CREATE CONSTRAINT TRIGGER price_log_required AFTER INSERT OR UPDATE OR DELETE
   ON core.store_prices DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION core.price_log_required();
+CREATE CONSTRAINT TRIGGER price_log_required AFTER INSERT
+  ON core.price_change_logs DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION core.price_log_required();
 
 -- Vị trí mặc định: vị trí đang dùng, không phải "đang vận chuyển"
 CREATE OR REPLACE FUNCTION core.sku_default_locations_guard() RETURNS trigger
@@ -859,9 +878,10 @@ BEGIN
     OR (OLD.status = 'RUNNING' AND NEW.status IN ('COMPLETED', 'FAILED'))) THEN
     RAISE EXCEPTION 'import_jobs: chuyển trạng thái % → % không hợp lệ', OLD.status, NEW.status USING ERRCODE = 'check_violation';
   END IF;
-  IF OLD.started_at IS NOT NULL AND NEW.started_at IS DISTINCT FROM OLD.started_at THEN
-    RAISE EXCEPTION 'import_jobs: mốc bắt đầu bất biến' USING ERRCODE = 'check_violation';
-  END IF;
+  -- mốc do server đặt khi chuyển trạng thái
+  IF NEW.status = 'RUNNING' AND OLD.status = 'PENDING' THEN NEW.started_at := clock_timestamp();
+  ELSE NEW.started_at := OLD.started_at; END IF;
+  IF NEW.status IN ('COMPLETED', 'FAILED') THEN NEW.finished_at := clock_timestamp(); ELSE NEW.finished_at := NULL; END IF;
   RETURN NEW;
 END;
 $$;

@@ -289,7 +289,7 @@ describe('0009_catalog', () => {
   it('review N1: đổi giá mà không ghi lịch sử ⇒ rollback lúc COMMIT (SKU, đơn vị, giá cửa hàng, bỏ giá cửa hàng)', async () => {
     const grape = await sku('WEIGHT', { retail_price_per_kg: 320000 });
     await expect(app(`UPDATE core.skus SET retail_price_per_kg = 300000 WHERE id = $1`, [grape])).rejects.toThrow(
-      /không ghi price_change_logs/,
+      /không khớp price_change_logs/,
     );
     // tạo SKU có giá mà không ghi bản đầu
     await expect(
@@ -298,27 +298,46 @@ describe('0009_catalog', () => {
          VALUES ($1, $2, $3, 'x', 'WEIGHT', 1000)`,
         [id(), productId, code('NOLOG')],
       ),
-    ).rejects.toThrow(/không ghi price_change_logs/);
+    ).rejects.toThrow(/không khớp price_change_logs/);
     await expect(
       app(
         `INSERT INTO core.sku_units (id, sku_id, unit_code, name, factor_g, for_sale, price_per_unit)
            VALUES ($1, $2, 'PACK', 'Hộp 250 g', 250, true, 90000)`,
         [id(), grape],
       ),
-    ).rejects.toThrow(/không ghi price_change_logs/);
+    ).rejects.toThrow(/không khớp price_change_logs/);
     await expect(
       app(
         `INSERT INTO core.store_prices (store_id, sku_id, retail_price_per_kg, updated_by) VALUES ($1, $2, 330000, $3)`,
         [storeId, grape, userId],
       ),
-    ).rejects.toThrow(/không ghi price_change_logs/);
+    ).rejects.toThrow(/không khớp price_change_logs/);
     // log lệch giá thật cũng bị chặn
     await expect(
       tx(async (q) => {
         await q(`UPDATE core.skus SET retail_price_per_kg = 300000 WHERE id = $1`, [grape]);
         await log(q, { sku: grape, field: 'PER_KG' }, 320000, 310000);
       }),
-    ).rejects.toThrow(/không ghi price_change_logs/);
+    ).rejects.toThrow(/không khớp price_change_logs/);
+    // vòng 2 C2: ghi lịch sử mà KHÔNG đổi giá thật cũng bị chặn (giá tra cứu sẽ lệch giá đang bán)
+    await expect(tx((q) => log(q, { sku: grape, field: 'PER_KG' }, 320000, 280000))).rejects.toThrow(
+      /không khớp price_change_logs/,
+    );
+    const box = await unit(grape, {
+      unit_code: 'PACK',
+      name: 'Hộp 500 g',
+      factor_g: 500,
+      for_sale: true,
+      price_per_unit: 165000,
+    });
+    await expect(tx((q) => log(q, { sku: grape, field: 'SKU_UNIT', unit: box }, 165000, 160000))).rejects.toThrow(
+      /không khớp price_change_logs/,
+    );
+    await expect(tx((q) => log(q, { sku: grape, store: storeId, field: 'PER_KG' }, null, 310000))).rejects.toThrow(
+      /không khớp price_change_logs/,
+    );
+    // ghi chú 1: "túi 1 kg đóng sẵn" (đơn vị đếm, 1000 g) được giá riêng; đơn vị kg thì không
+    await unit(grape, { unit_code: 'BAG', name: 'Túi 1 kg', factor_g: 1000, for_sale: true, price_per_unit: 315000 });
     // đúng cách: giá cửa hàng + log, rồi bỏ giá cửa hàng + log new NULL
     await tx(async (q) => {
       await q(
@@ -329,7 +348,7 @@ describe('0009_catalog', () => {
     });
     await expect(
       app(`DELETE FROM core.store_prices WHERE store_id = $1 AND sku_id = $2`, [storeId, grape]),
-    ).rejects.toThrow(/không ghi price_change_logs/);
+    ).rejects.toThrow(/không khớp price_change_logs/);
     await tx(async (q) => {
       await q(`DELETE FROM core.store_prices WHERE store_id = $1 AND sku_id = $2`, [storeId, grape]);
       await log(q, { sku: grape, store: storeId, field: 'PER_KG' }, 330000, null);
@@ -584,7 +603,15 @@ describe('0009_catalog', () => {
         job,
       ]),
     ).rejects.toThrow(/import_jobs_status/);
-    await app(`UPDATE core.import_jobs SET status = 'RUNNING', started_at = now() WHERE id = $1`, [job]);
+    // mốc do server đặt: giá trị client gửi bị ghi đè
+    await app(`UPDATE core.import_jobs SET status = 'RUNNING', started_at = '2000-01-01' WHERE id = $1`, [job]);
+    expect(
+      (
+        await db.q(`SELECT started_at > now() - interval '1 minute' AS fresh FROM core.import_jobs WHERE id = $1`, [
+          job,
+        ])
+      )[0],
+    ).toEqual({ fresh: true });
     await app(
       `UPDATE core.import_jobs SET status = 'COMPLETED', finished_at = now(), total_rows = 200, ok_rows = 197, skipped_rows = 3,
               report = '{"skipped":[]}' WHERE id = $1`,
@@ -612,6 +639,19 @@ describe('0009_catalog', () => {
     await expect(
       app(`UPDATE core.import_jobs SET total_rows = 10, ok_rows = 9, error_rows = 2 WHERE id = $1`, [job2]),
     ).rejects.toThrow(/import_jobs_count_sum/);
+    // PENDING → FAILED (file hỏng) khi có lỗi: được, mốc kết thúc do server đặt
+    await app(
+      `UPDATE core.import_jobs SET status = 'FAILED', error = 'file hỏng', finished_at = '2000-01-01' WHERE id = $1`,
+      [job2],
+    );
+    expect(
+      (
+        await db.q(
+          `SELECT started_at, finished_at > now() - interval '1 minute' AS fresh FROM core.import_jobs WHERE id = $1`,
+          [job2],
+        )
+      )[0],
+    ).toEqual({ started_at: null, fresh: true });
   });
 
   it('không DELETE / TRUNCATE trên bảng danh mục (lưu trữ thay vì xóa), trừ bảng nối đã liệt kê', async () => {

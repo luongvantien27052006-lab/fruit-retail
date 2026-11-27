@@ -92,7 +92,7 @@ export class StaffAuthService {
     }
   }
 
-  private loginOnce(
+  private async loginOnce(
     staff: { userId: string; staffCode: string; fullName: string },
     device: VerifiedDevice,
     identifierHash: Uint8Array,
@@ -111,7 +111,7 @@ export class StaffAuthService {
         dummy,
         slot,
         // ADR-030: khóa theo (nhân viên, máy) — nhập sai trên một máy không khóa nhân viên ở máy khác
-        scope: { source: deviceSource(device.id) },
+        scope: await this.attempts.pinScope(staff.userId, device.id),
       },
       async () => {
         // L1' (kiểm thử DB lát 6): ĐỌC LẠI mã băm PIN + ngày nghỉ trong transaction đang giữ khóa `auth:<id>` — mã băm đọc

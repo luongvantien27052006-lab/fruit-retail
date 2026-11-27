@@ -31,11 +31,26 @@ const GLOBAL_LOCK_MIN = 60;
 export const ACCOUNT_DAILY_BUDGET = 50;
 /** bước 2FA (sau khi mật khẩu đã đúng) đếm theo TÀI KHOẢN — chỉ người biết mật khẩu tới được, không là bề mặt DoS ẩn danh */
 export const MFA_SOURCE = 'mfa';
+/** "quen" hết hạn sau 90 ngày không có phiên mới qua 2FA trên trình duyệt / máy đó */
+const TRUSTED_DAYS = 90;
+/** phiên bị thu hồi vì các lý do này KHÔNG chứng minh trình duyệt / máy đáng tin */
+const UNTRUSTING_REVOKES = [
+  'ADMIN_REVOKED',
+  'REFRESH_REUSE',
+  'TWO_FACTOR_RESET',
+  'PASSWORD_CHANGED',
+  'REAUTH_FAILED',
+  'PIN_RESET',
+  'DEVICE_REVOKED',
+  'USER_LOCKED',
+  'USER_REVOKED',
+];
 
 /**
  * Master mở khóa / đặt lại PIN: xóa mọi khóa tạm của tài khoản (theo nguồn + toàn tài khoản). Người gọi đã giữ khóa
  * `auth:<id>` trong transaction.
  */
+// clearAllLocks đặt ngân sách về 0: kẻ tấn công phải làm đầy lại từ đầu (nhiều giờ với ít nguồn) — gỡ khóa có tác dụng thật
 export async function clearAllLocks(
   tx: { $executeRaw: (q: TemplateStringsArray, ...v: unknown[]) => Promise<number> },
   userId: string,
@@ -146,12 +161,17 @@ export class AuthAttempts {
           if (g.dummy) await g.dummy();
           return { kind: 'busy' };
         }
-        const [st] = await this.tx.$queryRaw<{ status: string; locked_until: Date | null; locked: boolean }[]>`
-          SELECT status::text AS status, locked_until, (locked_until IS NOT NULL AND locked_until > now()) AS locked
+        const [st] = await this.tx.$queryRaw<
+          { status: string; locked_until: Date | null; locked: boolean; temp_pw: boolean }[]
+        >`
+          SELECT status::text AS status, locked_until, (locked_until IS NOT NULL AND locked_until > now()) AS locked,
+                 (must_change_password AND totp_enabled_at IS NULL) AS temp_pw
           FROM core.users WHERE id = ${g.userId}::uuid`;
         // trạng thái LOCKED/DISABLED chặn mọi luồng; khóa TẠM toàn tài khoản chỉ chặn luồng đăng nhập (không chặn phiên)
         // trình duyệt quen (trusted) không bị khóa toàn tài khoản — kẻ tấn công không biết định danh của nó (NC-25)
-        const tempLocked = 'source' in scope && !scope.trusted && !!st?.locked;
+        // tài khoản chưa kích hoạt (mật khẩu tạm 120 bit — không dò nổi) cũng không bị: kẻ biết email không chặn được việc
+        // kích hoạt bằng trình duyệt mới (review cổng lần 3 TB-4)
+        const tempLocked = 'source' in scope && !scope.trusted && !st?.temp_pw && !!st?.locked;
         if (!st || st.status !== 'ACTIVE' || tempLocked) {
           if (g.dummy) await g.dummy();
           return { kind: 'locked', status: st?.status ?? 'DISABLED', until: tempLocked ? st.locked_until : null };
@@ -301,11 +321,35 @@ export class AuthAttempts {
     return l.trusted ? l : { source: MFA_SOURCE, trusted: false };
   }
 
+  /**
+   * Phạm vi PIN: máy POS mà nhân viên đã từng đăng nhập PIN thành công (phiên không bị thu hồi vì lý do an ninh, 90 ngày)
+   * ⇒ quen: không bị khóa toàn tài khoản (review cổng lần 3 TB-4: thu ngân ở 2 máy khác không khóa được cửa hàng trưởng
+   * trên máy của chính họ). Khóa theo máy vẫn chặn dò PIN.
+   */
+  async pinScope(userId: string, deviceId: string): Promise<{ source: string; trusted: boolean }> {
+    const seen = await this.tx.session.count({
+      where: {
+        userId,
+        posDeviceId: deviceId,
+        createdAt: { gt: new Date(Date.now() - TRUSTED_DAYS * 24 * 3600 * 1000) },
+        OR: [{ revokeReason: null }, { revokeReason: { notIn: [...UNTRUSTING_REVOKES] } }],
+      },
+    });
+    return { source: deviceSource(deviceId), trusted: seen > 0 };
+  }
+
   async loginSource(userId: string): Promise<{ source: string; trusted: boolean }> {
     const dev = this.cls.get('deviceId');
     if (dev) {
       const seen = await this.tx.session.count({
-        where: { userId, clientDevice: dev, amr: { hasSome: ['otp', 'rcv'] } },
+        // T-5 (review cổng lần 3): phiên bị thu hồi vì lý do an ninh không làm trình duyệt thành "quen"; chỉ 90 ngày gần đây
+        where: {
+          userId,
+          clientDevice: dev,
+          amr: { hasSome: ['otp', 'rcv'] },
+          createdAt: { gt: new Date(Date.now() - TRUSTED_DAYS * 24 * 3600 * 1000) },
+          OR: [{ revokeReason: null }, { revokeReason: { notIn: [...UNTRUSTING_REVOKES] } }],
+        },
       });
       if (seen > 0) return { source: clientSource(dev), trusted: true };
     }

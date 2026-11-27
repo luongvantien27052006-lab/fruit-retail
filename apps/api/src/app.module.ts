@@ -24,6 +24,7 @@ import { TX_PRISMA } from './infra/tx-prisma';
 export const REDACT_PATHS = [
   'req.headers.authorization',
   'req.headers.cookie',
+  'req.headers["x-device-id"]',
   'req.headers["idempotency-key"]',
   '*.phone',
   '*.address',

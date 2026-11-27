@@ -64,6 +64,15 @@ tạm.
   Master không vào được dù dùng máy quen. Sửa: trình duyệt quen đếm bước 2FA trên nguồn `cli:` của chính nó
   (`mfaScope()`); chỉ trình duyệt lạ đếm chung nguồn `mfa`. Có test.
 - Thấp: `verifyMfa` xóa khóa (`auth_lockouts`) TRƯỚC khi cập nhật `users` — cùng thứ tự khóa với nhánh sai, tránh 40P01.
+- Security lần 3 TB-4 (ngân sách 50 lần thành bề mặt DoS):
+  - Máy POS **quen** (nhân viên đã đăng nhập PIN thành công trên máy đó) không bị khóa toàn tài khoản — thu ngân đứng ở máy
+    khác không khóa được cửa hàng trưởng trên máy của chính họ (`pinScope()`).
+  - Tài khoản **chưa kích hoạt** (mật khẩu tạm 120 bit, chưa 2FA) không bị khóa toàn tài khoản — kẻ biết email không chặn
+    được việc kích hoạt bằng trình duyệt mới; khóa theo nguồn vẫn áp.
+  - Master gỡ khóa ⇒ ngân sách đếm lại từ 0 (kẻ tấn công phải làm đầy lại nhiều giờ).
+- Security lần 3 T-5: "quen" chỉ tính phiên trong 90 ngày, KHÔNG tính phiên bị thu hồi vì lý do an ninh (ADMIN_REVOKED,
+  REFRESH_REUSE, TWO_FACTOR_RESET, PASSWORD_CHANGED, REAUTH_FAILED, PIN_RESET, DEVICE_REVOKED, USER_LOCKED, USER_REVOKED);
+  log pino che `X-Device-Id`.
 - Ghi nhận (chấp nhận): `sessions.client_device` / `login_logs.device` lưu định danh trình duyệt dạng rõ. Chỉ role DB của ứng
   dụng đọc được; người đọc được DB đã vượt xa rủi ro này. Băm khi làm dọn dẹp (cùng lúc bỏ `users.failed_login_count`).
 

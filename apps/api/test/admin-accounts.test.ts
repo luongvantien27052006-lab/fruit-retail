@@ -411,6 +411,26 @@ describe('quản trị tài khoản (CP03 lát 8a)', () => {
     expect(a?.before).toMatchObject({ status: 'ACTIVE', temporary_lock: true });
   });
 
+  it('review cổng lần 3 (TB-4) — tài khoản chưa kích hoạt không bị khóa toàn tài khoản (kẻ biết email không chặn được kích hoạt)', async () => {
+    const r = await http()
+      .post('/v1/admin/admin-accounts')
+      .set('Authorization', master)
+      .send({ email: `act-${hex().toLowerCase()}@fruit.test`, role: 'MASTER_ADMIN' });
+    expect(r.status).toBe(201);
+    await rows(`UPDATE core.users SET fail_window_count = 49, fail_window_start = now() WHERE id = $1`, [
+      r.body.user_id,
+    ]);
+    await http()
+      .post('/v1/auth/login')
+      .set('X-Forwarded-For', '203.0.113.31')
+      .send({ email: r.body.email, password: 'sai' });
+    const ok = await http()
+      .post('/v1/auth/login')
+      .set('X-Forwarded-For', '198.51.100.31')
+      .send({ email: r.body.email, password: r.body.temporary_password });
+    expect(ok.body.status).toBe('ENROLLMENT_REQUIRED');
+  });
+
   it('NC-22 — mật khẩu tạm phải đổi trước khi đăng ký 2FA; sai mật khẩu hiện tại ⇒ 422; challenge cũ chết; chưa kích hoạt quá 72 giờ ⇒ không đăng nhập', async () => {
     const m = await createMaster(db.roleUrl('app_rw'), `nc22-${hex().toLowerCase()}@fruit.test`); // CLI thật: bắt đổi
     const l = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });

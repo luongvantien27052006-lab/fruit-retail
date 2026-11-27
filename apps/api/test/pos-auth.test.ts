@@ -709,6 +709,22 @@ describe('auth nhân viên POS + thiết bị (CP03 lát 4)', () => {
     }
   });
 
+  it('review cổng lần 3 (TB-4) — ngân sách bị làm đầy từ máy khác: máy POS quen của nạn nhân vẫn đăng nhập; máy lạ bị chặn', async () => {
+    const s = await store();
+    const n = await staff(s.id);
+    const mine = await activeDevice(s.code);
+    expect((await pin(mine, n.code, n.pin)).status).toBe(200); // máy quen: đã đăng nhập PIN thành công
+    const other = await activeDevice(s.code);
+    const fresh = await activeDevice(s.code);
+    // kẻ trong nội bộ đã gần cạn ngân sách 50 lần/24 giờ (giả lập), lần sai cuối từ máy khác ⇒ khóa toàn tài khoản
+    await rows(`UPDATE core.users SET fail_window_count = 49, fail_window_start = now() WHERE id = $1`, [n.userId]);
+    expect((await pin(other, n.code, '000000')).status).toBe(401);
+    const [u] = await rows(`SELECT (locked_until > now()) IS TRUE AS locked FROM core.users WHERE id = $1`, [n.userId]);
+    expect(u?.locked).toBe(true);
+    expect((await pin(fresh, n.code, n.pin)).status).toBe(401); // máy chưa từng dùng ⇒ bị khóa toàn tài khoản
+    expect((await pin(mine, n.code, n.pin)).status).toBe(200); // máy quen ⇒ vẫn vào
+  });
+
   it('L2 — nghỉ việc ⇒ phiên chết ngay; mất vai trò ở cửa hàng ⇒ refresh bị từ chối', async () => {
     const s = await store();
     const a = await staff(s.id);

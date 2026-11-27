@@ -4,6 +4,8 @@ import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { generateSync } from 'otplib';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Client } from 'pg';
+import { ipSource } from '../src/auth/auth-attempts';
 import { loadAuthKeys } from '../src/auth/auth-config';
 import { normalizeRecoveryCode, slidingExpiry } from '../src/auth/auth.service';
 import { ARGON_PROFILES, hashSecret, verifySecret } from '../src/auth/password';
@@ -213,17 +215,14 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     expect([exp.status, exp.body.code]).toEqual([401, 'MFA_CHALLENGE_INVALID']);
   });
 
-  it('SEC5 — 5 lần sai từ MỘT nguồn (mật khẩu + mã 2FA cộng chung) ⇒ khóa nguồn đó 15 phút; đang khóa thì mật khẩu đúng cũng bị chặn', async () => {
+  it('SEC5 — 5 lần sai mật khẩu từ MỘT nguồn ⇒ khóa nguồn đó 15 phút; đang khóa thì mật khẩu đúng cũng bị chặn', async () => {
     const m = await enrolledMaster();
     for (let i = 0; i < 4; i++)
       expect((await http().post('/v1/auth/login').send({ email: m.email, password: 'sai' })).status).toBe(401);
-    // mật khẩu đúng KHÔNG xóa bộ đếm; mã 2FA sai là lần thứ 5
+    // mật khẩu đúng KHÔNG xóa bộ đếm (chưa qua 2FA); lần sai thứ 5 ⇒ khóa nguồn
     const l = await http().post('/v1/auth/login').send({ email: m.email, password: m.password });
     expect(l.body.status).toBe('MFA_REQUIRED');
-    await http()
-      .post('/v1/auth/2fa/verify')
-      .set('Authorization', `Bearer ${l.body.mfa_challenge as string}`)
-      .send({ code: '000000' });
+    expect((await http().post('/v1/auth/login').send({ email: m.email, password: 'sai' })).status).toBe(401);
     const u = await lockRow(m.userId);
     expect(u?.failed_count).toBe(0);
     expect(u?.lock_count).toBe(1);
@@ -237,13 +236,15 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
       unknown.body.code,
       unknown.body.message,
     ]);
-    // người đã qua bước mật khẩu (giữ mfa_challenge) được báo rõ ACCOUNT_LOCKED + thời gian chờ; mã đúng cũng không qua
+    // bước 2FA đếm riêng theo tài khoản (review cổng lần 2 TB-3): người ĐÃ đúng mật khẩu trước lúc khóa vẫn hoàn tất được
+    // 2FA bằng challenge đã nhận (mỗi challenge tối đa 5 lần, 5 phút); đúng ⇒ xóa khóa của nguồn
     const v = await http()
       .post('/v1/auth/2fa/verify')
       .set('Authorization', `Bearer ${l.body.mfa_challenge as string}`)
       .send({ code: await totp(m.userId) });
-    expect([v.status, v.body.code]).toEqual([403, 'ACCOUNT_LOCKED']);
-    expect(v.body.details.retry_after_s).toBeGreaterThan(800);
+    expect([v.status, v.body.code]).toEqual([200, undefined]);
+    expect(await lockRow(m.userId)).toBeUndefined();
+    await forgetStep(m.userId);
     // lần khóa kế tiếp gấp đôi (30 phút)
     await unlock(m.userId);
     for (let i = 0; i < 5; i++) await http().post('/v1/auth/login').send({ email: m.email, password: 'sai' });
@@ -408,6 +409,109 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     for (const r of srcs) expect(String(r.source)).toMatch(/^ip:[A-Za-z0-9_-]{22}$/); // không lưu IP thô
   });
 
+  it('review cổng lần 2 (TB-3) — bước 2FA đếm theo TÀI KHOẢN: xoay mạng không mở thêm lượt dò mã TOTP', async () => {
+    const m = await enrolledMaster();
+    for (let i = 0; i < 5; i++) {
+      const ip = `198.51.100.${i + 1}`;
+      const l = await http()
+        .post('/v1/auth/login')
+        .set('X-Forwarded-For', ip)
+        .send({ email: m.email, password: m.password });
+      await http()
+        .post('/v1/auth/2fa/verify')
+        .set('X-Forwarded-For', ip)
+        .set('Authorization', `Bearer ${l.body.mfa_challenge as string}`)
+        .send({ code: '000000' });
+    }
+    const [mfa] = await rows(
+      `SELECT (locked_until > now()) IS TRUE AS locked FROM core.auth_lockouts WHERE user_id = $1 AND source = 'mfa'`,
+      [m.userId],
+    );
+    expect(mfa?.locked).toBe(true);
+    // mạng thứ 6 có mật khẩu đúng + mã đúng vẫn không qua bước 2FA
+    const l6 = await http()
+      .post('/v1/auth/login')
+      .set('X-Forwarded-For', '198.51.100.99')
+      .send({ email: m.email, password: m.password });
+    await forgetStep(m.userId);
+    const v6 = await http()
+      .post('/v1/auth/2fa/verify')
+      .set('X-Forwarded-For', '198.51.100.99')
+      .set('Authorization', `Bearer ${l6.body.mfa_challenge as string}`)
+      .send({ code: await totp(m.userId) });
+    expect([v6.status, v6.body.code]).toEqual([403, 'ACCOUNT_LOCKED']);
+  });
+
+  it('NC-25 — trình duyệt quen (X-Device-Id của phiên đã qua 2FA) không bị khóa toàn tài khoản; ngân sách 50 lần sai/ngày khóa người lạ', async () => {
+    const dev = `dev-${randomBytes(8).toString('hex')}`;
+    const m = await enrolledMaster(dev); // phiên đầu đã qua 2FA với X-Device-Id = dev
+    // kẻ tấn công: 50 lần sai từ 10 mạng /48 khác nhau ⇒ khóa toàn tài khoản + LOCKED_GLOBAL
+    for (let n = 1; n <= 10; n++)
+      for (let i = 0; i < 5; i++)
+        await http()
+          .post('/v1/auth/login')
+          .set('X-Forwarded-For', `2001:db8:${n}::1`)
+          .send({ email: m.email, password: 'sai' });
+    expect(await countResult(m.userId, 'LOCKED_GLOBAL')).toBeGreaterThanOrEqual(1);
+    // người lạ ở mạng mới: mật khẩu đúng cũng 401
+    expect(
+      (
+        await http()
+          .post('/v1/auth/login')
+          .set('X-Forwarded-For', '203.0.113.200')
+          .send({ email: m.email, password: m.password })
+      ).status,
+    ).toBe(401);
+    // Master trên trình duyệt quen vẫn vào (không bị khóa toàn tài khoản)
+    const ok = await http()
+      .post('/v1/auth/login')
+      .set('X-Device-Id', dev)
+      .set('X-Forwarded-For', '203.0.113.200')
+      .send({ email: m.email, password: m.password });
+    expect(ok.body.status).toBe('MFA_REQUIRED');
+    // X-Device-Id đoán bừa KHÔNG được coi là quen
+    const guess = await http()
+      .post('/v1/auth/login')
+      .set('X-Device-Id', `dev-${randomBytes(8).toString('hex')}`)
+      .send({ email: m.email, password: m.password });
+    expect(guess.status).toBe(401);
+  });
+
+  it('review cổng lần 2 (TB-A) — lần thử của nguồn A đang bận không chặn nguồn B hay step-up của phiên đang mở', async () => {
+    const m = await enrolledMaster();
+    const t = await fullLogin(m);
+    const ipA = '192.0.2.77';
+    // giữ cứng khóa độc quyền (tài khoản, nguồn A) — như một lần thử chậm đang chạy
+    const hold = new Client({ connectionString: db.ownerUrl });
+    await hold.connect();
+    try {
+      await hold.query('BEGIN');
+      await hold.query(`SELECT pg_advisory_xact_lock(hashtextextended('auth:' || $1::uuid::text || ':' || $2, 0))`, [
+        m.userId,
+        `s:${ipSource(ipA)}`,
+      ]);
+      const a = await http()
+        .post('/v1/auth/login')
+        .set('X-Forwarded-For', ipA)
+        .send({ email: m.email, password: m.password });
+      expect(a.status).toBe(401); // nguồn A bận ⇒ cùng lỗi chung
+      const b = await http()
+        .post('/v1/auth/login')
+        .set('X-Forwarded-For', '198.51.100.77')
+        .send({ email: m.email, password: m.password });
+      expect(b.body.status).toBe('MFA_REQUIRED');
+      await forgetStep(m.userId);
+      const su = await http()
+        .post('/v1/auth/step-up')
+        .set('Authorization', `Bearer ${t.access_token}`)
+        .send({ code: await totp(m.userId) });
+      expect(su.status).toBe(200);
+    } finally {
+      await hold.query('ROLLBACK').catch(() => undefined);
+      await hold.end();
+    }
+  });
+
   it('ADR-030 — khóa tăng dần theo nguồn, tự giảm sau 24 giờ; ≥ 10 nguồn bị khóa ⇒ khóa toàn tài khoản 1 giờ', async () => {
     const m = await enrolledMaster();
     const ip = '192.0.2.50';
@@ -427,7 +531,7 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     expect(Number(r2?.left_s)).toBeGreaterThan(29 * 60);
     // 24 giờ không sai ⇒ lần sai kế tiếp tính lại từ mức 0
     await rows(
-      `UPDATE core.auth_lockouts SET locked_until = now() - interval '1 second', updated_at = now() - interval '25 hours' WHERE user_id = $1`,
+      `UPDATE core.auth_lockouts SET locked_until = now() - interval '25 hours', updated_at = now() - interval '26 hours' WHERE user_id = $1`,
       [m.userId],
     );
     await bad();
@@ -567,8 +671,11 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
           .send({ refresh_token: 'x'.repeat(43) })
       ).status,
     ).toBe(401);
-    const [rf] = await rows(`SELECT count(*)::int AS n FROM audit.login_logs WHERE result = 'REFRESH_FAILED'`);
-    expect(Number(rf?.n)).toBeGreaterThanOrEqual(1);
+    // token rác (không khớp phiên nào) ⇒ KHÔNG ghi từng dòng (review cổng lần 2 T-4)
+    const [rf] = await rows(
+      `SELECT count(*)::int AS n FROM audit.login_logs WHERE result = 'REFRESH_FAILED' AND user_id IS NULL`,
+    );
+    expect(Number(rf?.n)).toBe(0);
     expect((await http().get('/v1/auth/sessions').set('Authorization', `Bearer ${r1.body.access_token}`)).status).toBe(
       200,
     );

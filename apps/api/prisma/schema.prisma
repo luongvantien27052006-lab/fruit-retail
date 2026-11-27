@@ -177,6 +177,9 @@ model User {
   permissionGrants   UserPermissionGrant[]
   sessions           Session[]
   lockouts           AuthLockout[]
+  /// ADR-030 (review cổng lần 2): ngân sách lần sai theo TÀI KHOẢN trong cửa sổ 24 giờ, cộng mọi nguồn
+  failWindowCount    Int                       @default(0) @map("fail_window_count")
+  failWindowStart    DateTime?                 @map("fail_window_start") @db.Timestamptz(6)
   viewerAssignments  ViewerProfileAssignment[]
   authChallenges     AuthChallenge[]
   enrollmentCodes    PosEnrollmentCode[]

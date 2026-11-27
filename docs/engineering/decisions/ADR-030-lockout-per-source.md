@@ -35,6 +35,25 @@ tạm.
 5. Các cột `users.failed_login_count` và `users.lock_count` không còn dùng để đếm. Hai cột vẫn giữ (mở khóa sẽ đặt về 0) và
    sẽ bỏ ở một migration dọn dẹp sau.
 
+## Sửa theo review cổng lần 2 (NC-25 — Tiến duyệt 2026-11-27)
+- **TB-3 (dò mật khẩu/TOTP bằng xoay mạng):** trước đây kẻ tấn công giữ < 10 nguồn bị khóa cùng lúc thì thử được ~4.300 lần
+  mỗi ngày. Sửa:
+  - Bước 2FA (`/2fa/verify`, `/2fa/recover`) đếm theo **tài khoản** (nguồn `mfa`, khóa tăng dần như trên). Chỉ người biết
+    mật khẩu mới tới được bước này, nên không thành bề mặt DoS ẩn danh. Lần đúng mật khẩu sau đó vẫn hoàn tất 2FA được bằng
+    challenge đã nhận.
+  - Ngân sách theo tài khoản: ≥ 50 lần sai trong 24 giờ (mọi nguồn cộng lại) thì khóa toàn tài khoản tới hết cửa sổ, log
+    `LOCKED_GLOBAL` (cột `users.fail_window_count/start`, migration 0008).
+  - Nguồn IP gộp IPv6 theo **/48**: một VPS có /48 chỉ tính là một nguồn.
+- **TB-B (khóa toàn tài khoản bằng một /48):** trình duyệt/app **quen** dùng nguồn riêng `cli:<sha256>` và **không** bị khóa
+  toàn tài khoản. Quen nghĩa là `X-Device-Id` khớp `client_device` của một phiên đã qua 2FA; admin-web dùng cookie HttpOnly
+  `__Host-fa_dev`, kẻ tấn công không biết giá trị này. Master quen máy vẫn vào được khi đang bị tấn công. Trình duyệt **mới**
+  của Master thì có thể bị chặn tới khi Master khác gỡ (rủi ro chấp nhận).
+- **TB-A (tranh khóa `auth:<id>`):** lần thử lấy khóa `auth:<id>` dạng **chia sẻ**, cộng khóa **độc quyền** theo (tài khoản,
+  nguồn | phiên). Thao tác quản trị (đổi PIN, khóa, mở khóa, reset 2FA) vẫn lấy khóa độc quyền `auth:<id>`, nên chờ hết các
+  lần thử đang chạy. Lần thử của nguồn A đang bận không còn chặn nguồn B hay step-up của phiên đang mở.
+- **Thấp:** 24 giờ yên lặng để reset mức khóa giờ tính từ `GREATEST(updated_at, locked_until)`, nên khóa trần 24 giờ không
+  tự reset ngay khi hết.
+
 ## Hệ quả
 - Test:
   - `auth.test.ts`: khóa theo nguồn; mạng khác vẫn vào; phiên đang mở vẫn step-up; IPv6 cùng /64 là một nguồn; tăng dần

@@ -203,6 +203,13 @@ export class StaffAdminService {
       // Review cổng CP03 TB3: đổi trạng thái qua PATCH không được rẻ hơn route chuyên dụng
       //  - LOCKED ⇒ ACTIVE phải đi POST /admin/users/{id}/unlock (Master + step-up + lý do + audit user.unlock)
       //  - đổi status bởi tài khoản 2FA (Master) cần step-up còn hạn, như /lock
+      // Master (2FA) đặt lại PIN cũng cần step-up — cùng quy tắc đổi status (review cổng lần 2)
+      if (b.pin !== undefined) {
+        const p = this.principal();
+        const has2fa = p.userType === 'MASTER' || p.userType === 'VIEWER';
+        if (has2fa && !(p.stepUpUntil && p.stepUpUntil.getTime() > Date.now()))
+          throw new AppError('STEP_UP_REQUIRED', 'Đặt lại PIN nhân viên cần xác thực lại 2FA');
+      }
       if (b.status !== undefined && b.status !== before.user.status) {
         if (before.user.status === 'LOCKED')
           throw new AppError(

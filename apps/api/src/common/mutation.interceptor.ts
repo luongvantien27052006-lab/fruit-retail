@@ -11,6 +11,7 @@ import { TransactionHost } from '@nestjs-cls/transactional';
 import type { Request } from 'express';
 import { ClsService } from 'nestjs-cls';
 import { from, lastValueFrom, type Observable } from 'rxjs';
+import { ENV, type Env } from '../config/env';
 import type { Tx } from './audit-outbox.service';
 import { NO_AUDIT_KEY, OWN_TX_KEY } from './access';
 import type { RequestStore } from './request-context';
@@ -30,6 +31,7 @@ export class MutationInterceptor implements NestInterceptor {
     @Inject(TransactionHost) private readonly txHost: Tx,
     private readonly cls: ClsService<RequestStore>,
     private readonly reflector: Reflector,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -48,8 +50,10 @@ export class MutationInterceptor implements NestInterceptor {
           const result = await lastValueFrom(next.handle(), { defaultValue: undefined });
           if (trace.audit + trace.login === 0) {
             const msg = `Mutation @OwnTransaction ${req.method} ${req.route?.path ?? req.path} không ghi audit/login_logs`;
-            if (process.env['NODE_ENV'] === 'production') this.log.error(msg);
-            else throw new Error(msg);
+            // chỉ test/dev ném lỗi (mutation ĐÃ commit — staging/production trả 500 sẽ khiến client thử lại thao tác không
+            // idempotent); staging/production ghi log lỗi
+            if (this.env.NODE_ENV === 'test' || this.env.NODE_ENV === 'development') throw new Error(msg);
+            this.log.error(msg);
           }
           return result;
         })(),

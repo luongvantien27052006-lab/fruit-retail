@@ -4,6 +4,10 @@
 -- AlterTable
 ALTER TABLE "core"."sessions" ADD COLUMN     "reauth_failed_count" INTEGER NOT NULL DEFAULT 0;
 
+-- AlterTable
+ALTER TABLE "core"."users" ADD COLUMN     "fail_window_count" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "fail_window_start" TIMESTAMPTZ(6);
+
 -- CreateTable
 CREATE TABLE "core"."auth_lockouts" (
     "user_id" UUID NOT NULL,
@@ -24,7 +28,7 @@ ALTER TABLE "core"."auth_lockouts" ADD CONSTRAINT "auth_lockouts_user_id_fkey" F
 
 -- ─────────── Phần 2: SQL tay ───────────
 ALTER TABLE core.auth_lockouts
-  ADD CONSTRAINT auth_lockouts_source CHECK (source ~ '^(ip:[A-Za-z0-9_-]{22}|dev:[0-9a-f-]{36})$'),
+  ADD CONSTRAINT auth_lockouts_source CHECK (source ~ '^(ip:[A-Za-z0-9_-]{22}|cli:[A-Za-z0-9_-]{22}|dev:[0-9a-f-]{36}|mfa)$'),
   ADD CONSTRAINT auth_lockouts_counts CHECK (failed_count BETWEEN 0 AND 4 AND lock_count >= 0);
 ALTER TABLE core.sessions
   ADD CONSTRAINT sessions_reauth_failed CHECK (reauth_failed_count BETWEEN 0 AND 5);
@@ -33,3 +37,5 @@ REVOKE UPDATE, TRUNCATE ON core.auth_lockouts FROM app_rw;
 GRANT SELECT, INSERT, DELETE ON core.auth_lockouts TO app_rw;
 GRANT UPDATE (failed_count, lock_count, locked_until, updated_at) ON core.auth_lockouts TO app_rw;
 GRANT UPDATE (reauth_failed_count) ON core.sessions TO app_rw;
+ALTER TABLE core.users ADD CONSTRAINT users_fail_window CHECK (fail_window_count >= 0);
+GRANT UPDATE (fail_window_count, fail_window_start) ON core.users TO app_rw;

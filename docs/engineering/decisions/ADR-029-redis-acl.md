@@ -37,6 +37,8 @@ FLUSHALL, CONFIG SET, DEBUG… Đến CP03 đã có hai người dùng Redis th�
 - File ACL chỉ chứa SHA-256 (`#hash`), không có mật khẩu rõ. Mật khẩu vẫn nằm trong env của container (thấy qua
   `docker inspect` — cần quyền docker ≈ root); chuyển docker secrets khi lên VPS.
 - `--maxmemory 256mb` (noeviction) + `mem_limit: 384m`: lộ mật khẩu api/worker không lấp đầy được RAM máy.
+- Chấp nhận: `INFO` (cần cho ready check của ioredis và kiểm phiên bản của BullMQ) vẫn trả `keyspace` = số khóa mỗi db — không
+  lộ tên khóa.
 
 ## Hệ quả
 - Test `apps/api/test/redis-acl.test.ts` chạy Redis thật bằng chính `start.sh`. Nội dung kiểm:

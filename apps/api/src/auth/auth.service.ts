@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { TransactionHost } from '@nestjs-cls/transactional';
 import { ClsService } from 'nestjs-cls';
 import { randomBytes } from 'node:crypto';
@@ -9,7 +9,7 @@ import { AuditOutboxService, type Tx } from '../common/audit-outbox.service';
 import type { Principal } from '../common/access';
 import { AppError } from '../common/errors';
 import type { RequestStore } from '../common/request-context';
-import { AuthAttempts, challengeInvalid, otpInvalid } from './auth-attempts';
+import { AuthAttempts, challengeInvalid, otpInvalid, MFA_SOURCE } from './auth-attempts';
 import { type DeviceProof, refreshBinding } from './device-proof';
 import { PosDeviceService } from './pos-device.service';
 import { hasLeft, staffAllowedOnStore } from './staff-auth.service';
@@ -115,6 +115,7 @@ const USER_AUTH_SELECT = {
  */
 @Injectable()
 export class AuthService {
+  private readonly log = new Logger('AuthService');
   constructor(
     @Inject(TransactionHost) private readonly txHost: Tx,
     private readonly cipher: PiiCipher,
@@ -151,11 +152,14 @@ export class AuthService {
     const hash = user.passwordHash;
     let totpEnabledNow: Date | null = user.totpEnabledAt;
     let mustChangeNow = user.mustChangePassword;
+    // NC-25: trình duyệt quen ⇒ nguồn riêng, không bị khóa toàn tài khoản; còn lại ⇒ nguồn IP (/48 với IPv6)
+    const scope = await this.attempts.loginSource(user.id);
     return this.attempts.run(
       {
         userId: user.id,
         identifierHash,
         argon: true,
+        scope,
         publicError: invalidCredentials,
         failResult: 'BAD_CREDENTIALS',
         dummy: async () => void (await verifySecret(await dummyHash(), password)),
@@ -196,7 +200,7 @@ export class AuthService {
         }
         // Chưa đăng ký 2FA (tài khoản mới / vừa reset 2FA): mật khẩu là yếu tố duy nhất ⇒ xóa bộ đếm; phiên chỉ gọi
         // được route đăng ký (AccessGuard)
-        await this.attempts.clearFailures(user.id, false);
+        await this.attempts.clearFailures(user.id, false, scope);
         const p = await this.createSession(user, ['pwd']);
         await this.attempts.log(user.id, 'ENROLLMENT_REQUIRED', identifierHash);
         return { status: 'ENROLLMENT_REQUIRED' as const, password_change_required: mustChangeNow, ...p };
@@ -213,6 +217,8 @@ export class AuthService {
         identifierHash: null,
         challengeId: ch.id,
         argon: false,
+        // review cổng lần 2 (TB-3): bước 2FA đếm theo TÀI KHOẢN, không theo nguồn (xoay mạng không mở thêm lượt dò TOTP)
+        scope: { source: MFA_SOURCE, trusted: (await this.attempts.loginSource(user.id)).trusted },
         failResult: 'BAD_TOTP',
       },
       async () => {
@@ -248,6 +254,8 @@ export class AuthService {
         identifierHash: null,
         challengeId: ch.id,
         argon: true,
+        // review cổng lần 2 (TB-3): bước 2FA đếm theo TÀI KHOẢN, không theo nguồn (xoay mạng không mở thêm lượt dò TOTP)
+        scope: { source: MFA_SOURCE, trusted: (await this.attempts.loginSource(user.id)).trusted },
         failResult: 'BAD_RECOVERY',
       },
       async () => {
@@ -292,12 +300,14 @@ export class AuthService {
   async refresh(refreshToken: string, proof?: DeviceProof): Promise<TokenPair> {
     const who: { userId: string | null } = { userId: null };
     try {
-      const r = await this.refreshInner(refreshToken, proof, who);
-      await this.attempts.log(who.userId, 'REFRESH_OK', null);
-      return r;
+      return await this.refreshInner(refreshToken, proof, who);
     } catch (e) {
-      // ghi log lỗi không được che lỗi gốc của refresh
-      await this.attempts.log(who.userId, 'REFRESH_FAILED', null).catch(() => undefined);
+      // ghi log lỗi không được che lỗi gốc của refresh. Token không khớp phiên nào (userId null) ⇒ KHÔNG ghi từng dòng
+      // (review cổng lần 2 T-4: 3.000 req/phút/IP rác sẽ lấp đầy login_logs)
+      if (who.userId)
+        await this.attempts
+          .log(who.userId, 'REFRESH_FAILED', null)
+          .catch(() => this.log.warn('Không ghi được login_logs REFRESH_FAILED'));
       throw e;
     }
   }
@@ -389,6 +399,9 @@ export class AuthService {
           amr: s.amr as Amr[],
           ...(staff && s.posDeviceId ? { dev: s.posDeviceId } : {}),
         });
+        // review cổng lần 2 (TB-C, ADR-021 §9): ghi log TRƯỚC commit — ghi lỗi ⇒ rollback, token cũ vẫn dùng được (không
+        // để client giữ token đã xoay rồi bị coi là dùng lại)
+        await this.attempts.log(s.userId, 'REFRESH_OK', null);
         return {
           access_token: access.token,
           access_token_expires_at: access.expiresAt.toISOString(),

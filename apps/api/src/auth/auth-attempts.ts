@@ -154,7 +154,7 @@ export class AuthAttempts {
     let globalLocked = false;
     type Out =
       | { kind: 'ok'; value: T }
-      | { kind: 'busy' | 'challenge' | 'fail' | 'reauth_revoked' }
+      | { kind: 'busy' | 'challenge' | 'fail' | 'reauth_revoked' | 'session_gone' }
       | { kind: 'locked'; status: string; until: Date | null };
     const run = (): Promise<Out> =>
       this.txHost.withTransaction(async (): Promise<Out> => {
@@ -185,6 +185,15 @@ export class AuthAttempts {
           if (g.dummy) await g.dummy();
           return { kind: 'locked', status: st?.status ?? 'DISABLED', until: tempLocked ? st.locked_until : null };
         }
+        if ('sessionId' in scope) {
+          // CI develop (S1): lần step-up đã qua guard trước khi phiên bị thu hồi (lần sai thứ 5 của request khác) không
+          // được kiểm mã nữa — tx thu hồi giữ khóa advisory `p:<phiên>` đến lúc commit nên request đến sau đọc được revoked_at.
+          // KHÔNG FOR UPDATE: onSuccess của đổi mật khẩu khóa users rồi mọi phiên ⇒ khóa dòng phiên ở đây gây deadlock
+          // (review). Phiên đã thu hồi ⇒ dừng, không kiểm, không ghi thêm REAUTH_REVOKED
+          const live = await this.tx.$queryRaw<{ id: string }[]>`
+            SELECT id::text FROM core.sessions WHERE id = ${scope.sessionId}::uuid AND revoked_at IS NULL`;
+          if (live.length === 0) return { kind: 'session_gone' };
+        }
         if ('source' in scope) {
           const [lo] = await this.tx.$queryRaw<{ locked_until: Date | null; locked: boolean }[]>`
             SELECT locked_until, (locked_until IS NOT NULL AND locked_until > now()) AS locked
@@ -211,7 +220,8 @@ export class AuthAttempts {
             const [r] = await this.tx.$queryRaw<{ n: number }[]>`
               UPDATE core.sessions SET reauth_failed_count = reauth_failed_count + 1
               WHERE id = ${scope.sessionId}::uuid AND revoked_at IS NULL RETURNING reauth_failed_count AS n`;
-            if ((r?.n ?? MAX_FAILED) >= MAX_FAILED) {
+            if (!r) return { kind: 'session_gone' };
+            if (r.n >= MAX_FAILED) {
               await this.tx.$executeRaw`
                 UPDATE core.sessions SET revoked_at = now(), revoke_reason = 'REAUTH_FAILED'
                 WHERE id = ${scope.sessionId}::uuid AND revoked_at IS NULL`;
@@ -296,6 +306,8 @@ export class AuthAttempts {
       case 'locked':
         await this.log(g.userId, out.status === 'DISABLED' ? 'DISABLED' : 'LOCKED', g.identifierHash);
         throw g.publicError ? g.publicError() : this.lockedError(out.until);
+      case 'session_gone':
+        throw new AppError('SESSION_REVOKED', 'Phiên đã bị thu hồi — đăng nhập lại');
       case 'reauth_revoked':
         await this.log(g.userId, 'REAUTH_REVOKED', g.identifierHash);
         throw new AppError('SESSION_REVOKED', 'Xác thực lại sai quá 5 lần — phiên đã bị thu hồi, đăng nhập lại');

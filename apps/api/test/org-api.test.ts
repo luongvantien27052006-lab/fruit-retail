@@ -1,3 +1,4 @@
+import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { schemaErrors } from './helpers/contract';
 import { type AdminEnv, startAdminEnv } from './helpers/admin-env';
@@ -157,22 +158,40 @@ describe('API tổ chức + NCC (CP04 lát 4)', () => {
     const back = await e.master.patch(`/admin/stores/${s.id}`, { archived: false, status: 'ACTIVE' });
     expect(back.body).toMatchObject({ status: 'ACTIVE', archived_at: null });
 
-    // song song: lưu trữ cửa hàng ↔ kích hoạt máy (review TS C1) — không bao giờ cả hai cùng thành công
-    for (let i = 0; i < 4; i++) {
-      const st = await newStore();
-      const dev = await e.pendingDevice(st.id);
-      const [act, arc] = await Promise.all([
-        e.master.post(`/admin/pos-devices/${dev.id}/activate`, { pairing_code: dev.pairingCode }),
-        e.master.patch(`/admin/stores/${st.id}`, { archived: true }),
-      ]);
-      expect(act.status === 200 && arc.status === 200).toBe(false);
-      const [n] = await e.db.q(
-        `SELECT count(*)::int AS c FROM core.pos_devices d JOIN core.stores s ON s.id = d.store_id
-         WHERE s.id = $1 AND d.status = 'ACTIVE' AND s.archived_at IS NOT NULL`,
-        [st.id],
-      );
-      expect(n?.c).toBe(0);
+    // lưu trữ cửa hàng ↔ kích hoạt máy (review TS C1, xác định): một kết nối giữ stores FOR NO KEY UPDATE (như lần lưu trữ
+    // đang chạy) ⇒ kích hoạt phải CHỜ khóa cửa hàng; lưu trữ commit ⇒ kích hoạt đọc lại thấy đã lưu trữ ⇒ 409, máy vẫn PENDING
+    const st = await newStore();
+    const dev = await e.pendingDevice(st.id);
+    const c = new Client({ connectionString: e.db.ownerUrl });
+    await c.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SELECT 1 FROM core.stores WHERE id = $1 FOR NO KEY UPDATE', [st.id]);
+      // supertest chỉ gửi khi .then() ⇒ gọi ngay để request chạy trong lúc kết nối kia giữ khóa
+      const pending = e.master
+        .post(`/admin/pos-devices/${dev.id}/activate`, { pairing_code: dev.pairingCode })
+        .then((r) => r);
+      let waited = false;
+      for (let i = 0; i < 100 && !waited; i++) {
+        const [w] = await e.db.q(
+          `SELECT count(*)::int AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND usename = 'app_rw'`,
+        );
+        waited = (w?.n as number) > 0;
+        if (!waited) await new Promise((r) => setTimeout(r, 50));
+      }
+      if (!waited) {
+        await c.query('ROLLBACK');
+        const r = await pending;
+        throw new Error(`không chờ khóa: ${r.status} ${JSON.stringify(r.body)}`);
+      }
+      await c.query(`UPDATE core.stores SET archived_at = now(), status = 'INACTIVE' WHERE id = $1`, [st.id]);
+      await c.query('COMMIT');
+      expect(err(await pending)).toEqual([409, 'INVALID_STATE_TRANSITION']);
+    } finally {
+      await c.end();
     }
+    const [d] = await e.db.q(`SELECT status::text FROM core.pos_devices WHERE id = $1`, [dev.id]);
+    expect(d?.status).toBe('PENDING');
   });
 
   it('phạm vi cửa hàng: cửa hàng trưởng chỉ thấy / sửa cửa hàng mình; tạo / lưu trữ cần phạm vi toàn chuỗi', async () => {

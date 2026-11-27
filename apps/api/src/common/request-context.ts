@@ -18,6 +18,11 @@ export interface RequestStore extends ClsStore {
   appDbBlocked?: boolean;
   /** số dòng audit.logs đã ghi trong transaction mutation hiện tại */
   auditCount: number;
+  /**
+   * Dấu vết của route @OwnTransaction: OBJECT dùng chung theo tham chiếu — withTransaction chạy trong CLS con (bản sao
+   * nông của store) nên đếm bằng `cls.set` bên trong không lên tới interceptor; tăng trường của object thì lên.
+   */
+  ownTxTrace?: { audit: number; login: number };
 }
 
 export const DEVICE_ID_RE = /^[A-Za-z0-9._:-]{8,128}$/;

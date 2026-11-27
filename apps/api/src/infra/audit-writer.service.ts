@@ -1,4 +1,6 @@
 import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
+import { ClsService } from 'nestjs-cls';
+import type { RequestStore } from '../common/request-context';
 import { isIP } from 'node:net';
 import { Pool } from 'pg';
 import { v7 as uuidv7 } from 'uuid';
@@ -22,6 +24,9 @@ export type LoginResult =
   // ADR-030: khóa toàn tài khoản (≥ 10 nguồn cùng bị khóa); phiên bị thu hồi vì xác thực lại sai 5 lần
   | 'LOCKED_GLOBAL'
   | 'REAUTH_REVOKED'
+  // review cổng CP03 TB5: mọi lần refresh để lại dấu vết (ADR-021 §9)
+  | 'REFRESH_OK'
+  | 'REFRESH_FAILED'
   // nhân viên POS (lát 4 — ADR-022)
   | 'STORE_NOT_ALLOWED'
   | 'DEVICE_NOT_ACTIVE'
@@ -52,7 +57,10 @@ export class AuditWriterService implements OnModuleDestroy {
   private readonly log = new Logger('AuditWriter');
   private readonly pool: Pool;
 
-  constructor(@Inject(ENV) env: Env) {
+  constructor(
+    @Inject(ENV) env: Env,
+    @Inject(ClsService) private readonly cls: ClsService<RequestStore>,
+  ) {
     if (!env.DATABASE_URL_AUDIT) throw new Error('Thiếu DATABASE_URL_AUDIT (role audit_writer — ADR-011)');
     this.pool = new Pool({
       connectionString: env.DATABASE_URL_AUDIT,
@@ -67,6 +75,10 @@ export class AuditWriterService implements OnModuleDestroy {
 
   async loginLog(e: LoginLogEntry): Promise<void> {
     const ip = e.ip && isIP(e.ip) ? e.ip : null;
+    if (this.cls.isActive()) {
+      const t = this.cls.get('ownTxTrace');
+      if (t) t.login++;
+    }
     await this.pool.query(
       `INSERT INTO audit.login_logs (id, user_id, identifier_hash, result, ip, device, user_agent)
        VALUES ($1, $2, $3, $4, $5::inet, $6, $7)`,

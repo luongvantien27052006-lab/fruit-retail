@@ -558,6 +558,17 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     expect(r1.status).toBe(200);
     expect(r1.body.refresh_token).not.toBe(t.refresh_token);
     expect(r1.body.session_id).toBe(t.session_id);
+    // review cổng CP03 TB5: refresh để lại dấu vết trong login_logs (đúng lẫn sai)
+    expect(await countResult(m.userId, 'REFRESH_OK')).toBe(1);
+    expect(
+      (
+        await http()
+          .post('/v1/auth/refresh')
+          .send({ refresh_token: 'x'.repeat(43) })
+      ).status,
+    ).toBe(401);
+    const [rf] = await rows(`SELECT count(*)::int AS n FROM audit.login_logs WHERE result = 'REFRESH_FAILED'`);
+    expect(Number(rf?.n)).toBeGreaterThanOrEqual(1);
     expect((await http().get('/v1/auth/sessions').set('Authorization', `Bearer ${r1.body.access_token}`)).status).toBe(
       200,
     );

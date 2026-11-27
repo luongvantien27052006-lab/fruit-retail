@@ -241,6 +241,19 @@ describe('quản trị tài khoản (CP03 lát 8a)', () => {
     // L1: tài khoản DISABLED (Master cho nghỉ) không khóa được ⇒ không có đường "khóa rồi mở khóa" để hồi sinh
     const z = await staffSql([{ role: 'CASHIER', storeId: st.id }]);
     await http().patch(`/v1/admin/staff/${z.userId}`).set('Authorization', master).send({ status: 'DISABLED' });
+    // review cổng CP03 TB3: LOCKED không mở bằng PATCH; Master đổi status không có step-up ⇒ 403
+    const lockedX = await http()
+      .patch(`/v1/admin/staff/${x.userId}`)
+      .set('Authorization', master)
+      .send({ status: 'ACTIVE' });
+    expect([lockedX.status, lockedX.body.code]).toEqual([409, 'INVALID_STATE_TRANSITION']);
+    const pm = await plainMaster(); // Master chưa step-up
+    const w = await staffSql([{ role: 'CASHIER', storeId: st.id }]);
+    const noSu = await http()
+      .patch(`/v1/admin/staff/${w.userId}`)
+      .set('Authorization', pm.bearer)
+      .send({ status: 'DISABLED' });
+    expect([noSu.status, noSu.body.code]).toEqual([403, 'STEP_UP_REQUIRED']);
     const lz = await c.post(`/v1/admin/users/${z.userId}/lock`, { reason: 'khóa người đã nghỉ' });
     expect([lz.status, lz.body.code]).toEqual([409, 'INVALID_STATE_TRANSITION']);
     const [zs] = await rows(`SELECT status::text FROM core.users WHERE id = $1`, [z.userId]);
@@ -283,6 +296,12 @@ describe('quản trị tài khoản (CP03 lát 8a)', () => {
     expect(r.status).toBe(200);
     expect(schemaErrors('TwoFactorResetResponse', r.body)).toEqual([]);
     expect(r.body.revoked_sessions).toBeGreaterThanOrEqual(1);
+    const [au] = await rows(
+      `SELECT before, after FROM audit.logs WHERE resource_id = $1 AND action = 'user.two_factor_reset'`,
+      [t.userId],
+    );
+    expect(au?.before).toMatchObject({ two_factor_on: true });
+    expect(au?.after).toMatchObject({ two_factor_on: false });
     const v = await http()
       .post('/v1/auth/2fa/verify')
       .set('Authorization', `Bearer ${l.body.mfa_challenge as string}`)

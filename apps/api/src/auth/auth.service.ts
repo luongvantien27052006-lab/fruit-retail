@@ -288,7 +288,25 @@ export class AuthService {
 
   // ───────────────────────────── refresh / phiên ─────────────────────────────
 
+  /** Review cổng CP03 TB5 / ADR-021 §9: mọi lần refresh (đúng hay sai) ghi audit.login_logs. */
   async refresh(refreshToken: string, proof?: DeviceProof): Promise<TokenPair> {
+    const who: { userId: string | null } = { userId: null };
+    try {
+      const r = await this.refreshInner(refreshToken, proof, who);
+      await this.attempts.log(who.userId, 'REFRESH_OK', null);
+      return r;
+    } catch (e) {
+      // ghi log lỗi không được che lỗi gốc của refresh
+      await this.attempts.log(who.userId, 'REFRESH_FAILED', null).catch(() => undefined);
+      throw e;
+    }
+  }
+
+  private async refreshInner(
+    refreshToken: string,
+    proof: DeviceProof | undefined,
+    who: { userId: string | null },
+  ): Promise<TokenPair> {
     if (!OPAQUE_TOKEN_RE.test(refreshToken))
       throw new AppError('AUTHENTICATION_REQUIRED', 'Refresh token không hợp lệ');
     const rt = await this.tx.refreshToken.findUnique({
@@ -313,6 +331,7 @@ export class AuthService {
     });
     if (!rt) throw new AppError('AUTHENTICATION_REQUIRED', 'Refresh token không hợp lệ');
     const s = rt.session;
+    who.userId = s.userId;
     const staff = s.userType === 'STAFF';
     const customer = s.userType === 'CUSTOMER';
     if (!isAdmin(s.userType) && !staff && !customer)
@@ -572,7 +591,7 @@ export class AuthService {
       action: 'auth.totp_enable',
       resourceType: 'user',
       resourceId: u.id,
-      after: { revoked_password_only_sessions: others.count },
+      after: { revoked_unverified_sessions: others.count },
     });
     // lần đầu phiên qua 2FA trên thiết bị này (kích hoạt tài khoản) — Master được báo như đăng nhập thiết bị mới
     await this.maybeNewDevice(u.id, p.sessionId);

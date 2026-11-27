@@ -200,6 +200,20 @@ export class StaffAdminService {
         if (reopen || leftChanged || pinOnInactive)
           throw new AppError('ACTION_FORBIDDEN', 'Chỉ Master mở lại tài khoản đã khóa / đổi ngày nghỉ đã đặt');
       }
+      // Review cổng CP03 TB3: đổi trạng thái qua PATCH không được rẻ hơn route chuyên dụng
+      //  - LOCKED ⇒ ACTIVE phải đi POST /admin/users/{id}/unlock (Master + step-up + lý do + audit user.unlock)
+      //  - đổi status bởi tài khoản 2FA (Master) cần step-up còn hạn, như /lock
+      if (b.status !== undefined && b.status !== before.user.status) {
+        if (before.user.status === 'LOCKED')
+          throw new AppError(
+            'INVALID_STATE_TRANSITION',
+            'Tài khoản đang LOCKED — mở khóa qua /admin/users/{id}/unlock',
+          );
+        const p = this.principal();
+        const has2fa = p.userType === 'MASTER' || p.userType === 'VIEWER';
+        if (has2fa && !(p.stepUpUntil && p.stepUpUntil.getTime() > Date.now()))
+          throw new AppError('STEP_UP_REQUIRED', 'Đổi trạng thái nhân viên cần xác thực lại 2FA');
+      }
       const staffData = {
         ...(b.full_name !== undefined ? { fullName: b.full_name } : {}),
         ...(b.hired_at !== undefined ? { hiredAt: b.hired_at ? new Date(b.hired_at) : null } : {}),
@@ -246,7 +260,7 @@ export class StaffAdminService {
           hired_at: day(after.hiredAt),
           left_at: day(after.leftAt),
           status: after.user.status,
-          pin_reset: pinHash !== undefined,
+          credential_reset: pinHash !== undefined, // tên không chứa token nhạy cảm ("pin") ⇒ audit không che
           revoked_sessions: revoked,
         },
       });

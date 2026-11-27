@@ -78,6 +78,8 @@ export class AuditOutboxService {
       select: { id: true },
     });
     this.cls.set('auditCount', (this.cls.get('auditCount') ?? 0) + 1);
+    const trace = this.cls.get('ownTxTrace');
+    if (trace) trace.audit++;
     return id;
   }
 

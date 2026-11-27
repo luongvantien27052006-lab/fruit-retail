@@ -342,6 +342,12 @@ describe('RBAC + cô lập Viewer (CP03 lát 6)', () => {
     expect((await c.get('/v1/auth/sessions')).body.code).toBe('SESSION_REVOKED');
     const [sess] = await rows(`SELECT revoke_reason FROM core.sessions WHERE id = $1`, [c.sessionId]);
     expect(sess?.revoke_reason).toBe('PIN_RESET');
+    // review cổng CP03 TB2: audit ghi rõ đã đặt lại PIN (không bị che thành [REDACTED])
+    const [au] = await rows(
+      `SELECT after FROM audit.logs WHERE resource_id = $1 AND action = 'staff.update' ORDER BY at DESC LIMIT 1`,
+      [s.userId],
+    );
+    expect((au?.after as Record<string, unknown>)?.['credential_reset']).toBe(true);
     const c2 = await staffClient(d, { code: s.code, pin: '573918' });
     await http().patch(`/v1/admin/staff/${s.userId}`).set('Authorization', master).send({ status: 'DISABLED' });
     expect((await c2.get('/v1/auth/sessions')).status).toBe(401);

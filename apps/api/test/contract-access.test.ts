@@ -83,4 +83,30 @@ describe('khai báo quyền của route khớp OpenAPI', () => {
       'POST /admin/users/{id}/lock',
     ]);
   });
+
+  it('route @OwnTransaction (bỏ qua transaction + kiểm audit chung) chỉ ở danh sách trắng đã duyệt (review cổng CP03 TB5)', () => {
+    const own = listRoutes(app)
+      .filter((r) => r.ownTx)
+      .map((r) => `${r.method} ${r.path}`)
+      .sort();
+    // mỗi route này tự ghi audit.logs hoặc audit.login_logs — MutationInterceptor kiểm lúc chạy (dev/test: 500)
+    expect(own).toEqual([
+      'PATCH /admin/staff/{id}',
+      'POST /admin/admin-accounts',
+      'POST /admin/pos-devices/{id}/revoke',
+      'POST /admin/staff',
+      'POST /auth/2fa/confirm',
+      'POST /auth/2fa/recover',
+      'POST /auth/2fa/recovery-codes',
+      'POST /auth/2fa/verify',
+      'POST /auth/login',
+      'POST /auth/otp/request',
+      'POST /auth/otp/verify',
+      'POST /auth/password',
+      'POST /auth/pin',
+      'POST /auth/refresh',
+      'POST /auth/step-up',
+      'POST /files/{id}/complete',
+    ]);
+  });
 });

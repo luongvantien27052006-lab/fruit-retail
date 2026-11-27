@@ -1,4 +1,11 @@
-import { type CallHandler, type ExecutionContext, Inject, Injectable, type NestInterceptor } from '@nestjs/common';
+import {
+  type CallHandler,
+  type ExecutionContext,
+  Inject,
+  Injectable,
+  Logger,
+  type NestInterceptor,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { TransactionHost } from '@nestjs-cls/transactional';
 import type { Request } from 'express';
@@ -18,6 +25,7 @@ const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
  */
 @Injectable()
 export class MutationInterceptor implements NestInterceptor {
+  private readonly log = new Logger('MutationInterceptor');
   constructor(
     @Inject(TransactionHost) private readonly txHost: Tx,
     private readonly cls: ClsService<RequestStore>,
@@ -27,9 +35,26 @@ export class MutationInterceptor implements NestInterceptor {
   intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
     const req = ctx.switchToHttp().getRequest<Request>();
     if (!MUTATING.has(req.method)) return next.handle();
-    // luồng xác thực tự quản transaction (lần sai phải được lưu dù request lỗi) — xem @OwnTransaction
-    if (this.reflector.get<string | undefined>(OWN_TX_KEY, ctx.getHandler())) return next.handle();
     const noAudit = this.reflector.get<string | undefined>(NO_AUDIT_KEY, ctx.getHandler());
+    // luồng tự quản transaction (lần sai phải được lưu dù request lỗi) — xem @OwnTransaction. Review cổng CP03 TB5: vẫn
+    // phải để lại dấu vết — thành công mà không có dòng audit.logs NÀO và không có dòng audit.login_logs NÀO ⇒ lỗi lập
+    // trình. Transaction đã commit (không rollback được) ⇒ dev/test: 500 để test đỏ; production: ghi log lỗi.
+    if (this.reflector.get<string | undefined>(OWN_TX_KEY, ctx.getHandler())) {
+      if (noAudit) return next.handle();
+      return from(
+        (async () => {
+          const trace = { audit: 0, login: 0 };
+          this.cls.set('ownTxTrace', trace);
+          const result = await lastValueFrom(next.handle(), { defaultValue: undefined });
+          if (trace.audit + trace.login === 0) {
+            const msg = `Mutation @OwnTransaction ${req.method} ${req.route?.path ?? req.path} không ghi audit/login_logs`;
+            if (process.env['NODE_ENV'] === 'production') this.log.error(msg);
+            else throw new Error(msg);
+          }
+          return result;
+        })(),
+      );
+    }
     return from(
       this.txHost.withTransaction(async () => {
         this.cls.set('auditCount', 0);

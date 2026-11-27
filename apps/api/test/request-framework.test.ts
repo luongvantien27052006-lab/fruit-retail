@@ -24,7 +24,14 @@ import { testAuthEnv } from './helpers/auth-env';
 import { parse } from 'yaml';
 import { z } from 'zod';
 import { createApp } from '../src/bootstrap';
-import { Authenticated, NoAudit, type Principal, Public, RequirePermission } from '../src/common/access';
+import {
+  Authenticated,
+  NoAudit,
+  OwnTransaction,
+  type Principal,
+  Public,
+  RequirePermission,
+} from '../src/common/access';
 import { AuditOutboxService, type Tx } from '../src/common/audit-outbox.service';
 import { AppError, ERROR_HTTP_STATUS } from '../src/common/errors';
 import { isDbError, mapDbError } from '../src/common/db-errors';
@@ -114,6 +121,13 @@ class TestController {
   @Post('stores/:id/no-audit')
   async noAudit(@Param('id') id: string) {
     await this.tx.store.update({ where: { id }, data: { name: 'QUÊN AUDIT' } });
+    return { ok: true };
+  }
+
+  @OwnTransaction('route thử nghiệm: tự quản transaction nhưng QUÊN ghi dấu vết')
+  @Authenticated()
+  @Post('own-tx-silent')
+  ownTxSilent() {
     return { ok: true };
   }
 
@@ -348,6 +362,11 @@ describe('khung request (CP03 lát 2)', () => {
     expect(res.body.code).toBe('INTERNAL_ERROR');
     const [s] = await rows(`SELECT name FROM core.stores WHERE id = $1`, [store]);
     expect(s?.name).toBe('Tên mới');
+  });
+
+  it('route @OwnTransaction thành công mà không ghi audit/login_logs ⇒ 500 ở dev/test (review cổng CP03 TB5)', async () => {
+    const res = await http().post('/v1/_test/own-tx-silent').set('x-test-principal', principal([]));
+    expect([res.status, res.body.code]).toEqual([500, 'INTERNAL_ERROR']);
   });
 
   it('@NoAudit có lý do: mutation không ghi audit vẫn chạy', async () => {

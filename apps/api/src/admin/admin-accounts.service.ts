@@ -170,8 +170,8 @@ export class AdminAccountsService {
       action: 'user.two_factor_reset',
       resourceType: 'user',
       resourceId: id,
-      before: { totp_enabled: u.totpEnabledAt !== null, recovery_codes: codes.count },
-      after: { totp_enabled: false, revoked_sessions: revoked },
+      before: { two_factor_on: u.totpEnabledAt !== null, recovery_codes: codes.count },
+      after: { two_factor_on: false, revoked_sessions: revoked },
       reason,
     });
     return { user_id: id, two_factor_enabled: false, revoked_sessions: revoked };

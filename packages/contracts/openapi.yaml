@@ -8962,7 +8962,9 @@ components:
       type: object
       minProperties: 1
       additionalProperties: false
-      description: Đổi PIN hoặc khóa (DISABLED) ⇒ thu hồi mọi phiên của nhân viên. Không tự sửa chính mình.
+      description: >-
+        Đổi PIN hoặc khóa (DISABLED) ⇒ thu hồi mọi phiên của nhân viên. Không tự sửa chính mình. Đổi `status` bởi Master cần
+        step-up còn hạn (403 STEP_UP_REQUIRED); tài khoản LOCKED không mở bằng PATCH (409 — dùng /admin/users/{id}/unlock).
       properties:
         full_name:
           type: string

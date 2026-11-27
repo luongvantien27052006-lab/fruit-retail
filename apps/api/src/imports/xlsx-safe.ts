@@ -10,8 +10,10 @@ import yauzl from 'yauzl';
  */
 export const XLSX_LIMITS = {
   maxEntries: 200,
-  maxTotalUncompressed: 50 * 1024 * 1024,
-  maxEntryUncompressed: 30 * 1024 * 1024,
+  /** exceljs nạp cả file vào bộ nhớ (~35× kích thước XML) — 5.000 dòng × 60 cột thật ≈ 7 MB XML (review lát 5 N1) */
+  maxTotalUncompressed: 20 * 1024 * 1024,
+  maxEntryUncompressed: 10 * 1024 * 1024,
+  maxSheets: 20,
   /** tỉ lệ giải nén / nén tối đa cho mục > 1 MB (XML thường ~10–30×) */
   maxRatio: 150,
   maxRows: 5000,
@@ -40,6 +42,44 @@ const FORBIDDEN = [
   /^xl\/queryTables\//i,
 ];
 const MAIN_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml';
+/** loại nội dung / quan hệ chủ động — từ chối bất kể TÊN phần (đổi tên phần không lọt — review bảo mật lát 5 N2) */
+const ACTIVE_TYPE =
+  /macroEnabled|vbaProject|externalLink|activeX|oleObject|ms-excel\.(sheet\.binary|addin|template)|ms-excel\.controlproperties|officedocument\.package/i;
+/** đoạn CUỐI của kiểu quan hệ (không khớp chuỗi con — loại chuẩn "…/package/2006/relationships/…" hợp lệ) */
+const ACTIVE_REL =
+  /\/(vbaProject|externalLink|externalLinkPath|oleObject|activeXControl|activeXControlBinary|control|ctrlProp|attachedTemplate|package|frame|embeddings?)$/i;
+const HYPERLINK_REL = /\/relationships\/hyperlink$/;
+
+const attrs = (tag: string) => new Map([...tag.matchAll(/([\w:]+)\s*=\s*"([^"]*)"/g)].map((m) => [m[1], m[2] ?? '']));
+const tags = (xml: string, name: string) =>
+  [...xml.matchAll(new RegExp(`<${name}\\b[^>]*>`, 'g'))].map((m) => attrs(m[0]));
+
+/**
+ * Kiểm theo NGHĨA (không theo tên phần): mọi ContentType không chủ động; phần officeDocument (_rels/.rels) có đúng loại
+ * workbook .xlsx thường; mọi quan hệ trong *.rels không chủ động; đích ngoài (External) chỉ cho hyperlink.
+ */
+function validateParts(contentTypes: string, rels: Map<string, string>): void {
+  const defaults = tags(contentTypes, 'Default');
+  const overrides = tags(contentTypes, 'Override');
+  for (const t of [...defaults, ...overrides])
+    if (ACTIVE_TYPE.test(t.get('ContentType') ?? ''))
+      throw new XlsxRejected('ACTIVE_CONTENT', 'File chứa macro / liên kết ngoài / đối tượng nhúng');
+  const root = rels.get('_rels/.rels') ?? '';
+  const office = tags(root, 'Relationship').find((r) => /\/officeDocument$/.test(r.get('Type') ?? ''));
+  const target = (office?.get('Target') ?? '').replace(/^\//, '');
+  const ct = overrides.find((o) => (o.get('PartName') ?? '').replace(/^\//, '') === target)?.get('ContentType');
+  if (!target || ct !== MAIN_XLSX)
+    // .xlsm (macroEnabled), .xlsb, .ods… đổi đuôi thành .xlsx
+    throw new XlsxRejected('NOT_XLSX', 'File không phải .xlsx (có thể là .xlsm / .xls đổi đuôi)');
+  for (const xml of rels.values())
+    for (const r of tags(xml, 'Relationship')) {
+      const type = r.get('Type') ?? '';
+      if (ACTIVE_REL.test(type))
+        throw new XlsxRejected('ACTIVE_CONTENT', 'File chứa macro / liên kết ngoài / đối tượng nhúng');
+      if ((r.get('TargetMode') ?? '').toLowerCase() === 'external' && !HYPERLINK_REL.test(type))
+        throw new XlsxRejected('ACTIVE_CONTENT', 'File chứa liên kết ra ngoài');
+    }
+}
 
 const open = (buf: Buffer) =>
   new Promise<yauzl.ZipFile>((res, rej) =>
@@ -61,6 +101,8 @@ export async function inspectXlsx(buf: Buffer): Promise<void> {
   let entries = 0;
   let total = 0;
   let contentTypes = '';
+  let sheets = 0;
+  const rels = new Map<string, string>();
   try {
     await new Promise<void>((resolve, reject) => {
       zip.on('error', reject);
@@ -84,11 +126,17 @@ export async function inspectXlsx(buf: Buffer): Promise<void> {
             throw new XlsxRejected('ZIP_BOMB', 'Tỉ lệ nén bất thường (nghi zip bomb)');
           if (entry.uncompressedSize > XLSX_LIMITS.maxEntryUncompressed)
             throw new XlsxRejected('TOO_LARGE', 'File giải nén quá lớn');
+          if (
+            /^xl\/(worksheets|chartsheets|dialogsheets|macrosheets)\//i.test(name) &&
+            ++sheets > XLSX_LIMITS.maxSheets
+          )
+            throw new XlsxRejected('TOO_MANY_SHEETS', 'File có quá nhiều sheet');
           total += entry.uncompressedSize;
           if (total > XLSX_LIMITS.maxTotalUncompressed) throw new XlsxRejected('TOO_LARGE', 'File giải nén quá lớn');
           // giải nén thử, đếm byte thật — yauzl validateEntrySizes báo lỗi nếu khác kích thước khai
           const chunks: Buffer[] = [];
-          const keep = name === '[Content_Types].xml';
+          const keep =
+            (name === '[Content_Types].xml' || name.endsWith('.rels')) && entry.uncompressedSize <= 1024 * 1024;
           await new Promise<void>((ok, bad) => {
             zip.openReadStream(entry, (err, s) => {
               if (err || !s) return bad(err ?? new Error('stream'));
@@ -105,7 +153,8 @@ export async function inspectXlsx(buf: Buffer): Promise<void> {
               s.on('end', () => ok());
             });
           });
-          if (keep) contentTypes = Buffer.concat(chunks).toString('utf8');
+          if (keep && name === '[Content_Types].xml') contentTypes = Buffer.concat(chunks).toString('utf8');
+          else if (keep) rels.set(name, Buffer.concat(chunks).toString('utf8'));
           zip.readEntry();
         })().catch(reject);
       });
@@ -117,9 +166,7 @@ export async function inspectXlsx(buf: Buffer): Promise<void> {
     throw new XlsxRejected('NOT_XLSX', 'File không phải .xlsx hợp lệ');
   }
   zip.close();
-  if (!contentTypes.includes(MAIN_XLSX))
-    // .xlsm (macroEnabled), .xlsb, .ods… đổi đuôi thành .xlsx
-    throw new XlsxRejected('NOT_XLSX', 'File không phải .xlsx (có thể là .xlsm / .xls đổi đuôi)');
+  validateParts(contentTypes, rels);
 }
 
 export type Cell = string | number | boolean | null;
@@ -146,6 +193,9 @@ export async function readSheet(
   }
   const ws = wb.worksheets[0];
   if (!ws) throw new XlsxRejected('EMPTY', 'File không có sheet nào');
+  // sheet dữ liệu bị ẩn ⇒ người nhập không thấy dòng nào sẽ vào (review bảo mật lát 5)
+  if (ws.state !== 'visible')
+    throw new XlsxRejected('HIDDEN_SHEET', 'Sheet đầu tiên đang bị ẩn — hiện sheet rồi tải lại');
   if (ws.actualRowCount > XLSX_LIMITS.maxRows + 1 || ws.rowCount > XLSX_LIMITS.maxRows + 50)
     throw new XlsxRejected('TOO_MANY_ROWS', `Tối đa ${XLSX_LIMITS.maxRows} dòng dữ liệu mỗi file`);
   if (ws.columnCount > XLSX_LIMITS.maxColumns) throw new XlsxRejected('TOO_MANY_COLUMNS', 'File có quá nhiều cột');
@@ -176,7 +226,8 @@ export async function readSheet(
   const rows: SheetRow[] = [];
   for (let r = 2; r <= ws.rowCount; r++) {
     const row = ws.getRow(r);
-    const values: Record<string, Cell> = {};
+    // mọi khóa đều có mặt (cột vắng ⇒ null) — review TS lát 5 C1
+    const values: Record<string, Cell> = Object.fromEntries(keys.map((k) => [k, null]));
     let any = false;
     for (const [col, k] of colKey) {
       const v = cellValue(row.getCell(col).value);

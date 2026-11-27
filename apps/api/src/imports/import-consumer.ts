@@ -10,8 +10,8 @@ import { IMPORT_EVENT } from './imports.service';
 export class ImportConsumer implements EventConsumer {
   readonly name = 'catalog-import';
   readonly eventTypes = new Set([IMPORT_EVENT]);
-  /** transaction của runner (processed_events) mở trong lúc lượt nhập chạy ⇒ cho dài hơn transaction nhập (4 phút) */
-  readonly timeoutMs = 600_000;
+  /** runner không giữ transaction trong lúc lượt chạy (review TS lát 5 C4) — đúng một lần nhờ trạng thái lượt */
+  readonly selfManaged = true;
 
   constructor(private readonly processor: ImportProcessor) {}
 

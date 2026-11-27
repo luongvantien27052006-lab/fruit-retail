@@ -63,27 +63,38 @@ export const columnsOf = (t: ImportType) => (t === 'CATALOG' ? CATALOG_COLUMNS :
 
 // ───────── chuyển ô ⇒ giá trị ─────────
 
-/** ô ⇒ chuỗi (số ⇒ chuỗi không mũ; rỗng ⇒ undefined) */
-const str = (v: Cell): string | undefined => {
-  if (v === null) return undefined;
-  if (typeof v === 'number') return Number.isInteger(v) ? String(v) : String(v);
+/**
+ * ô ⇒ chuỗi; ô trống / cột không có trong file ⇒ undefined (review TS lát 5 C1). Dấu `'` mà file XUẤT thêm trước = + - @
+ * (chống chèn công thức) được bỏ khi nhập lại.
+ */
+const str = (v: Cell | undefined): string | undefined => {
+  if (v === null || v === undefined) return undefined;
+  if (typeof v === 'number') return String(v);
   if (typeof v === 'boolean') return v ? 'true' : 'false';
-  const s = v.trim();
+  const t = v.trim();
+  const s = /^'[=+\-@]/.test(t) ? t.slice(1) : t;
   return s === '' ? undefined : s;
+};
+/** lỗi dùng chung khi ô kiểu SỐ không chuyển an toàn được (số thập phân / vượt 2^53 / mất số 0 đầu) */
+const NUMERIC = 'ô kiểu số không dùng được — định dạng cột là Chữ (Text) rồi nhập lại';
+/** cột mã (số tài khoản, SĐT…): ô kiểu số luôn bị từ chối (Excel đã bỏ số 0 đầu / làm tròn số dài) */
+const codeText = (v: unknown) => (typeof v === 'number' ? NUMERIC_MARK : str(v as Cell));
+const NUMERIC_MARK = '\u0000numeric';
+/** số nguyên: ô số phải là số nguyên an toàn; ô chữ chỉ bỏ dấu phân cách NGHÌN đúng mẫu (1.000 / 1,000 / 1 000) */
+const toInt = (v: unknown): number | undefined | typeof Number.NaN => {
+  if (v === null || v === undefined) return undefined;
+  if (typeof v === 'number') return Number.isSafeInteger(v) ? v : Number.NaN;
+  const s = str(v as Cell);
+  if (s === undefined) return undefined;
+  const d = /^-?\d{1,3}([.,\s]\d{3})+$/.test(s) ? s.replace(/[.,\s]/g, '') : s;
+  return /^-?\d{1,15}$/.test(d) ? Number(d) : Number.NaN;
 };
 const cellText = z.preprocess((v) => str(v as Cell), text(200));
 const cellOptText = (max: number) => z.preprocess((v) => str(v as Cell) ?? null, optText(max));
 const cellCode = (re: RegExp, msg: string) =>
   z.preprocess((v) => str(v as Cell)?.toUpperCase(), z.string().regex(re, msg));
 const cellInt = (lo: number, hi: number) =>
-  z.preprocess(
-    (v) => {
-      const s = str(v as Cell);
-      if (s === undefined) return undefined;
-      return /^-?\d+$/.test(s.replace(/[\s.,]/g, '')) ? Number(s.replace(/[\s.,]/g, '')) : Number.NaN;
-    },
-    z.number({ error: 'phải là số nguyên' }).int('phải là số nguyên').min(lo).max(hi).optional(),
-  );
+  z.preprocess(toInt, z.number({ error: 'phải là số nguyên' }).int('phải là số nguyên').min(lo).max(hi).optional());
 const TRUE = new Set(['có', 'co', 'x', 'true', '1', 'yes', 'y']);
 const FALSE = new Set(['không', 'khong', 'false', '0', 'no', 'n']);
 const cellBool = z.preprocess(
@@ -94,13 +105,13 @@ const cellBool = z.preprocess(
   },
   z.boolean({ error: 'có / không' }).optional(),
 );
-/** tiền: số nguyên đồng (ô số hoặc chuỗi "45.000" / "45,000") ⇒ bigint */
+/** tiền: số nguyên đồng (ô số nguyên, hoặc chữ "45.000" / "45,000" / "45.000 đ") ⇒ bigint; 45000.5 ⇒ lỗi (C2) */
 const cellVnd = z.preprocess(
   (v) => {
-    const s = str(v as Cell);
-    if (s === undefined) return undefined;
-    const d = s.replace(/[\s.,đ₫]/gi, '');
-    return /^\d{1,13}$/.test(d) ? d : 'sai';
+    if (typeof v === 'string') v = v.replace(/\s*(đ|₫|vnd)$/i, '');
+    const n = toInt(v);
+    if (n === undefined) return undefined;
+    return Number.isSafeInteger(n) && (n as number) >= 0 && (n as number) < 1e13 ? String(n) : 'sai';
   },
   z
     .string()
@@ -144,11 +155,18 @@ export const CatalogRow = z.object({
       .optional(),
   ),
   sold_by_scale: cellBool,
+  // ô số: chỉ nhận số nguyên an toàn dài 8 / 13 / 14 (EAN-8 / EAN-13 / GTIN-14 không mất số 0 đầu); khác ⇒ lỗi (C2)
   barcode: z.preprocess(
-    (v) => str(v as Cell)?.toUpperCase(),
+    (v) =>
+      typeof v === 'number'
+        ? Number.isSafeInteger(v) && [8, 13, 14].includes(String(v).length)
+          ? String(v)
+          : NUMERIC_MARK
+        : str(v as Cell)?.toUpperCase(),
     z
       .string()
-      .regex(/^[0-9A-Z-]{4,32}$/, 'mã vạch: 4–32 ký tự số/chữ HOA/-')
+      .refine((x) => x !== NUMERIC_MARK, NUMERIC)
+      .pipe(z.string().regex(/^[0-9A-Z-]{4,32}$/, 'mã vạch: 4–32 ký tự số/chữ HOA/-'))
       .refine((x) => !/^2[0-9]{12}$/.test(x), 'mã 13 số bắt đầu bằng 2 dành cho tem cân')
       .optional(),
   ),
@@ -165,13 +183,24 @@ export const SupplierRow = z
     name: cellText,
     type: z.preprocess((v) => str(v as Cell)?.toUpperCase(), z.enum(SUPPLIER_TYPES)),
     contact_name: cellOptText(100),
-    phone: z.preprocess((v) => str(v as Cell), z.string().max(20).optional()),
-    bank_name: cellOptText(100),
-    account_number: z.preprocess(
-      (v) => str(v as Cell)?.replace(/[\s.-]/g, ''),
+    phone: z.preprocess(
+      codeText,
       z
         .string()
-        .regex(/^[0-9]{6,20}$/, 'số tài khoản: 6–20 chữ số')
+        .refine((x) => x !== NUMERIC_MARK, NUMERIC)
+        .pipe(z.string().max(20))
+        .optional(),
+    ),
+    bank_name: cellOptText(100),
+    account_number: z.preprocess(
+      (v) => {
+        const s = codeText(v);
+        return s === NUMERIC_MARK ? s : s?.replace(/[\s.-]/g, '');
+      },
+      z
+        .string()
+        .refine((x) => x !== NUMERIC_MARK, NUMERIC)
+        .pipe(z.string().regex(/^[0-9]{6,20}$/, 'số tài khoản: 6–20 chữ số'))
         .optional(),
     ),
     account_holder: z.preprocess((v) => str(v as Cell)?.toUpperCase(), text(100).optional()),

@@ -1,5 +1,5 @@
 import type { PrismaService } from '../prisma.service';
-import type { EventConsumer, EventEnvelope } from './events';
+import type { EventConsumer, EventEnvelope, WorkerTx } from './events';
 
 /**
  * Chạy MỘT sự kiện qua mọi consumer quan tâm (ADR-007, ADR-025). Mỗi consumer một transaction riêng: chèn
@@ -20,6 +20,17 @@ export class ConsumerRunner {
     for (const c of this.consumers) {
       if (!c.eventTypes.has(ev.event_type)) continue;
       try {
+        if (c.selfManaged) {
+          const seen = await this.prisma.$queryRaw<unknown[]>`
+            SELECT 1 FROM integration.processed_events WHERE consumer = ${c.name} AND event_id = ${ev.event_id}::uuid`;
+          if (seen.length) continue;
+          await c.handle(ev, null as unknown as WorkerTx);
+          await this.prisma.$executeRaw`
+            INSERT INTO integration.processed_events (consumer, event_id) VALUES (${c.name}, ${ev.event_id}::uuid)
+            ON CONFLICT DO NOTHING`;
+          done.push(c.name);
+          continue;
+        }
         const ran = await this.prisma.$transaction(
           async (tx) => {
             const ins = await tx.$executeRaw`
@@ -29,7 +40,7 @@ export class ConsumerRunner {
             await c.handle(ev, tx);
             return true;
           },
-          { timeout: c.timeoutMs ?? 30_000, maxWait: 10_000 },
+          { timeout: 30_000, maxWait: 10_000 },
         );
         if (ran) done.push(c.name);
       } catch (err) {

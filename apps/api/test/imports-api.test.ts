@@ -4,7 +4,9 @@ import ExcelJS from 'exceljs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CATALOG_COLUMNS, SUPPLIER_COLUMNS } from '../src/imports/import-columns';
 import { ImportProcessor } from '../src/imports/import-processor';
+import { ConsumerRunner } from '../src/infra/outbox/consumer-runner';
 import { EVENT_CONSUMERS, type EventConsumer } from '../src/infra/outbox/events';
+import { PrismaService } from '../src/infra/prisma.service';
 import { WorkerModule } from '../src/worker.module';
 import { schemaErrors } from './helpers/contract';
 import { type AdminEnv, type Client, startAdminEnv } from './helpers/admin-env';
@@ -38,6 +40,10 @@ describe('Nhập / xuất Excel (CP04 lát 5)', () => {
   });
 
   async function upload(buf: Buffer): Promise<string> {
+    // trần presign 20 file / giờ / người (CP03) — test tải nhiều file ⇒ (owner) lùi mốc tạo các file cũ
+    await e.db.q(`UPDATE core.files SET created_at = created_at - interval '2 days' WHERE created_by = $1`, [
+      e.masterId,
+    ]);
     const p = await e.master.post('/files/presign', {
       kind: 'IMPORT_XLSX',
       mime: XLSX,
@@ -390,6 +396,192 @@ describe('Nhập / xuất Excel (CP04 lát 5)', () => {
     expect(a?.after).toMatchObject({ list: 'suppliers' });
   }, 120_000);
 
+  it('review vòng 1: thiếu cột tùy chọn, ô số không đọc sai, bộ nhớ đệm danh mục khi dòng lỗi, cập nhật mã vạch', async () => {
+    const tag = `RV${e.hex(2)}`;
+    // C1: chỉ cột bắt buộc (cả CATALOG lẫn SUPPLIER)
+    const req = CATALOG_COLUMNS.filter((c) => c.required);
+    const onlyReq = await runImport(
+      await xlsx(req, [
+        { category: `DM ${tag}`, product: 'SP', sku_code: `${tag}-R`, name: 'Tối thiểu', sale_unit_type: 'WEIGHT' },
+      ]),
+      { mode: 'SKIP', dry_run: false },
+    );
+    expect(onlyReq).toMatchObject({ status: 'COMPLETED', ok_rows: 1 });
+    const sup = await runImport(
+      await xlsx(
+        SUPPLIER_COLUMNS.filter((c) => c.required),
+        [{ code: `${tag}-S`, name: 'NCC tối thiểu', type: 'OTHER' }],
+      ),
+      { type: 'SUPPLIER', mode: 'SKIP', dry_run: false },
+    );
+    expect(sup).toMatchObject({ status: 'COMPLETED', ok_rows: 1 });
+
+    // C2: ô kiểu SỐ không bị đọc sai; chữ "45.000" là 45.000 đồng
+    const nums = await runImport(
+      await xlsx(CATALOG_COLUMNS, [
+        {
+          category: `N ${tag}`,
+          product: 'SP',
+          sku_code: `${tag}-N1`,
+          name: 'a',
+          sale_unit_type: 'WEIGHT',
+          retail_price: 45000.5,
+        },
+        {
+          category: `N ${tag}`,
+          product: 'SP',
+          sku_code: `${tag}-N2`,
+          name: 'b',
+          sale_unit_type: 'PACK_FIXED',
+          std_weight_g: 250.5,
+        },
+        {
+          category: `N ${tag}`,
+          product: 'SP',
+          sku_code: `${tag}-N3`,
+          name: 'c',
+          sale_unit_type: 'PIECE_FIXED',
+          barcode: 12345678905,
+        },
+        {
+          category: `N ${tag}`,
+          product: 'SP',
+          sku_code: `${tag}-N4`,
+          name: 'd',
+          sale_unit_type: 'WEIGHT',
+          retail_price: '45.000',
+        },
+      ]),
+      { mode: 'SKIP', dry_run: false },
+    );
+    expect(nums.report.rows.map((r) => [r.row, r.status, r.field ?? null])).toEqual([
+      [2, 'ERROR', 'retail_price'],
+      [3, 'ERROR', 'std_weight_g'],
+      [4, 'ERROR', 'barcode'],
+      [5, 'CREATED', null],
+    ]);
+    const [n4] = await e.db.q(`SELECT retail_price_per_kg::text AS kg FROM core.skus WHERE sku_code = $1`, [
+      `${tag}-N4`,
+    ]);
+    expect(n4?.kg).toBe('45000');
+    const acct = await runImport(
+      await xlsx(SUPPLIER_COLUMNS, [
+        {
+          code: `${tag}-A`,
+          name: 'x',
+          type: 'FARM',
+          account_number: Number('1234567890123456789'),
+          account_holder: 'A',
+        },
+      ]),
+      { type: 'SUPPLIER', mode: 'SKIP', dry_run: false },
+    );
+    expect(acct.report.rows[0]).toMatchObject({ status: 'ERROR', field: 'account_number' });
+
+    // C3: dòng ĐẦU của danh mục mới lỗi (sau khi tạo danh mục trong savepoint) ⇒ dòng sau cùng danh mục vẫn nhập được
+    const chain = await runImport(
+      await xlsx(CATALOG_COLUMNS, [
+        {
+          category: `Mới ${tag} > Con`,
+          product: 'SP mới',
+          sku_code: `${tag}-C1`,
+          name: 'lỗi',
+          sale_unit_type: 'PACK_FIXED',
+        },
+        {
+          category: `Mới ${tag} > Con`,
+          product: 'SP mới',
+          sku_code: `${tag}-C2`,
+          name: 'đúng',
+          sale_unit_type: 'WEIGHT',
+        },
+      ]),
+      { mode: 'SKIP', dry_run: false },
+    );
+    expect(chain.report.rows.map((r) => r.status)).toEqual(['ERROR', 'CREATED']);
+
+    // UPDATE đổi mã vạch đơn vị gốc
+    const upd = await runImport(
+      await xlsx(CATALOG_COLUMNS, [
+        {
+          category: `Mới ${tag} > Con`,
+          product: 'SP mới',
+          sku_code: `${tag}-C2`,
+          name: 'đúng',
+          sale_unit_type: 'WEIGHT',
+          barcode: ean(7777),
+        },
+      ]),
+      { mode: 'UPDATE', dry_run: false },
+    );
+    expect(upd.report.rows[0]?.status).toBe('UPDATED');
+    const [bc] = await e.db.q(
+      `SELECT u.barcode FROM core.sku_units u JOIN core.skus s ON s.id = u.sku_id WHERE s.sku_code = $1`,
+      [`${tag}-C2`],
+    );
+    expect(bc?.barcode).toBe(ean(7777));
+  }, 180_000);
+
+  it('review vòng 1: .xlsm đổi tên phần, quan hệ OLE, sheet XML quá lớn, sheet đầu bị ẩn ⇒ từ chối', async () => {
+    const rels = (extra = '') =>
+      Buffer.from(
+        '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+          '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+          `${extra}</Relationships>`,
+      );
+    const ct = (wbType: string) =>
+      Buffer.from(
+        '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+          `<Override PartName="/xl/workbook.xml" ContentType="${wbType}"/>` +
+          '<Override PartName="/xl/dummy.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>',
+      );
+    const xlsm = buildZip([
+      { name: '[Content_Types].xml', data: ct('application/vnd.ms-excel.sheet.macroEnabled.main+xml') },
+      { name: '_rels/.rels', data: rels() },
+      { name: 'xl/workbook.xml', data: Buffer.from('<workbook/>') },
+    ]);
+    const r1 = await runImport(xlsm, { mode: 'SKIP', dry_run: true });
+    expect([r1.status, r1.report.reason]).toEqual(['FAILED', 'ACTIVE_CONTENT']);
+    const ole = buildZip([
+      { name: '[Content_Types].xml', data: CONTENT_TYPES_XLSX },
+      {
+        name: '_rels/.rels',
+        data: rels(
+          '<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject" Target="x.bin"/>',
+        ),
+      },
+    ]);
+    const r2 = await runImport(ole, { mode: 'SKIP', dry_run: true });
+    expect([r2.status, r2.report.reason]).toEqual(['FAILED', 'ACTIVE_CONTENT']);
+    // 11 MB XML nén tỉ lệ thấp (có nhiễu) — dưới trần 5 MB tải lên, vượt trần 10 MB giải nén mỗi mục
+    const noisy = Buffer.alloc(11 * 1024 * 1024);
+    for (let i = 0; i < noisy.length; i++) noisy[i] = i % 8 === 0 ? (i * 2654435761) >>> 24 : 0x41;
+    const big = buildZip([
+      { name: '[Content_Types].xml', data: CONTENT_TYPES_XLSX },
+      { name: 'xl/worksheets/sheet1.xml', data: noisy },
+    ]);
+    expect(big.length).toBeLessThan(5 * 1024 * 1024);
+    const r3 = await runImport(big, { mode: 'SKIP', dry_run: true });
+    expect([r3.status, r3.report.reason]).toEqual(['FAILED', 'TOO_LARGE']);
+    // sheet đầu bị ẩn
+    const wb = new ExcelJS.Workbook();
+    const hidden = wb.addWorksheet('Ẩn', { state: 'hidden' });
+    hidden.addRow(CATALOG_COLUMNS.map((c) => `${c.label} (${c.key})`));
+    wb.addWorksheet('Hiện').addRow(['x']);
+    const r4 = await runImport(Buffer.from(await wb.xlsx.writeBuffer()), { mode: 'SKIP', dry_run: true });
+    expect([r4.status, r4.report.reason]).toEqual(['FAILED', 'HIDDEN_SHEET']);
+  }, 180_000);
+
+  it('xuất NCC cho người chỉ có supplier:read (+ report:export): không có cột thông tin ngân hàng', async () => {
+    const rd = await e.storeManager({ grants: ['supplier:read', 'report:export'] });
+    const x = await rd.post('/admin/catalog-exports', { list: 'suppliers' });
+    expect(x.status).toBe(201);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(await (await fetch(x.body.url as string)).arrayBuffer());
+    const head = JSON.stringify(wb.worksheets[0]?.getRow(1).values);
+    expect(head).not.toContain('has_bank_account');
+  }, 120_000);
+
   it('worker thật: WorkerModule dựng được, consumer catalog-import chạy lượt từ sự kiện outbox', async () => {
     const tag = `WK${e.hex(2)}`;
     const file_id = await upload(
@@ -407,20 +599,21 @@ describe('Nhập / xuất Excel (CP04 lát 5)', () => {
     const w = await NestFactory.createApplicationContext(WorkerModule.forRoot(e.env), { logger: false });
     try {
       const consumers = w.get<EventConsumer[]>(EVENT_CONSUMERS);
-      const consumer = consumers.find((x) => x.name === 'catalog-import');
-      expect(consumer).toBeDefined();
-      await consumer?.handle(
-        {
-          event_id: ev?.id as string,
-          event_type: ev?.event_type as string,
-          schema_version: ev?.schema_version as number,
-          aggregate_type: ev?.aggregate_type as string,
-          aggregate_id: ev?.aggregate_id as string,
-          occurred_at: (ev?.occurred_at as Date).toISOString(),
-          payload: ev?.payload,
-        },
-        undefined as never,
-      );
+      expect(consumers.find((x) => x.name === 'catalog-import')?.selfManaged).toBe(true);
+      // qua ConsumerRunner thật (như OutboxWorker): consumer tự quản ⇒ runner không giữ transaction trong lúc lượt chạy
+      // (review TS lát 5 C4), ghi processed_events sau khi xong; giao lại ⇒ bỏ qua
+      const runner = new ConsumerRunner(w.get(PrismaService), consumers);
+      const envelope = {
+        event_id: ev?.id as string,
+        event_type: ev?.event_type as string,
+        schema_version: ev?.schema_version as number,
+        aggregate_type: ev?.aggregate_type as string,
+        aggregate_id: ev?.aggregate_id as string,
+        occurred_at: (ev?.occurred_at as Date).toISOString(),
+        payload: ev?.payload,
+      };
+      expect(await runner.process(envelope)).toEqual(['catalog-import']);
+      expect(await runner.process(envelope)).toEqual([]);
     } finally {
       await w.close();
     }

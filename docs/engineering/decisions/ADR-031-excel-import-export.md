@@ -18,20 +18,31 @@ Tiến cần nạp danh mục thật (≥ 20 SKU, cổng CP04) và danh bạ NCC
    từng bản ghi, lịch sử giá (lý do "Nhập file Excel (lượt …)"). Người thực hiện = người tạo lượt (Principal dựng lại từ DB;
    phải còn là Master ACTIVE có `import:run`, nếu không ⇒ FAILED); `request_id` audit = id lượt.
 3. **Đúng một lần:** giành lượt PENDING → RUNNING bằng khóa dòng; không PENDING ⇒ bỏ qua (sự kiện giao lại không chạy hai
-   lần). Lỗi hệ thống ⇒ FAILED (không ném — BullMQ không thử lại lượt hỏng; người dùng tạo lượt mới). Runner cho consumer này
-   transaction 10 phút (`timeoutMs`), transaction nhập 4 phút.
-4. **Một transaction, mỗi dòng một SAVEPOINT:** lỗi dòng (quy tắc, trùng do đua, DB) chỉ hoàn tác dòng đó, các dòng khác vẫn
-   nhập; báo cáo ghi `row` (số dòng Excel), `status` CREATED / UPDATED / SKIPPED / ERROR, `field`, `duplicate_of`, `message`.
-   **Chạy thử** = chạy đủ rồi rollback cả transaction (số liệu đúng như chạy thật), báo cáo lưu ở transaction riêng.
+   lần). Lỗi hệ thống ⇒ FAILED (không ném — BullMQ không thử lại lượt hỏng; người dùng tạo lượt mới). Consumer **tự quản**
+   (`selfManaged`): runner KHÔNG mở transaction quanh lượt (kết nối "idle in transaction" bị Postgres cắt sau 30 s), chỉ
+   ghi `processed_events` sau khi xong. Mỗi tiến trình chạy một lượt một lúc (exceljs nạp cả file vào bộ nhớ).
+4. **Phân loại trước, ghi theo lô:** mọi dòng được phân loại TRƯỚC khi ghi (sai dữ liệu, trùng trong file, trùng bản ghi đã
+   có) ⇒ STOP gặp trùng thì FAILED mà không ghi gì. Ghi theo lô 500 dòng, mỗi lô một transaction (≤ 500 SAVEPOINT — tránh
+   tràn subtransaction của PostgreSQL; khóa giữ ngắn), mỗi dòng một SAVEPOINT: lỗi dòng chỉ hoàn tác dòng đó (bộ nhớ đệm
+   danh mục / sản phẩm được khôi phục). Báo cáo: `row` (số dòng Excel), `status` CREATED / UPDATED / SKIPPED / ERROR,
+   `field`, `duplicate_of`, `message`. **Chạy thử** = chạy đủ từng lô rồi rollback lô đó (số liệu như chạy thật). Chạy thật
+   lỗi hệ thống giữa chừng ⇒ các lô trước ĐÃ ghi (nêu trong `error`); quyền người tạo kiểm một lần lúc bắt đầu.
 5. **Trùng:** mã SKU / mã vạch đơn vị gốc / PLU (so cả bản ghi lưu trữ) và trùng trong file (dòng sau trùng dòng trước); NCC
    theo mã. `SKIP` bỏ dòng; `UPDATE` chỉ cập nhật khi trùng ĐÚNG mã của chính bản ghi (mã vạch / PLU của SKU khác, hoặc trùng
    dòng khác trong file ⇒ lỗi dòng); kiểu bán không đổi qua nhập (lỗi dòng); `STOP` dừng ở dòng trùng đầu tiên ⇒ FAILED,
    rollback, không nhập dòng nào.
-6. **File độc** (`xlsx-safe.ts`): duyệt thư mục zip bằng `yauzl` TRƯỚC exceljs — ≤ 200 mục, giải nén ≤ 30 MB / mục, ≤ 50 MB
-   tổng, tỉ lệ nén ≤ 150 với mục > 1 MB (zip bomb), giải nén thử từng mục và đếm byte thật (khai gian ⇒ từ chối); cấm mục mã
-   hóa, đường dẫn lạ, `vbaProject.bin`, `externalLinks/`, `embeddings/`, `activeX/`, `connections.xml`; `[Content_Types].xml`
-   phải là workbook .xlsx thường (không .xlsm). exceljs đọc; **ô công thức ở bất kỳ sheet nào ⇒ từ chối cả file** (không tin
-   giá trị cache). ≤ 5.000 dòng, ≤ 60 cột, ô ≤ 2.000 ký tự. Từ chối ⇒ FAILED + `report.reason`.
+6. **File độc** (`xlsx-safe.ts`): duyệt thư mục zip bằng `yauzl` TRƯỚC exceljs — ≤ 200 mục, ≤ 20 sheet, tỉ lệ nén ≤ 150 với
+   mục > 1 MB (zip bomb), giải nén ≤ 10 MB / mục, ≤ 20 MB tổng (exceljs tốn ~35× bộ nhớ theo XML; 5.000 × 60 ô thật ≈ 7 MB),
+   giải nén thử từng mục và đếm byte thật (khai gian ⇒ từ chối); cấm mục mã hóa, đường dẫn lạ, tên phần chủ động
+   (`vbaProject.bin`, `externalLinks/`, `embeddings/`, `activeX/`…). Kiểm theo NGHĨA, không theo tên: phần officeDocument
+   (`_rels/.rels`) phải có đúng loại workbook .xlsx thường; mọi ContentType và mọi quan hệ trong `*.rels` không thuộc loại chủ
+   động (macro, OLE, ActiveX, liên kết ngoài, template); đích External chỉ cho hyperlink. exceljs đọc (saxes không nhận
+   DOCTYPE ⇒ chặn XXE / billion laughs); **ô công thức ở bất kỳ sheet nào ⇒ từ chối cả file**; sheet đầu bị ẩn ⇒ từ chối.
+   ≤ 5.000 dòng, ≤ 60 cột, ô ≤ 2.000 ký tự. Từ chối ⇒ FAILED + `report.reason`.
+6b. **Đọc ô:** cột vắng = trống; ô kiểu SỐ phải là số nguyên an toàn (45000.5 / số > 2^53 ⇒ lỗi dòng — không tự bỏ dấu
+   chấm); chữ "45.000" / "45,000 đ" là 45.000 đồng (chỉ bỏ phân cách nghìn đúng mẫu); cột mã (số tài khoản, SĐT) ô kiểu số ⇒
+   lỗi dòng (Excel bỏ số 0 đầu / làm tròn); mã vạch ô số chỉ nhận dài 8 / 13 / 14. Quy ước trùng: dòng trước dù lỗi / bị bỏ
+   vẫn "chiếm" khóa; chủ sở hữu PLU / mã vạch chụp lúc phân loại.
 7. **PII:** SĐT / số tài khoản NCC vào service (mã hóa như API); báo cáo và thông điệp lỗi dòng KHÔNG nhắc lại giá trị ô
    (thông điệp zod chỉ có tên cột), audit theo quy tắc lát 4 (`changed_pii`).
 8. **Cột:** tiêu đề "Tên hiển thị (khoa)" — khớp theo khóa trong ngoặc (người dùng đổi tên hiển thị không sao); cột lạ bỏ qua,
@@ -39,7 +50,7 @@ Tiến cần nạp danh mục thật (≥ 20 SKU, cổng CP04) và danh bạ NCC
    có thì tạo); sản phẩm theo tên trong danh mục. File mẫu: `GET /admin/imports/templates/{CATALOG|SUPPLIER}` (tĩnh, có sheet
    hướng dẫn, cột mã định dạng chữ để giữ số 0 đầu).
 9. **Xuất:** `POST /admin/catalog-exports {list}` (quyền `report:export` + quyền đọc của danh sách; cửa hàng / vị trí theo phạm
-   vi) tạo .xlsx trong request, lưu S3 (file `EXPORT_XLSX` READY do server tạo), audit `export.create`, trả URL tải 60 giây.
+   vi; cột giá lẻ chỉ khi có `price:read`, cờ "có tài khoản NH" chỉ khi có `supplier:write`) tạo .xlsx trong request, lưu S3 (file `EXPORT_XLSX` READY do server tạo), audit `export.create`, trả URL tải 60 giây.
    `skus` cùng cột với file nhập (xuất → sửa → nhập lại UPDATE). `suppliers` KHÔNG có SĐT / tài khoản (chỉ "có / không").
    Chữ bắt đầu bằng `= + - @` thêm `'` (chống chèn công thức khi chuyển sang CSV). ≤ 20.000 dòng.
 
@@ -48,5 +59,6 @@ Tiến cần nạp danh mục thật (≥ 20 SKU, cổng CP04) và danh bạ NCC
   qua `overrides` của pnpm 11 không có tác dụng — theo dõi khi nâng exceljs.
 - `TransactionHost` của `@nestjs-cls/transactional` là biến tĩnh theo tiến trình: API và worker PHẢI là hai tiến trình (đúng
   ADR-002); test dựng worker cùng tiến trình chỉ được chạy cuối.
-- Lượt RUNNING khi worker chết giữa chừng (transaction đã rollback) nằm lại RUNNING — dọn / cảnh báo ở CP19 (giám sát).
-- Một lượt giữ một transaction tới 4 phút (5.000 dòng): khóa danh mục / SKU giữ suốt lượt — chạy ngoài giờ cao điểm.
+- Lượt RUNNING khi worker chết giữa chừng nằm lại RUNNING — không tính vào trần 2 lượt sau 15 phút; dọn / cảnh báo ở CP19.
+- Mỗi lô giữ một transaction (≤ 2 phút): khóa cây danh mục / SKU giữ trong lô — lượt lớn nên chạy ngoài giờ cao điểm.
+- Trần presign 20 file / giờ / người (CP03) áp cả file nhập.

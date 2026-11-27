@@ -4,12 +4,12 @@ import { ClsService } from 'nestjs-cls';
 import type { Principal } from '../common/access';
 import { AuditOutboxService, type Tx } from '../common/audit-outbox.service';
 import { AppError } from '../common/errors';
-import type { Prisma } from '../generated/prisma/client';
 import type { RequestStore } from '../common/request-context';
 import { nameKey } from '../catalog/catalog-rules';
 import { CatalogService } from '../catalog/catalog.service';
 import { PricesService } from '../catalog/prices.service';
 import { SkusService } from '../catalog/skus.service';
+import type { Prisma } from '../generated/prisma/client';
 import { ObjectStorage } from '../infra/object-storage.service';
 import { SuppliersService } from '../org/suppliers.service';
 import {
@@ -36,29 +36,37 @@ export interface ReportRow {
   duplicate_of?: string;
   message?: string;
 }
-interface Outcome {
-  rows: ReportRow[];
-  stoppedAt?: number;
-}
+
+/** Quyết định cho một dòng sau bước phân loại (chưa ghi gì) */
+type Plan<T> =
+  | { row: number; kind: 'report'; report: ReportRow }
+  | { row: number; kind: 'create'; key: string; v: T }
+  | { row: number; kind: 'update'; key: string; id: string; v: T };
 
 const MAX_FILE = 5 * 1024 * 1024;
-/** transaction nhập: tối đa 4 phút (5.000 dòng); consumer worker cho 10 phút */
-const IMPORT_TX = { timeout: 240_000, maxWait: 10_000 } as const;
+/** mỗi lô một transaction (≤ 500 SAVEPOINT — tránh tràn subxact; giữ khóa ngắn) */
+export const IMPORT_BATCH = 500;
+const BATCH_TX = { timeout: 120_000, maxWait: 10_000 } as const;
 
-/** Ném trong transaction để rollback (chạy thử / dừng khi trùng) mà vẫn giữ báo cáo. */
+/** Ném trong transaction của lô chạy thử để rollback mà vẫn giữ kết quả. */
 class Rollback extends Error {
-  constructor(readonly outcome: Outcome) {
+  constructor(readonly rows: ReportRow[]) {
     super('rollback');
   }
 }
+
+/** mỗi tiến trình chạy MỘT lượt nhập một lúc (exceljs nạp cả file vào bộ nhớ — review bảo mật lát 5 N1) */
+let running: Promise<void> = Promise.resolve();
 
 /**
  * Chạy một lượt nhập (CP04 lát 5, ADR-031) — gọi từ consumer worker (sự kiện `catalog.import_requested`) hoặc test.
  * 1. Giành lượt: PENDING → RUNNING (khóa dòng; không PENDING ⇒ bỏ qua — giao lại sự kiện không chạy hai lần).
  * 2. Ngoài transaction: tải file (≤ 5 MB), kiểm zip/xlsx, đọc dòng. File hỏng / độc ⇒ FAILED (lý do), không ghi gì.
- * 3. MỘT transaction: mỗi dòng một SAVEPOINT — lỗi dòng chỉ hoàn tác dòng đó. Ghi qua CHÍNH service API (quy tắc kiểu bán,
- *    khóa, audit từng bản ghi, lịch sử giá) với người thực hiện = người tạo lượt. Chạy thử / dừng khi trùng ⇒ rollback cả
- *    transaction, lưu báo cáo ở transaction riêng.
+ * 3. PHÂN LOẠI mọi dòng trước khi ghi (dữ liệu sai, trùng trong file, trùng bản ghi đã có) ⇒ chế độ STOP gặp trùng thì
+ *    FAILED mà KHÔNG ghi dòng nào.
+ * 4. Ghi theo LÔ 500 dòng, mỗi lô một transaction, mỗi dòng một SAVEPOINT (lỗi dòng chỉ hoàn tác dòng đó). Ghi qua CHÍNH
+ *    service API (quy tắc kiểu bán, khóa, audit, lịch sử giá) với người thực hiện = người tạo lượt. Chạy thử: mỗi lô
+ *    rollback. Chạy thật lỗi hệ thống giữa chừng ⇒ các lô trước đã ghi (báo trong `error`).
  */
 @Injectable()
 export class ImportProcessor {
@@ -80,7 +88,9 @@ export class ImportProcessor {
   }
 
   run(jobId: string): Promise<void> {
-    return this.cls.run(() => this.runInContext(jobId));
+    const next = running.then(() => this.cls.run(() => this.runInContext(jobId)));
+    running = next.catch(() => undefined);
+    return next;
   }
 
   private async runInContext(jobId: string): Promise<void> {
@@ -97,6 +107,7 @@ export class ImportProcessor {
       });
     });
     if (!job) return;
+    let committedBatches = 0;
     try {
       const principal = await this.principalOf(job.createdBy);
       this.cls.set('principal', principal);
@@ -121,31 +132,56 @@ export class ImportProcessor {
         throw e;
       }
       const mode = job.modeOnDuplicate as DupMode;
-      try {
-        await this.txHost.withTransaction(IMPORT_TX, async () => {
-          const out =
-            type === 'CATALOG' ? await this.catalogRows(rows, mode, jobId) : await this.supplierRows(rows, mode);
-          if (job.dryRun || out.stoppedAt !== undefined) throw new Rollback(out);
-          await this.finish(jobId, rows.length, out, false, mode);
-        });
-      } catch (e) {
-        if (!(e instanceof Rollback)) throw e;
-        await this.txHost.withTransaction(() => this.finish(jobId, rows.length, e.outcome, job.dryRun, mode));
+      const plans = type === 'CATALOG' ? await this.planCatalog(rows, mode) : await this.planSupplier(rows, mode);
+      // STOP: gặp trùng ⇒ dừng TRƯỚC khi ghi bất cứ gì
+      const stop = mode === 'STOP' ? plans.find((p) => p.kind === 'report' && p.report.duplicate_of) : undefined;
+      if (stop) {
+        const report = plans.flatMap((p) => (p.kind === 'report' ? [p.report] : []));
+        return await this.txHost.withTransaction(() =>
+          this.finish(jobId, rows.length, report, job.dryRun, mode, stop.row),
+        );
       }
+      const out: ReportRow[] = [];
+      const caches = { cats: new Map<string, string>(), prods: new Map<string, string>() };
+      for (let i = 0; i < plans.length; i += IMPORT_BATCH) {
+        const batch = plans.slice(i, i + IMPORT_BATCH);
+        // chạy thử: id danh mục / sản phẩm của lô trước đã hoàn tác ⇒ bỏ bộ nhớ đệm
+        if (job.dryRun) {
+          caches.cats.clear();
+          caches.prods.clear();
+        }
+        try {
+          const res = await this.txHost.withTransaction(BATCH_TX, async () => {
+            const r = await this.runBatch(type, batch, caches, jobId);
+            if (job.dryRun) throw new Rollback(r);
+            return r;
+          });
+          out.push(...res);
+          committedBatches++;
+        } catch (e) {
+          if (!(e instanceof Rollback)) throw e;
+          out.push(...e.rows);
+        }
+      }
+      await this.txHost.withTransaction(() => this.finish(jobId, rows.length, out, job.dryRun, mode));
     } catch (e) {
       if (e instanceof AppError && e.code === 'ACTION_FORBIDDEN') {
         await this.fail(jobId, e.message).catch(() => undefined);
         return;
       }
-      // lỗi hệ thống (DB / S3…) ⇒ FAILED (không để RUNNING mãi); không ném tiếp — thử lại cả lượt phải tạo lượt mới
-      this.log.error({ err: e instanceof Error ? e.message : String(e), jobId }, 'nhập file lỗi');
-      await this.fail(jobId, 'Lỗi hệ thống khi nhập — tạo lượt nhập mới để thử lại').catch((err: unknown) =>
-        this.log.error({ err: err instanceof Error ? err.message : String(err), jobId }, 'không ghi được FAILED'),
+      // lỗi hệ thống (DB / S3…) ⇒ FAILED (không để RUNNING mãi); không ném tiếp — thử lại phải tạo lượt mới.
+      // Chỉ log tên / mã lỗi (thông điệp lỗi DB có thể mang giá trị dòng)
+      this.log.error({ err: errName(e), jobId }, 'nhập file lỗi');
+      const partial = committedBatches
+        ? ` — ${committedBatches * IMPORT_BATCH} dòng đầu (${committedBatches} lô) ĐÃ ghi; kiểm tra rồi nhập lại phần còn lại`
+        : '';
+      await this.fail(jobId, `Lỗi hệ thống khi nhập${partial}`).catch((err: unknown) =>
+        this.log.error({ err: errName(err), jobId }, 'không ghi được FAILED'),
       );
     }
   }
 
-  /** Người thực hiện = người tạo lượt; phải còn là Master đang hoạt động có `import:run`. */
+  /** Người thực hiện = người tạo lượt; phải còn là Master đang hoạt động có `import:run` (kiểm một lần lúc bắt đầu). */
   private async principalOf(userId: string): Promise<Principal> {
     const u = await this.tx.user.findUnique({ where: { id: userId }, select: { type: true, status: true } });
     const roles = await this.tx.userRoleAssignment.findMany({
@@ -190,9 +226,16 @@ export class ImportProcessor {
     });
   }
 
-  private async finish(jobId: string, total: number, out: Outcome, dryRun: boolean, mode: DupMode) {
-    const n = (s: RowStatus) => out.rows.filter((r) => r.status === s).length;
-    const stopped = out.stoppedAt !== undefined;
+  private async finish(
+    jobId: string,
+    total: number,
+    rows: ReportRow[],
+    dryRun: boolean,
+    mode: DupMode,
+    stoppedAt?: number,
+  ) {
+    const n = (s: RowStatus) => rows.filter((r) => r.status === s).length;
+    const stopped = stoppedAt !== undefined;
     const counts = {
       totalRows: total,
       okRows: stopped ? 0 : n('CREATED') + n('UPDATED'),
@@ -206,15 +249,15 @@ export class ImportProcessor {
       updated: n('UPDATED'),
       skipped: n('SKIPPED'),
       errors: n('ERROR'),
-      ...(stopped ? { stopped_at_row: out.stoppedAt } : {}),
-      rows: out.rows as unknown as Prisma.InputJsonArray,
+      ...(stopped ? { stopped_at_row: stoppedAt } : {}),
+      rows: rows.sort((a, b) => a.row - b.row) as unknown as Prisma.InputJsonArray,
     };
     await this.tx.importJob.update({
       where: { id: jobId },
       data: stopped
         ? {
             status: 'FAILED',
-            error: `Dừng do trùng ở dòng ${out.stoppedAt} (chế độ STOP) — không nhập dòng nào`,
+            error: `Dừng do trùng ở dòng ${stoppedAt} (chế độ STOP) — không nhập dòng nào`,
             report,
             ...counts,
           }
@@ -229,19 +272,6 @@ export class ImportProcessor {
     });
   }
 
-  /** Chạy một dòng trong SAVEPOINT — lỗi ⇒ hoàn tác riêng dòng đó, transaction vẫn dùng tiếp. */
-  private async inSavepoint<T>(fn: () => Promise<T>): Promise<T> {
-    await this.tx.$executeRawUnsafe('SAVEPOINT import_row');
-    try {
-      const r = await fn();
-      await this.tx.$executeRawUnsafe('RELEASE SAVEPOINT import_row');
-      return r;
-    } catch (e) {
-      await this.tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT import_row');
-      throw e;
-    }
-  }
-
   private rowError(row: number, key: string | undefined, e: unknown): ReportRow {
     if (e instanceof AppError) {
       const field = typeof e.details?.['field'] === 'string' ? e.details['field'] : undefined;
@@ -253,19 +283,77 @@ export class ImportProcessor {
         message: e.message.slice(0, 300),
       };
     }
-    this.log.warn({ err: e instanceof Error ? e.message : String(e), row }, 'dòng nhập lỗi không xác định');
+    this.log.warn({ err: errName(e), row }, 'dòng nhập lỗi không xác định');
     return { row, status: 'ERROR', ...(key ? { key } : {}), message: 'Lỗi không xác định khi ghi dòng này' };
   }
 
-  // ───────── danh mục ─────────
+  /** Ghi một lô: mỗi dòng một SAVEPOINT; dòng lỗi ⇒ hoàn tác dòng đó + khôi phục bộ nhớ đệm danh mục / sản phẩm. */
+  private async runBatch(
+    type: ImportType,
+    batch: Plan<CatalogRowT | SupplierRowT>[],
+    caches: { cats: Map<string, string>; prods: Map<string, string> },
+    jobId: string,
+  ): Promise<ReportRow[]> {
+    const out: ReportRow[] = [];
+    const reason = `Nhập file Excel (lượt ${jobId})`;
+    for (const p of batch) {
+      if (p.kind === 'report') {
+        out.push(p.report);
+        continue;
+      }
+      const cats = new Map(caches.cats);
+      const prods = new Map(caches.prods);
+      await this.tx.$executeRawUnsafe('SAVEPOINT import_row');
+      try {
+        if (type === 'CATALOG') {
+          const v = p.v as CatalogRowT;
+          if (p.kind === 'create') await this.createSku(v, caches, reason);
+          else await this.updateSku(p.id, v, caches, reason);
+        } else {
+          const v = p.v as SupplierRowT;
+          if (p.kind === 'create')
+            await this.suppliers.create({ code: v.code, ...supplierFields(v), name: v.name, type: v.type });
+          else await this.suppliers.update(p.id, supplierFields(v));
+        }
+        await this.tx.$executeRawUnsafe('RELEASE SAVEPOINT import_row');
+        out.push({ row: p.row, status: p.kind === 'create' ? 'CREATED' : 'UPDATED', key: p.key });
+      } catch (e) {
+        await this.tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT import_row');
+        // id danh mục / sản phẩm tạo trong savepoint đã bị hoàn tác (review TS lát 5 C3)
+        caches.cats = cats;
+        caches.prods = prods;
+        out.push(this.rowError(p.row, p.key, e));
+      }
+    }
+    return out;
+  }
 
-  private async catalogRows(rows: SheetRow[], mode: DupMode, jobId: string): Promise<Outcome> {
+  // ───────── phân loại ─────────
+
+  private parseError(row: number, e: import('zod').ZodError): Plan<never> {
+    const issues = rowIssues(e);
+    return {
+      row,
+      kind: 'report',
+      report: {
+        row,
+        status: 'ERROR',
+        ...(issues[0]?.field ? { field: issues[0].field } : {}),
+        message: issues.map((i) => `${i.field}: ${i.message}`).join('; '),
+      },
+    };
+  }
+
+  /**
+   * Danh mục: trùng = mã SKU / PLU / mã vạch đã có (kể cả lưu trữ) hoặc đã xuất hiện ở dòng TRƯỚC trong file (dòng đó dù
+   * lỗi hay bỏ qua vẫn "chiếm" khóa — quy ước ADR-031). UPDATE chỉ khi trùng ĐÚNG mã SKU của chính nó.
+   */
+  private async planCatalog(rows: SheetRow[], mode: DupMode): Promise<Plan<CatalogRowT>[]> {
     const parsed = rows.map((r) => ({ row: r.row, p: CatalogRow.safeParse(r.values) }));
-    const ok = parsed.flatMap((x) => (x.p.success ? [{ row: x.row, v: x.p.data }] : []));
-    // bản ghi đã có (kể cả lưu trữ — mã / PLU / mã vạch không dùng lại)
-    const codes = ok.map((x) => x.v.sku_code);
-    const plus = ok.flatMap((x) => (x.v.scale_plu ? [x.v.scale_plu] : []));
-    const barcodes = ok.flatMap((x) => (x.v.barcode ? [x.v.barcode] : []));
+    const ok = parsed.flatMap((x) => (x.p.success ? [x.p.data] : []));
+    const codes = ok.map((v) => v.sku_code);
+    const plus = ok.flatMap((v) => (v.scale_plu ? [v.scale_plu] : []));
+    const barcodes = ok.flatMap((v) => (v.barcode ? [v.barcode] : []));
     const [bySku, byPlu, byBarcode] = await Promise.all([
       this.tx.sku.findMany({ where: { skuCode: { in: codes } }, select: { id: true, skuCode: true } }),
       plus.length
@@ -282,98 +370,91 @@ export class ImportProcessor {
     const pluOwner = new Map(byPlu.map((s) => [s.scalePlu as string, s.skuCode]));
     const barcodeOwner = new Map(byBarcode.map((u) => [u.barcode as string, u.sku.skuCode]));
     const firstRow = new Map<string, number>();
-    const cats = new Map<string, string>();
-    const prods = new Map<string, string>();
-    const reason = `Nhập file Excel (lượt ${jobId})`;
-    const out: ReportRow[] = [];
-
-    for (const { row, p } of parsed) {
-      if (!p.success) {
-        const issues = rowIssues(p.error);
-        out.push({
-          row,
-          status: 'ERROR',
-          ...(issues[0]?.field ? { field: issues[0].field } : {}),
-          message: issues.map((i) => `${i.field}: ${i.message}`).join('; '),
-        });
-        continue;
-      }
+    return parsed.map(({ row, p }): Plan<CatalogRowT> => {
+      if (!p.success) return this.parseError(row, p.error);
       const v = p.data;
-      // trùng trong file (dòng sau trùng dòng trước) / trùng bản ghi đã có
-      const inFile = (
-        [
-          ['sku_code', v.sku_code],
-          ['scale_plu', v.scale_plu],
-          ['barcode', v.barcode],
-        ] as const
-      ).find(([f, x]) => x !== undefined && firstRow.has(`${f}:${x}`));
+      const keys = [
+        ['sku_code', v.sku_code],
+        ['scale_plu', v.scale_plu],
+        ['barcode', v.barcode],
+      ] as const;
+      const inFile = keys.find(([f, x]) => x !== undefined && firstRow.has(`${f}:${x}`));
+      const inFileOf = inFile ? firstRow.get(`${inFile[0]}:${inFile[1]}`) : undefined;
+      for (const [f, x] of keys) if (x !== undefined && !firstRow.has(`${f}:${x}`)) firstRow.set(`${f}:${x}`, row);
       const existing = skuId.get(v.sku_code);
       const pluOther = v.scale_plu ? pluOwner.get(v.scale_plu) : undefined;
       const barOther = v.barcode ? barcodeOwner.get(v.barcode) : undefined;
       const dupOther =
-        (pluOther && pluOther !== v.sku_code && (['scale_plu', pluOther] as const)) ||
-        (barOther && barOther !== v.sku_code && (['barcode', barOther] as const)) ||
-        undefined;
-      for (const [f, x] of [
-        ['sku_code', v.sku_code],
-        ['scale_plu', v.scale_plu],
-        ['barcode', v.barcode],
-      ] as const)
-        if (x !== undefined && !firstRow.has(`${f}:${x}`)) firstRow.set(`${f}:${x}`, row);
-
+        pluOther && pluOther !== v.sku_code
+          ? (['scale_plu', pluOther] as const)
+          : barOther && barOther !== v.sku_code
+            ? (['barcode', barOther] as const)
+            : undefined;
       const dup = inFile
-        ? { field: inFile[0], of: `dòng ${firstRow.get(`${inFile[0]}:${inFile[1]}`)}` }
+        ? { field: inFile[0], of: `dòng ${inFileOf}` }
         : dupOther
           ? { field: dupOther[0], of: `SKU ${dupOther[1]}` }
           : existing
             ? { field: 'sku_code', of: `SKU ${v.sku_code}` }
             : undefined;
-      if (dup) {
-        if (mode === 'STOP') {
-          out.push({
-            row,
-            status: 'SKIPPED',
-            key: v.sku_code,
-            field: dup.field,
-            duplicate_of: dup.of,
-            message: 'Trùng',
-          });
-          return { rows: out, stoppedAt: row };
-        }
-        // cập nhật chỉ khi trùng ĐÚNG mã SKU của chính nó (mã vạch / PLU của SKU khác ⇒ không cập nhật được)
-        const canUpdate = mode === 'UPDATE' && !inFile && !dupOther && existing;
-        if (!canUpdate) {
-          out.push(
-            mode === 'UPDATE'
-              ? {
-                  row,
-                  status: 'ERROR',
-                  key: v.sku_code,
-                  field: dup.field,
-                  duplicate_of: dup.of,
-                  message: 'Trùng với dòng / SKU khác — không cập nhật được',
-                }
-              : { row, status: 'SKIPPED', key: v.sku_code, field: dup.field, duplicate_of: dup.of, message: 'Trùng' },
-          );
-          continue;
-        }
-        try {
-          await this.inSavepoint(() => this.updateSku(existing, v, cats, prods, reason));
-          out.push({ row, status: 'UPDATED', key: v.sku_code });
-        } catch (e) {
-          out.push(this.rowError(row, v.sku_code, e));
-        }
-        continue;
-      }
-      try {
-        await this.inSavepoint(() => this.createSku(v, cats, prods, reason));
-        out.push({ row, status: 'CREATED', key: v.sku_code });
-      } catch (e) {
-        out.push(this.rowError(row, v.sku_code, e));
-      }
-    }
-    return { rows: out };
+      if (!dup) return { row, kind: 'create', key: v.sku_code, v };
+      if (mode === 'UPDATE' && !inFile && !dupOther && existing)
+        return { row, kind: 'update', key: v.sku_code, id: existing, v };
+      return {
+        row,
+        kind: 'report',
+        report:
+          mode === 'UPDATE'
+            ? {
+                row,
+                status: 'ERROR',
+                key: v.sku_code,
+                field: dup.field,
+                duplicate_of: dup.of,
+                message: 'Trùng với dòng / SKU khác — không cập nhật được',
+              }
+            : { row, status: 'SKIPPED', key: v.sku_code, field: dup.field, duplicate_of: dup.of, message: 'Trùng' },
+      };
+    });
   }
+
+  private async planSupplier(rows: SheetRow[], mode: DupMode): Promise<Plan<SupplierRowT>[]> {
+    const parsed = rows.map((r) => ({ row: r.row, p: SupplierRow.safeParse(r.values) }));
+    const codes = parsed.flatMap((x) => (x.p.success ? [x.p.data.code] : []));
+    const existing = new Map(
+      (await this.tx.supplier.findMany({ where: { code: { in: codes } }, select: { id: true, code: true } })).map(
+        (s) => [s.code, s.id],
+      ),
+    );
+    const firstRow = new Map<string, number>();
+    return parsed.map(({ row, p }): Plan<SupplierRowT> => {
+      if (!p.success) return this.parseError(row, p.error);
+      const v = p.data;
+      const prev = firstRow.get(v.code);
+      if (prev === undefined) firstRow.set(v.code, row);
+      const id = existing.get(v.code);
+      if (prev === undefined && !id) return { row, kind: 'create', key: v.code, v };
+      if (mode === 'UPDATE' && prev === undefined && id) return { row, kind: 'update', key: v.code, id, v };
+      const of = prev !== undefined ? `dòng ${prev}` : `NCC ${v.code}`;
+      return {
+        row,
+        kind: 'report',
+        report:
+          mode === 'UPDATE'
+            ? {
+                row,
+                status: 'ERROR',
+                key: v.code,
+                field: 'code',
+                duplicate_of: of,
+                message: 'Trùng dòng khác trong file',
+              }
+            : { row, status: 'SKIPPED', key: v.code, field: 'code', duplicate_of: of, message: 'Trùng' },
+      };
+    });
+  }
+
+  // ───────── ghi danh mục ─────────
 
   /** danh mục theo đường dẫn — tìm theo tên (giống btrim/lower) dưới cha, chưa có thì tạo; lưu trữ ⇒ lỗi dòng */
   private async categoryOf(path: string[], cats: Map<string, string>): Promise<string> {
@@ -415,30 +496,17 @@ export class ImportProcessor {
     return id;
   }
 
-  private attrs(v: CatalogRowT) {
-    return {
-      name: v.name,
-      std_weight_g: v.std_weight_g,
-      weight_min_g: v.weight_min_g,
-      weight_max_g: v.weight_max_g,
-      tare_g: v.tare_g,
-      scale_plu: v.scale_plu,
-      sold_by_scale: v.sold_by_scale,
-      shelf_life_days: v.shelf_life_days,
-      has_ripeness: v.has_ripeness,
-      is_high_value: v.is_high_value,
-      cold_required: v.cold_required,
-    };
-  }
-
-  private async createSku(v: CatalogRowT, cats: Map<string, string>, prods: Map<string, string>, reason: string) {
-    const productId = await this.productOf(await this.categoryOf(v.category, cats), v.product, prods);
+  private async createSku(
+    v: CatalogRowT,
+    c: { cats: Map<string, string>; prods: Map<string, string> },
+    reason: string,
+  ) {
+    const productId = await this.productOf(await this.categoryOf(v.category, c.cats), v.product, c.prods);
     const s = await this.skus.create({
       product_id: productId,
       sku_code: v.sku_code,
       sale_unit_type: v.sale_unit_type,
-      ...this.attrs(v),
-      name: v.name,
+      ...attrs(v),
       ...(v.barcode ? { barcode: v.barcode } : {}),
     });
     if (v.retail_price !== undefined)
@@ -448,106 +516,73 @@ export class ImportProcessor {
   private async updateSku(
     id: string,
     v: CatalogRowT,
-    cats: Map<string, string>,
-    prods: Map<string, string>,
+    c: { cats: Map<string, string>; prods: Map<string, string> },
     reason: string,
   ) {
     const cur = await this.tx.sku.findUniqueOrThrow({
       where: { id },
-      select: { version: true, saleUnitType: true, retailPricePerKg: true, retailPricePerUnit: true },
+      select: {
+        version: true,
+        saleUnitType: true,
+        retailPricePerKg: true,
+        retailPricePerUnit: true,
+        // đơn vị gốc = đơn vị tạo cùng SKU (UUIDv7 nhỏ nhất)
+        units: { orderBy: { id: 'asc' }, take: 1, select: { id: true, barcode: true } },
+      },
     });
     if (cur.saleUnitType !== v.sale_unit_type)
       throw new AppError('CATALOG_RULE_VIOLATION', 'Kiểu bán không đổi được — lưu trữ SKU cũ và tạo mã mới', {
         field: 'sale_unit_type',
       });
-    const productId = await this.productOf(await this.categoryOf(v.category, cats), v.product, prods);
-    const s = await this.skus.update(id, { version: cur.version, product_id: productId, ...this.attrs(v) });
+    const productId = await this.productOf(await this.categoryOf(v.category, c.cats), v.product, c.prods);
+    await this.skus.update(id, { version: cur.version, product_id: productId, ...attrs(v) });
+    // mã vạch đơn vị gốc: ô có giá trị khác hiện tại ⇒ đổi (review TS lát 5: xuất → sửa → nhập lại)
+    const base = cur.units[0];
+    if (base && v.barcode !== undefined && v.barcode !== base.barcode)
+      await this.skus.updateUnit(id, base.id, { barcode: v.barcode });
     const price = cur.retailPricePerKg ?? cur.retailPricePerUnit;
-    if (v.retail_price !== undefined && v.retail_price !== price)
-      await this.prices.set(id, { version: s.version, global: v.retail_price }, reason);
-  }
-
-  // ───────── nhà cung cấp ─────────
-
-  private async supplierRows(rows: SheetRow[], mode: DupMode): Promise<Outcome> {
-    const parsed = rows.map((r) => ({ row: r.row, p: SupplierRow.safeParse(r.values) }));
-    const codes = parsed.flatMap((x) => (x.p.success ? [x.p.data.code] : []));
-    const existing = new Map(
-      (await this.tx.supplier.findMany({ where: { code: { in: codes } }, select: { id: true, code: true } })).map(
-        (s) => [s.code, s.id],
-      ),
-    );
-    const firstRow = new Map<string, number>();
-    const out: ReportRow[] = [];
-    for (const { row, p } of parsed) {
-      if (!p.success) {
-        const issues = rowIssues(p.error);
-        out.push({
-          row,
-          status: 'ERROR',
-          ...(issues[0]?.field ? { field: issues[0].field } : {}),
-          message: issues.map((i) => `${i.field}: ${i.message}`).join('; '),
-        });
-        continue;
-      }
-      const v = p.data;
-      const prev = firstRow.get(v.code);
-      if (prev === undefined) firstRow.set(v.code, row);
-      const id = existing.get(v.code);
-      if (prev !== undefined || id) {
-        const of = prev !== undefined ? `dòng ${prev}` : `NCC ${v.code}`;
-        if (mode === 'STOP') {
-          out.push({ row, status: 'SKIPPED', key: v.code, field: 'code', duplicate_of: of, message: 'Trùng' });
-          return { rows: out, stoppedAt: row };
-        }
-        if (mode === 'SKIP' || prev !== undefined || !id) {
-          out.push(
-            mode === 'UPDATE'
-              ? {
-                  row,
-                  status: 'ERROR',
-                  key: v.code,
-                  field: 'code',
-                  duplicate_of: of,
-                  message: 'Trùng dòng khác trong file',
-                }
-              : { row, status: 'SKIPPED', key: v.code, field: 'code', duplicate_of: of, message: 'Trùng' },
-          );
-          continue;
-        }
-        try {
-          await this.inSavepoint(() => this.suppliers.update(id, this.supplierFields(v)));
-          out.push({ row, status: 'UPDATED', key: v.code });
-        } catch (e) {
-          out.push(this.rowError(row, v.code, e));
-        }
-        continue;
-      }
-      try {
-        await this.inSavepoint(() =>
-          this.suppliers.create({ code: v.code, ...this.supplierFields(v), name: v.name, type: v.type }),
-        );
-        out.push({ row, status: 'CREATED', key: v.code });
-      } catch (e) {
-        out.push(this.rowError(row, v.code, e));
-      }
+    if (v.retail_price !== undefined && v.retail_price !== price) {
+      const after = await this.tx.sku.findUniqueOrThrow({ where: { id }, select: { version: true } });
+      await this.prices.set(id, { version: after.version, global: v.retail_price }, reason);
     }
-    return { rows: out };
   }
+}
 
-  /** ô trống = không đổi (cập nhật) / không có (tạo) */
-  private supplierFields(v: SupplierRowT) {
-    return {
-      name: v.name,
-      type: v.type,
-      ...(v.contact_name ? { contact_name: v.contact_name } : {}),
-      ...(v.phone ? { phone: v.phone } : {}),
-      ...(v.bank_name ? { bank_name: v.bank_name } : {}),
-      ...(v.account_number && v.account_holder
-        ? { bank_account: { account_number: v.account_number, account_holder: v.account_holder } }
-        : {}),
-      ...(v.payment_terms_days !== undefined ? { payment_terms_days: v.payment_terms_days } : {}),
-      ...(v.note ? { note: v.note } : {}),
-    };
-  }
+function attrs(v: CatalogRowT) {
+  return {
+    name: v.name,
+    std_weight_g: v.std_weight_g,
+    weight_min_g: v.weight_min_g,
+    weight_max_g: v.weight_max_g,
+    tare_g: v.tare_g,
+    scale_plu: v.scale_plu,
+    sold_by_scale: v.sold_by_scale,
+    shelf_life_days: v.shelf_life_days,
+    has_ripeness: v.has_ripeness,
+    is_high_value: v.is_high_value,
+    cold_required: v.cold_required,
+  };
+}
+
+/** ô trống = không đổi (cập nhật) / không có (tạo) */
+function supplierFields(v: SupplierRowT) {
+  return {
+    name: v.name,
+    type: v.type,
+    ...(v.contact_name ? { contact_name: v.contact_name } : {}),
+    ...(v.phone ? { phone: v.phone } : {}),
+    ...(v.bank_name ? { bank_name: v.bank_name } : {}),
+    ...(v.account_number && v.account_holder
+      ? { bank_account: { account_number: v.account_number, account_holder: v.account_holder } }
+      : {}),
+    ...(v.payment_terms_days !== undefined ? { payment_terms_days: v.payment_terms_days } : {}),
+    ...(v.note ? { note: v.note } : {}),
+  };
+}
+
+/** tên / mã lỗi để log — không log thông điệp (lỗi DB có thể mang giá trị dòng) */
+function errName(e: unknown): string {
+  if (e instanceof AppError) return e.code;
+  const x = e as { name?: string; code?: unknown };
+  return `${x?.name ?? 'Error'}${typeof x?.code === 'string' ? ` ${x.code}` : ''}`;
 }

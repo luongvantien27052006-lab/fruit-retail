@@ -18,6 +18,8 @@ import type { DupMode } from './import-processor';
 export const IMPORT_EVENT = 'catalog.import_requested';
 export const EXPORT_LISTS = ['skus', 'categories', 'suppliers', 'stores', 'locations'] as const;
 export type ExportList = (typeof EXPORT_LISTS)[number];
+/** lượt RUNNING lâu hơn ngần này coi như kẹt (không tính vào trần 2 lượt) */
+export const STALE_RUNNING_MS = 15 * 60_000;
 /** trần dòng mỗi file xuất (giữ request ngắn) */
 export const MAX_EXPORT_ROWS = 20_000;
 /** quyền ĐỌC cần cho từng danh sách (ngoài report:export của route) */
@@ -88,8 +90,12 @@ export class ImportsService {
       throw new AppError('INVALID_STATE_TRANSITION', 'File chưa sẵn sàng (complete trước)', { field: 'file_id' });
     // tối đa 2 lượt đang chờ / chạy mỗi người (một lượt nhập giữ transaction dài ở worker)
     await this.tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('import-create:' || ${p.userId}, 0))`;
+    // lượt RUNNING quá 15 phút (worker chết giữa chừng) không chặn người dùng mãi — review TS lát 5 N2 (dọn ở CP19)
     const busy = await this.tx.importJob.count({
-      where: { createdBy: p.userId, status: { in: ['PENDING', 'RUNNING'] } },
+      where: {
+        createdBy: p.userId,
+        OR: [{ status: 'PENDING' }, { status: 'RUNNING', startedAt: { gt: new Date(Date.now() - STALE_RUNNING_MS) } }],
+      },
     });
     if (busy >= 2) throw new AppError('RATE_LIMITED', 'Đang có lượt nhập chờ chạy — đợi xong rồi tạo tiếp');
     const id = uuidv7();
@@ -136,7 +142,7 @@ export class ImportsService {
     const p = this.principal();
     if (!p.permissions.has(LIST_PERMISSION[list]))
       throw new AppError('ACTION_FORBIDDEN', `Cần quyền ${LIST_PERMISSION[list]} để xuất danh sách này`);
-    const { headers, rows } = await this.rowsOf(list);
+    const { headers, rows } = await this.rowsOf(list, p);
     if (rows.length > MAX_EXPORT_ROWS)
       throw new AppError('INVALID_REQUEST', `Danh sách quá ${MAX_EXPORT_ROWS} dòng — lọc bớt trước khi xuất`);
     const wb = new ExcelJS.Workbook();
@@ -187,7 +193,10 @@ export class ImportsService {
     };
   }
 
-  private async rowsOf(list: ExportList): Promise<{
+  private async rowsOf(
+    list: ExportList,
+    p: Principal,
+  ): Promise<{
     headers: { key: string; header: string; text?: boolean }[];
     rows: Record<string, string | number | boolean | null>[];
   }> {
@@ -210,14 +219,20 @@ export class ImportsService {
         });
         return {
           // cùng cột với file nhập ⇒ xuất → sửa → nhập lại (chế độ UPDATE)
-          headers: h(CATALOG_COLUMNS, [{ key: 'archived', header: 'Đã lưu trữ (archived)' }]),
+          // giá lẻ chỉ khi có price:read (API giá tách quyền khỏi catalog:read — review bảo mật lát 5 N3)
+          headers: h(
+            p.permissions.has('price:read') ? CATALOG_COLUMNS : CATALOG_COLUMNS.filter((c) => c.key !== 'retail_price'),
+            [{ key: 'archived', header: 'Đã lưu trữ (archived)' }],
+          ),
           rows: skus.map((s) => ({
             category: cats.get(s.product.categoryId) ?? '',
             product: s.product.name,
             sku_code: s.skuCode,
             name: s.name,
             sale_unit_type: s.saleUnitType,
-            retail_price: (s.retailPricePerKg ?? s.retailPricePerUnit)?.toString() ?? null,
+            ...(p.permissions.has('price:read')
+              ? { retail_price: (s.retailPricePerKg ?? s.retailPricePerUnit)?.toString() ?? null }
+              : {}),
             std_weight_g: s.stdWeightG,
             weight_min_g: s.weightMinG,
             weight_max_g: s.weightMaxG,
@@ -255,7 +270,10 @@ export class ImportsService {
             SUPPLIER_COLUMNS.filter((c) => !['phone', 'account_number', 'account_holder', 'bank_name'].includes(c.key)),
             [
               { key: 'has_phone', header: 'Có SĐT (has_phone)' },
-              { key: 'has_bank_account', header: 'Có tài khoản NH (has_bank_account)' },
+              // như API: thông tin ngân hàng chỉ cho supplier:write
+              ...(p.permissions.has('supplier:write')
+                ? [{ key: 'has_bank_account', header: 'Có tài khoản NH (has_bank_account)' }]
+                : []),
               { key: 'archived', header: 'Đã lưu trữ (archived)' },
             ],
           ),
@@ -267,7 +285,7 @@ export class ImportsService {
             payment_terms_days: s.paymentTermsDays,
             note: s.note,
             has_phone: yesNo(s.phoneEnc !== null),
-            has_bank_account: yesNo(s.bankEnc !== null),
+            ...(p.permissions.has('supplier:write') ? { has_bank_account: yesNo(s.bankEnc !== null) } : {}),
             archived: yesNo(s.archivedAt !== null),
           })),
         };

@@ -27,8 +27,12 @@ export interface EventConsumer {
   /** loại sự kiện quan tâm; sự kiện khác bỏ qua (không ghi processed_events) */
   readonly eventTypes: ReadonlySet<string>;
   handle(event: EventEnvelope, tx: WorkerTx): Promise<void>;
-  /** trần transaction của runner (mặc định 30 s) — consumer chạy việc dài (nhập file) đặt lớn hơn */
-  readonly timeoutMs?: number;
+  /**
+   * Consumer TỰ QUẢN idempotency (việc dài — nhập file): runner KHÔNG mở transaction quanh `handle` (kết nối "idle in
+   * transaction" bị Postgres cắt sau 30 s); bỏ qua nếu đã có processed_events, chạy `handle` (tx = null), xong mới ghi
+   * processed_events. Consumer phải tự bảo đảm chạy lại không gây tác dụng lặp (vd trạng thái lượt PENDING → RUNNING).
+   */
+  readonly selfManaged?: boolean;
 }
 
 export const EVENT_CONSUMERS = Symbol('EVENT_CONSUMERS');

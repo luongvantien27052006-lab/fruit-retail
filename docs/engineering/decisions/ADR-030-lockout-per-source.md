@@ -1,6 +1,6 @@
 # ADR-030: Khóa đăng nhập theo (tài khoản, nguồn); xác thực lại đếm theo phiên
 
-- Trạng thái: proposed (chờ kiểm thử agent) · Ngày: 2026-11-27 · Người quyết: **Tiến** (chọn phương án "khóa theo tài
+- Trạng thái: accepted (kỹ thuật) — review cổng CP03: security SẠCH lần 5, code SẠCH lần 4 · Ngày: 2026-11-27 · Người quyết: **Tiến** (chọn phương án "khóa theo tài
   khoản + mạng", 2026-11-27) · Sửa theo review an ninh cổng CP03 (TB-1)
 - Làm rõ / thay thế một phần: ADR-012, ADR-021 (SEC5: khóa sau 5 lần sai, tăng dần), ADR-022 (PIN)
 
@@ -85,6 +85,11 @@ tạm.
     (mỗi máy 5 lần/đợt, tăng dần tới 24 giờ). `login_logs` ghi máy; Master gỡ được.
   - Dò PIN trên máy quen không chịu ngân sách toàn tài khoản: trần ~35 lần/ngày × số máy (không gian 10⁶ ⇒ ~3–4%/năm với 3
     máy; cao hơn nếu PIN dễ đoán). CP10 thêm cảnh báo BAD_CREDENTIALS dồn dập theo nhân viên và `LOCKED_GLOBAL`.
+
+## Kiểm thử security lần 5 (bfaa2cd): SẠCH
+- Ghi nhận (không chặn): thu hồi MỘT phiên (ADMIN_REVOKED, REAUTH_FAILED) không đặt mốc — trình duyệt còn phiên cũ khác vẫn
+  "quen" (chỉ miễn khóa toàn tài khoản; khóa theo nguồn vẫn chặn dò). Đổi mật khẩu làm trình duyệt hiện tại hết "quen" tới
+  lần đăng nhập trọn vẹn kế tiếp (chỉ trải nghiệm). Làm chặt khi đụng lại.
 
 ## Hệ quả
 

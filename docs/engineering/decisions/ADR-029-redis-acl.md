@@ -1,6 +1,6 @@
 # ADR-029: Redis ACL theo user (CP03 lát 10, đóng giới hạn ADR-019)
 
-- Trạng thái: proposed (chờ kiểm thử agent) · Ngày: 2026-11-27 · Người quyết: phiên điều phối (CP03 lát 10)
+- Trạng thái: accepted (kỹ thuật) — review cổng CP03 SẠCH · Ngày: 2026-11-27 · Người quyết: phiên điều phối (CP03 lát 10)
 - Làm rõ: ADR-002 (Redis chỉ là queue/cache, không là nguồn quyết định), ADR-019 (giới hạn "Redis dùng `requirepass`
   chung"), ADR-023 (giới hạn tần suất), ADR-025 (outbox BullMQ)
 

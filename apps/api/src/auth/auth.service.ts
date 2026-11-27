@@ -9,7 +9,7 @@ import { AuditOutboxService, type Tx } from '../common/audit-outbox.service';
 import type { Principal } from '../common/access';
 import { AppError } from '../common/errors';
 import type { RequestStore } from '../common/request-context';
-import { AuthAttempts, challengeInvalid, otpInvalid } from './auth-attempts';
+import { AuthAttempts, bumpTrust, challengeInvalid, otpInvalid } from './auth-attempts';
 import { type DeviceProof, refreshBinding } from './device-proof';
 import { PosDeviceService } from './pos-device.service';
 import { hasLeft, staffAllowedOnStore } from './staff-auth.service';
@@ -465,7 +465,7 @@ export class AuthService {
       async () => {
         const w = await this.tx.user.updateMany({
           where: { id: p.userId, passwordHash: hashChecked },
-          data: { passwordHash: newHash, mustChangePassword: false },
+          data: { passwordHash: newHash, mustChangePassword: false, trustEpoch: new Date() },
         });
         if (w.count !== 1) throw new AppError('INVALID_STATE_TRANSITION', 'Mật khẩu vừa được đổi ở nơi khác — thử lại');
         // L2 (review NC-22): challenge MFA phát bằng mật khẩu cũ không còn dùng được
@@ -797,6 +797,7 @@ export class AuthService {
 
   private async revokeForReuse(sessionId: string, userId: string, userType: string): Promise<void> {
     await this.txHost.withTransaction(async () => {
+      await bumpTrust(this.tx, userId);
       const r = await this.tx.session.updateMany({
         where: { id: sessionId, revokedAt: null },
         data: { revokedAt: new Date(), revokeReason: 'REFRESH_REUSE' },

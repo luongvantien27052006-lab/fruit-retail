@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { clearAllLocks } from '../auth/auth-attempts';
+import { bumpTrust, clearAllLocks } from '../auth/auth-attempts';
 import { TransactionHost } from '@nestjs-cls/transactional';
 import { ClsService } from 'nestjs-cls';
 import { v7 as uuidv7 } from 'uuid';
@@ -239,6 +239,7 @@ export class StaffAdminService {
         });
       // PIN mới ⇒ khóa tạm do PIN cũ nhập sai không còn ý nghĩa
       if (pinHash !== undefined) await clearAllLocks(this.tx, id);
+      if (pinHash !== undefined || b.status === 'DISABLED') await bumpTrust(this.tx, id);
       // đổi PIN / khóa ⇒ thu hồi mọi phiên của nhân viên (PIN cũ có thể đã lộ)
       let revoked = 0;
       if (pinHash !== undefined || b.status === 'DISABLED') {

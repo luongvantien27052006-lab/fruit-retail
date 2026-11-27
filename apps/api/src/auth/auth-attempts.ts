@@ -44,12 +44,21 @@ const UNTRUSTING_REVOKES = [
   'DEVICE_REVOKED',
   'USER_LOCKED',
   'USER_REVOKED',
+  'USER_DISABLED',
 ];
 
 /**
  * Master mở khóa / đặt lại PIN: xóa mọi khóa tạm của tài khoản (theo nguồn + toàn tài khoản). Người gọi đã giữ khóa
  * `auth:<id>` trong transaction.
  */
+/** Sự kiện an ninh ⇒ mọi trình duyệt / máy "quen" trước đó hết quen (review cổng lần 4 T-7). */
+export async function bumpTrust(
+  tx: { $executeRaw: (q: TemplateStringsArray, ...v: unknown[]) => Promise<number> },
+  userId: string,
+): Promise<void> {
+  await tx.$executeRaw`UPDATE core.users SET trust_epoch = now() WHERE id = ${userId}::uuid`;
+}
+
 // clearAllLocks đặt ngân sách về 0: kẻ tấn công phải làm đầy lại từ đầu (nhiều giờ với ít nguồn) — gỡ khóa có tác dụng thật
 export async function clearAllLocks(
   tx: { $executeRaw: (q: TemplateStringsArray, ...v: unknown[]) => Promise<number> },
@@ -331,11 +340,18 @@ export class AuthAttempts {
       where: {
         userId,
         posDeviceId: deviceId,
-        createdAt: { gt: new Date(Date.now() - TRUSTED_DAYS * 24 * 3600 * 1000) },
+        createdAt: { gt: await this.trustSince(userId) },
         OR: [{ revokeReason: null }, { revokeReason: { notIn: [...UNTRUSTING_REVOKES] } }],
       },
     });
     return { source: deviceSource(deviceId), trusted: seen > 0 };
+  }
+
+  /** "quen" chỉ tính phiên tạo sau max(90 ngày trước, mốc an ninh gần nhất của tài khoản) */
+  private async trustSince(userId: string): Promise<Date> {
+    const u = await this.tx.user.findUnique({ where: { id: userId }, select: { trustEpoch: true } });
+    const floor = Date.now() - TRUSTED_DAYS * 24 * 3600 * 1000;
+    return new Date(Math.max(floor, u?.trustEpoch?.getTime() ?? 0));
   }
 
   async loginSource(userId: string): Promise<{ source: string; trusted: boolean }> {
@@ -347,7 +363,7 @@ export class AuthAttempts {
           userId,
           clientDevice: dev,
           amr: { hasSome: ['otp', 'rcv'] },
-          createdAt: { gt: new Date(Date.now() - TRUSTED_DAYS * 24 * 3600 * 1000) },
+          createdAt: { gt: await this.trustSince(userId) },
           OR: [{ revokeReason: null }, { revokeReason: { notIn: [...UNTRUSTING_REVOKES] } }],
         },
       });

@@ -14,7 +14,7 @@ Trạng thái: `CHƯA MỞ` → `ĐANG LÀM` → `CHỜ REVIEW` → `ĐẠT` (ho
 | CP07 | POS lõi: bán, cân, tem cân, in | CHƯA MỞ | Cần thiết bị mẫu |
 | CP08 | POS thanh toán SePay, ca, đóng ngày | CHƯA MỞ | Cần BIDV DN + SePay |
 | CP09 | POS offline, đổi–trả, nhiều nhân viên, sổ quỹ | CHƯA MỞ | |
-| CP10 | Báo cáo realtime & trang Master | CHƯA MỞ | NC-24: báo cáo bất thường hủy/hoàn trên NV do cửa hàng trưởng tạo/đặt PIN; cảnh báo `LOCKED_GLOBAL` (ADR-030) |
+| CP10 | Báo cáo realtime & trang Master | CHƯA MỞ | NC-24: báo cáo bất thường hủy/hoàn trên NV do cửa hàng trưởng tạo/đặt PIN; cảnh báo `LOCKED_GLOBAL` và BAD_CREDENTIALS dồn dập theo nhân viên (ADR-030) |
 | CP11 | ★ PILOT cửa hàng đầu tiên | CHƯA MỞ | |
 | CP12 | Admin Chỉ Xem & phát hành báo cáo | CHƯA MỞ | |
 | CP13 | Vùng giao, mặt hàng đẩy, thông báo | CHƯA MỞ | Cần Firebase, Play Console, key bản đồ |

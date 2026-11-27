@@ -468,6 +468,26 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     expect(t.access_token).toBeTruthy();
   });
 
+  it('review cổng lần 4 (T-7) — sự kiện an ninh làm trình duyệt cũ hết quen (phiên cũ đã đăng xuất / hết hạn)', async () => {
+    const dev = `dev-${randomBytes(8).toString('hex')}`;
+    const m = await enrolledMaster(dev);
+    const t = await fullLogin(m, dev);
+    await http().post('/v1/auth/logout').set('Authorization', `Bearer ${t.access_token}`).send({});
+    // đổi mật khẩu = sự kiện an ninh (mô phỏng qua cột mốc — các route đặt mốc có test riêng ở admin-accounts / rbac)
+    await rows(`UPDATE core.users SET trust_epoch = now() WHERE id = $1`, [m.userId]);
+    await rows(`UPDATE core.users SET fail_window_count = 49, fail_window_start = now() WHERE id = $1`, [m.userId]);
+    await http()
+      .post('/v1/auth/login')
+      .set('X-Forwarded-For', '203.0.113.51')
+      .send({ email: m.email, password: 'sai' });
+    // trình duyệt cũ (chỉ có phiên TRƯỚC mốc) không còn được miễn khóa toàn tài khoản
+    const r = await http()
+      .post('/v1/auth/login')
+      .set('X-Device-Id', dev)
+      .send({ email: m.email, password: m.password });
+    expect(r.status).toBe(401);
+  });
+
   it('NC-25 — trình duyệt quen (X-Device-Id của phiên đã qua 2FA) không bị khóa toàn tài khoản; ngân sách 50 lần sai/ngày khóa người lạ', async () => {
     const dev = `dev-${randomBytes(8).toString('hex')}`;
     const m = await enrolledMaster(dev); // phiên đầu đã qua 2FA với X-Device-Id = dev

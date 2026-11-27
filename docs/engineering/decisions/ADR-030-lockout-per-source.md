@@ -76,6 +76,16 @@ tạm.
 - Ghi nhận (chấp nhận): `sessions.client_device` / `login_logs.device` lưu định danh trình duyệt dạng rõ. Chỉ role DB của ứng
   dụng đọc được; người đọc được DB đã vượt xa rủi ro này. Băm khi làm dọn dẹp (cùng lúc bỏ `users.failed_login_count`).
 
+## Sửa theo review cổng lần 4
+- T-7 (cả security lẫn code): sự kiện an ninh không xóa "quen" của phiên cũ đã đăng xuất / hết hạn. Sửa: cột
+  `users.trust_epoch` — đặt `now()` khi reset 2FA, đổi mật khẩu, đặt lại PIN, Master khóa / tắt nhân viên, refresh bị dùng
+  lại; "quen" chỉ tính phiên tạo sau `max(90 ngày trước, trust_epoch)`. Thêm `USER_DISABLED` vào lý do thu hồi không tin.
+- **Rủi ro còn lại (chấp nhận, ghi cho CP10):**
+  - Máy POS là nguồn dùng chung: người trong nội bộ đứng đúng các máy cửa hàng trưởng hay dùng vẫn giữ được khóa theo máy
+    (mỗi máy 5 lần/đợt, tăng dần tới 24 giờ). `login_logs` ghi máy; Master gỡ được.
+  - Dò PIN trên máy quen không chịu ngân sách toàn tài khoản: trần ~35 lần/ngày × số máy (không gian 10⁶ ⇒ ~3–4%/năm với 3
+    máy; cao hơn nếu PIN dễ đoán). CP10 thêm cảnh báo BAD_CREDENTIALS dồn dập theo nhân viên và `LOCKED_GLOBAL`.
+
 ## Hệ quả
 
 - Test:

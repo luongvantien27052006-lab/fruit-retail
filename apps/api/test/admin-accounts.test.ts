@@ -302,6 +302,8 @@ describe('quản trị tài khoản (CP03 lát 8a)', () => {
     );
     expect(au?.before).toMatchObject({ two_factor_on: true });
     expect(au?.after).toMatchObject({ two_factor_on: false });
+    const [ep] = await rows(`SELECT trust_epoch IS NOT NULL AS set FROM core.users WHERE id = $1`, [t.userId]);
+    expect(ep?.set).toBe(true); // T-7: reset 2FA ⇒ mốc an ninh
     const v = await http()
       .post('/v1/auth/2fa/verify')
       .set('Authorization', `Bearer ${l.body.mfa_challenge as string}`)

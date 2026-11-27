@@ -6,7 +6,8 @@ ALTER TABLE "core"."sessions" ADD COLUMN     "reauth_failed_count" INTEGER NOT N
 
 -- AlterTable
 ALTER TABLE "core"."users" ADD COLUMN     "fail_window_count" INTEGER NOT NULL DEFAULT 0,
-ADD COLUMN     "fail_window_start" TIMESTAMPTZ(6);
+ADD COLUMN     "fail_window_start" TIMESTAMPTZ(6),
+ADD COLUMN     "trust_epoch" TIMESTAMPTZ(6);
 
 -- CreateTable
 CREATE TABLE "core"."auth_lockouts" (
@@ -38,4 +39,4 @@ GRANT SELECT, INSERT, DELETE ON core.auth_lockouts TO app_rw;
 GRANT UPDATE (failed_count, lock_count, locked_until, updated_at) ON core.auth_lockouts TO app_rw;
 GRANT UPDATE (reauth_failed_count) ON core.sessions TO app_rw;
 ALTER TABLE core.users ADD CONSTRAINT users_fail_window CHECK (fail_window_count >= 0);
-GRANT UPDATE (fail_window_count, fail_window_start) ON core.users TO app_rw;
+GRANT UPDATE (fail_window_count, fail_window_start, trust_epoch) ON core.users TO app_rw;

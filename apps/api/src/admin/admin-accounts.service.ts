@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { clearAllLocks, hasTempLock } from '../auth/auth-attempts';
+import { bumpTrust, clearAllLocks, hasTempLock } from '../auth/auth-attempts';
 import { TransactionHost } from '@nestjs-cls/transactional';
 import { ClsService } from 'nestjs-cls';
 import { randomBytes } from 'node:crypto';
@@ -114,6 +114,7 @@ export class AdminAccountsService {
     if (u.type === 'MASTER') await this.assertNotLastMaster(id);
     await this.tx.user.update({ where: { id }, data: { status: 'LOCKED' }, select: { id: true } });
     const revoked = await this.revokeAll(id, 'USER_LOCKED');
+    await bumpTrust(this.tx, id);
     await this.ao.recordAudit({
       action: 'user.lock',
       resourceType: 'user',
@@ -166,6 +167,7 @@ export class AdminAccountsService {
     const codes = await this.tx.recoveryCode.deleteMany({ where: { userId: id } });
     await this.tx.authChallenge.deleteMany({ where: { userId: id, kind: 'MFA' } });
     const revoked = await this.revokeAll(id, 'TWO_FACTOR_RESET');
+    await bumpTrust(this.tx, id);
     await this.ao.recordAudit({
       action: 'user.two_factor_reset',
       resourceType: 'user',

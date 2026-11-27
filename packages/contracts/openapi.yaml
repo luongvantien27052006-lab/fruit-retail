@@ -5957,21 +5957,16 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /admin/prices/{sku_id}:
-    parameters:
-      - name: sku_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+  /admin/prices:
     put:
-      operationId: putAdminPricesSkuId
+      operationId: putAdminPrices
       tags: [admin]
-      summary: 'Đặt giá lẻ chuỗi/cửa hàng (ghi lịch sử)'
+      summary: 'Đổi giá lẻ hàng loạt (nhiều SKU, một transaction)'
       x-permission: 'price:write'
+      x-step-up: true
       x-spec-ref: '§4.4'
       x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/RequestId'
@@ -5980,14 +5975,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/PriceBulkSetRequest'
       responses:
         '200':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/PriceBulkResult'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6000,6 +5995,202 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/prices/{sku_id}:
+    parameters:
+      - name: sku_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getAdminPricesSkuId
+      tags: [admin]
+      summary: 'Giá lẻ hiện hành của SKU (chung, theo cửa hàng, theo đơn vị)'
+      x-permission: 'price:read'
+      x-spec-ref: '§4.4'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkuPrices'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    put:
+      operationId: putAdminPricesSkuId
+      tags: [admin]
+      summary: 'Đặt giá lẻ chuỗi/cửa hàng/đơn vị (ghi lịch sử)'
+      x-permission: 'price:write'
+      x-spec-ref: '§4.4'
+      x-detail-cp: CP04
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PriceSetRequest'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkuPrices'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/prices/{sku_id}/history:
+    parameters:
+      - name: sku_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getAdminPricesSkuIdHistory
+      tags: [admin]
+      summary: 'Lịch sử giá của SKU (ai, khi nào, cũ → mới, lý do)'
+      x-permission: 'price:read'
+      x-spec-ref: '§4.4'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: store_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: field
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PER_KG, PER_UNIT, SKU_UNIT]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+            description: 'trang sau: next_before của trang trước'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceHistory'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/prices/{sku_id}/effective:
+    parameters:
+      - name: sku_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getAdminPricesSkuIdEffective
+      tags: [admin]
+      summary: 'Giá lẻ hiệu lực tại một thời điểm (đơn vị → cửa hàng → chung)'
+      x-permission: 'price:read'
+      x-spec-ref: '§4.4'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: store_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: sku_unit_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: at
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+            description: 'mặc định: bây giờ'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EffectivePrice'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '503':
@@ -9384,6 +9575,246 @@ components:
           type: [integer, 'null']
           minimum: 0
           maximum: 3650
+    PriceSetRequest:
+      type: object
+      description: >-
+        Đặt giá một SKU. global = giá lẻ chung (giá/kg cho WEIGHT, PIECE_BY_WEIGHT, PACK_VARIABLE; giá/đơn vị cho kiểu khác);
+        stores[].price null = bỏ giá riêng cửa hàng (về giá chung); units[].price null = bỏ giá riêng của đơn vị. Giá 1 … 1.000.000.000
+        đồng, âm / 0 / quá trần ⇒ 422 CATALOG_RULE_VIOLATION. version lệch ⇒ 409. Giá không đổi thì không ghi lịch sử. Đổi giá chỉ
+        áp cho giao dịch mới (dòng bán chụp giá lúc bán).
+      required: [reason, version]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+        version:
+          type: integer
+          minimum: 0
+        global:
+          type: string
+          pattern: '^-?[0-9]{1,18}$'
+          format: vnd
+        stores:
+          type: array
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/StorePriceInput'
+        units:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/UnitPriceInput'
+    StorePriceInput:
+      type: object
+      required: [store_id, price]
+      additionalProperties: false
+      properties:
+        store_id:
+          type: string
+          format: uuid
+        price:
+          type: [string, 'null']
+          pattern: '^-?[0-9]{1,18}$'
+          format: vnd
+    UnitPriceInput:
+      type: object
+      required: [sku_unit_id, price]
+      additionalProperties: false
+      properties:
+        sku_unit_id:
+          type: string
+          format: uuid
+        price:
+          type: [string, 'null']
+          pattern: '^-?[0-9]{1,18}$'
+          format: vnd
+    PriceBulkSetRequest:
+      type: object
+      description: Nhiều SKU một transaction (tất cả hoặc không); cần step-up.
+      required: [reason, items]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+        items:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/PriceBulkItem'
+    PriceBulkItem:
+      type: object
+      required: [sku_id, version]
+      additionalProperties: false
+      properties:
+        sku_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          minimum: 0
+        global:
+          type: string
+          pattern: '^-?[0-9]{1,18}$'
+          format: vnd
+        stores:
+          type: array
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/StorePriceInput'
+        units:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/UnitPriceInput'
+    PriceBulkResult:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SkuPrices'
+    SkuPrices:
+      type: object
+      description: Giá hiện hành. price_field cho biết global / stores[].price là giá/kg hay giá/đơn vị. version tăng mỗi lần đổi giá.
+      required: [sku_id, sale_unit_type, price_field, version, global, stores, units]
+      additionalProperties: false
+      properties:
+        sku_id:
+          type: string
+          format: uuid
+        sale_unit_type:
+          $ref: '#/components/schemas/SaleUnitType'
+        price_field:
+          type: string
+          enum: [PER_KG, PER_UNIT]
+        version:
+          type: integer
+          minimum: 0
+        global:
+          type: [string, 'null']
+          pattern: '^-?[0-9]{1,18}$'
+          format: vnd
+        stores:
+          type: array
+          items:
+            type: object
+            required: [store_id, price, updated_at, updated_by]
+            additionalProperties: false
+            properties:
+              store_id:
+                type: string
+                format: uuid
+              price:
+                type: [string, 'null']
+                pattern: '^-?[0-9]{1,18}$'
+                format: vnd
+              updated_at:
+                type: string
+                format: date-time
+              updated_by:
+                type: string
+                format: uuid
+        units:
+          type: array
+          items:
+            type: object
+            required: [sku_unit_id, name, for_sale, archived_at, price]
+            additionalProperties: false
+            properties:
+              sku_unit_id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              for_sale:
+                type: boolean
+              archived_at:
+                type: [string, 'null']
+                format: date-time
+              price:
+                type: [string, 'null']
+                pattern: '^-?[0-9]{1,18}$'
+                format: vnd
+    PriceHistory:
+      type: object
+      required: [items, next_before]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriceChangeLog'
+        next_before:
+          type: [string, 'null']
+          format: uuid
+    PriceChangeLog:
+      type: object
+      description: Bản ghi lịch sử giá (chỉ thêm). changed_at là mốc server, tăng nghiêm ngặt theo từng khóa giá. new_value null = bỏ giá riêng.
+      required: [id, scope, field, store_id, sku_unit_id, old_value, new_value, reason, changed_by, changed_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        scope:
+          type: string
+          enum: [GLOBAL, STORE]
+        field:
+          type: string
+          enum: [PER_KG, PER_UNIT, SKU_UNIT]
+        store_id:
+          type: [string, 'null']
+          format: uuid
+        sku_unit_id:
+          type: [string, 'null']
+          format: uuid
+        old_value:
+          type: [string, 'null']
+          pattern: '^-?[0-9]{1,18}$'
+          format: vnd
+        new_value:
+          type: [string, 'null']
+          pattern: '^-?[0-9]{1,18}$'
+          format: vnd
+        reason:
+          type: string
+        changed_by:
+          type: string
+          format: uuid
+        changed_at:
+          type: string
+          format: date-time
+    EffectivePrice:
+      type: object
+      description: >-
+        Giá hiệu lực tại thời điểm at, dựng lại từ lịch sử: giá riêng đơn vị (nếu hỏi sku_unit_id và đơn vị có) → giá riêng cửa hàng
+        (nếu hỏi store_id) → giá chung. source NONE = chưa có giá.
+      required: [at, field, source, price, changed_at]
+      additionalProperties: false
+      properties:
+        at:
+          type: string
+          format: date-time
+        field:
+          type: string
+          enum: [PER_KG, PER_UNIT, SKU_UNIT]
+        source:
+          type: string
+          enum: [SKU_UNIT, STORE, GLOBAL, NONE]
+        price:
+          type: [string, 'null']
+          pattern: '^-?[0-9]{1,18}$'
+          format: vnd
+        changed_at:
+          type: [string, 'null']
+          format: date-time
     VndAmount:
       type: string
       pattern: '^-?[0-9]{1,18}$'

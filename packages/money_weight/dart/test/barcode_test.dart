@@ -63,6 +63,7 @@ void main() {
           expect(r.decoded!.rule, c['rule']);
         } else {
           expect(r.reason, c['reason']);
+          if (c['failRule'] != null) expect(r.rule, c['failRule']);
         }
       });
     }

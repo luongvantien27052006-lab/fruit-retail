@@ -194,7 +194,15 @@ export class LabelsService {
   /** Thử giải một mã theo các quy tắc ĐANG BẬT (thứ tự priority) + tra SKU — màn cấu hình (A10); POS dùng bản Dart. */
   async decode(code: string) {
     const rules = await this.tx.barcodeRule.findMany({ where: { enabled: true }, orderBy: { priority: 'asc' } });
-    const res = decodeBarcode(rules.map(def), code);
+    const usable = rules.filter((r) => {
+      try {
+        parsePattern(r.pattern, { type: r.type, ean13Checksum: r.ean13Checksum });
+        return true;
+      } catch {
+        return false; // quy tắc hỏng (sửa tay bằng SQL) ⇒ bỏ qua, không làm hỏng mọi lần giải mã
+      }
+    });
+    const res = decodeBarcode(usable.map(def), code);
     if (!res.ok) return { ok: false as const, reason: res.reason, rule: res.rule ?? null, sku: null };
     const d = res.decoded;
     const sku =
@@ -236,6 +244,7 @@ export class LabelsService {
     if (b.store_id) {
       const st = await this.tx.store.findUnique({ where: { id: b.store_id }, select: { archivedAt: true } });
       if (!st) throw new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy');
+      if (st.archivedAt) throw rule('Cửa hàng đã lưu trữ', { field: 'store_id' });
     }
     const rows = await this.tx.$queryRaw<
       {
@@ -290,7 +299,12 @@ export class LabelsService {
       ws.columns = cols.map(([k, h]) => ({ header: h, key: k, width: 18 }));
       ws.getRow(1).font = { bold: true };
       ws.getColumn('plu').numFmt = '@';
-      for (const d of data) ws.addRow(d);
+      for (const d of data)
+        ws.addRow(
+          Object.fromEntries(
+            Object.entries(d).map(([k, v]) => [k, typeof v === 'string' && /^[=+\-@\t\r]/.test(v) ? `'${v}` : v]),
+          ),
+        );
       buf = Buffer.from(await wb.xlsx.writeBuffer());
     }
     const saved = await this.exports.saveExport({
@@ -364,6 +378,9 @@ export class LabelsService {
    */
   async shelfLabels(q: { sku_ids?: string[]; category_id?: string; store_id?: string; layout: 'A4_24' | 'A4_10' }) {
     if (q.store_id) await this.scope.assertStore('price:read', q.store_id);
+    // không chọn cửa hàng ⇒ giá chung: người chỉ có phạm vi cửa hàng phải chọn cửa hàng mình (như xuất PLU)
+    else if (!(await this.scope.isAll('price:read')))
+      throw new AppError('ACTION_FORBIDDEN', 'Chọn cửa hàng để in tem (giá chung cần phạm vi toàn chuỗi)');
     const where = q.sku_ids?.length
       ? { id: { in: q.sku_ids }, archivedAt: null }
       : { product: { categoryId: q.category_id }, archivedAt: null };
@@ -372,7 +389,12 @@ export class LabelsService {
       orderBy: { skuCode: 'asc' },
       take: MAX_LABELS + 1,
       include: {
-        units: { orderBy: { id: 'asc' }, take: 1, select: { barcode: true } },
+        // đơn vị đang dùng, để bán — đơn vị gốc trước (UUIDv7 nhỏ nhất)
+        units: {
+          where: { archivedAt: null, forSale: true },
+          orderBy: { id: 'asc' },
+          select: { barcode: true, name: true },
+        },
         storePrices: q.store_id ? { where: { storeId: q.store_id } } : false,
       },
     });
@@ -386,30 +408,42 @@ export class LabelsService {
       const price = kg
         ? (sp?.retailPricePerKg ?? s.retailPricePerKg)
         : (sp?.retailPricePerUnit ?? s.retailPricePerUnit);
-      const barcode = s.units[0]?.barcode;
+      // mã vạch: đơn vị bán đầu tiên CÓ mã (đơn vị lưu trữ không in — POS quét không ra)
+      const barcode = s.units.find((u) => u.barcode)?.barcode ?? null;
+      const per = kg ? '/kg' : s.units[0] ? `/${s.units[0].name}` : '';
       const code =
         barcode && isValidEan13(barcode)
-          ? ean13Svg(barcode)
+          ? ean13Svg(barcode, { moduleWidth: 1.2, height: 22 })
           : `<div class="code">${html(barcode ?? (s.scalePlu ? `PLU ${s.scalePlu}` : s.skuCode))}</div>`;
       return (
         `<div class="label"><div class="brand">${html(brand.brandName)}</div>` +
         `<div class="name">${html(s.name)}</div>` +
-        `<div class="price">${price !== null ? `${html(formatVnd(price))}<span class="per">${kg ? '/kg' : ''}</span>` : '<span class="per">Chưa có giá</span>'}</div>` +
+        `<div class="price">${price !== null ? `${html(formatVnd(price))}<span class="per">${html(per)}</span>` : '<span class="per">Chưa có giá</span>'}</div>` +
         `${code}<div class="sku">${html(s.skuCode)}${s.scalePlu ? ` · PLU ${html(s.scalePlu)}` : ''}</div></div>`
       );
     });
-    const grid = q.layout === 'A4_24' ? { cols: 3, h: '33.9mm' } : { cols: 2, h: '55mm' };
+    // vùng in A4 = 210 × 297 mm trừ lề 8 mm ⇒ 194 × 281 mm. A4_24: 3 × 8 tem 33 mm + 7 khe 1 mm = 271 mm; A4_10: 2 × 5 tem
+    // 54 mm + 4 khe 1 mm = 274 mm. Mỗi trang một khối riêng (ngắt trang) — không để trình duyệt tự chia lưới.
+    const g =
+      q.layout === 'A4_24'
+        ? { cols: 3, rows: 8, h: 33, name: 9, price: 14 }
+        : { cols: 2, rows: 5, h: 54, name: 13, price: 22 };
+    const perPage = g.cols * g.rows;
+    const pages: string[] = [];
+    for (let i = 0; i < cells.length; i += perPage)
+      pages.push(`<div class="page">${cells.slice(i, i + perPage).join('')}</div>`);
     return {
       count: skus.length,
       html:
         '<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>Tem giá kệ</title><style>' +
-        '@page{size:A4;margin:8mm}body{margin:0;font-family:Arial,sans-serif}' +
-        `.sheet{display:grid;grid-template-columns:repeat(${grid.cols},1fr);gap:2mm}` +
-        `.label{box-sizing:border-box;height:${grid.h};border:1px dashed #999;padding:2mm;overflow:hidden;break-inside:avoid}` +
-        '.brand{font-size:8pt;color:#555}.name{font-size:11pt;font-weight:bold;max-height:2.6em;overflow:hidden}' +
-        '.price{font-size:18pt;font-weight:bold}.per{font-size:9pt;font-weight:normal;margin-left:1mm}' +
-        '.code{font-family:monospace;font-size:10pt}.sku{font-size:7pt;color:#555}svg{max-width:100%;height:auto}' +
-        `</style></head><body><div class="sheet">${cells.join('')}</div></body></html>`,
+        '@page{size:A4;margin:8mm}html,body{margin:0;padding:0;font-family:Arial,sans-serif}' +
+        `.page{display:grid;grid-template-columns:repeat(${g.cols},1fr);grid-auto-rows:${g.h}mm;gap:1mm;break-after:page}` +
+        '.page:last-child{break-after:auto}' +
+        '.label{box-sizing:border-box;height:100%;border:1px dashed #999;padding:1.5mm;overflow:hidden;display:flex;flex-direction:column}' +
+        `.brand{font-size:7pt;color:#555;line-height:1.1}.name{font-size:${g.name}pt;font-weight:bold;line-height:1.15;max-height:2.3em;overflow:hidden}` +
+        `.price{font-size:${g.price}pt;font-weight:bold;line-height:1.2}.per{font-size:8pt;font-weight:normal;margin-left:1mm}` +
+        '.code{font-family:monospace;font-size:9pt}.sku{font-size:6pt;color:#555;margin-top:auto}svg{max-width:100%;height:auto;display:block}' +
+        `</style></head><body>${pages.join('')}</body></html>`,
     };
   }
 }

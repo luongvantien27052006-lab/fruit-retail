@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put, Query, Res } 
 import type { Response } from 'express';
 import { ClsService } from 'nestjs-cls';
 import { z } from 'zod';
-import { MasterOnly, RequirePermission } from '../common/access';
+import { MasterOnly, NoAudit, RequirePermission } from '../common/access';
 import { AppError } from '../common/errors';
 import type { RequestStore } from '../common/request-context';
 import { ZodPipe } from '../common/zod.pipe';
@@ -63,7 +63,15 @@ const BrandUpdate = z
     privacy_url: z
       .string()
       .max(500)
-      .regex(/^https:\/\/[^\s]{1,492}$/, 'đường dẫn https://…')
+      .regex(/^https:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&()*+,;=%]{1,492}$/, 'đường dẫn https://… (ký tự URL hợp lệ)')
+      .refine((v) => {
+        try {
+          const u = new URL(v);
+          return u.protocol === 'https:' && u.hostname.includes('.') && !u.username && !u.password;
+        } catch {
+          return false;
+        }
+      }, 'đường dẫn https:// có tên miền')
       .nullable()
       .optional(),
     logo_mono_file_id: uuid.nullable().optional(),
@@ -73,12 +81,7 @@ const BrandUpdate = z
   .refine((b) => Object.keys(b).length > 0, 'cần ít nhất một trường');
 const ShelfLabels = z
   .object({
-    sku_ids: z
-      .string()
-      .max(40_000)
-      .transform((v) => v.split(',').filter(Boolean))
-      .pipe(z.array(uuid).min(1).max(500))
-      .optional(),
+    sku_ids: z.array(uuid).min(1).max(500).optional(),
     category_id: uuid.optional(),
     store_id: uuid.optional(),
     layout: z.enum(['A4_24', 'A4_10']).default('A4_24'),
@@ -88,6 +91,12 @@ const ShelfLabels = z
     (q) => (q.sku_ids === undefined) !== (q.category_id === undefined),
     'cần đúng một trong sku_ids / category_id',
   );
+/**
+ * CSP trang tem: không script, không form, không nhúng vào trang khác, sandbox (origin riêng) — client phải hiển thị trong
+ * `<iframe sandbox>` KHÔNG allow-scripts / allow-same-origin, không mở bằng blob: cùng origin (review bảo mật lát 6 N1).
+ */
+export const LABEL_CSP =
+  "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; sandbox";
 
 /** Quy tắc mã vạch cân, file PLU, thương hiệu, tem giá kệ (CP04 lát 6, NC-26). */
 @Controller('admin')
@@ -153,11 +162,13 @@ export class LabelsController {
 
   /** Trang HTML in tem giá kệ (A4). Không script; CSP chỉ cho style nội tuyến. */
   @RequirePermission('price:read', { scope: 'store' })
-  @Get('shelf-labels')
-  async shelfLabels(@Query(new ZodPipe(ShelfLabels)) q: z.infer<typeof ShelfLabels>, @Res() res: Response) {
+  @NoAudit('in tem chỉ đọc danh mục + giá, không ghi dữ liệu')
+  @HttpCode(200)
+  @Post('shelf-labels')
+  async shelfLabels(@Body(new ZodPipe(ShelfLabels)) q: z.infer<typeof ShelfLabels>, @Res() res: Response) {
     const out = await this.labels.shelfLabels(q);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:");
+    res.setHeader('Content-Security-Policy', LABEL_CSP);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Label-Count', String(out.count));
     res.end(out.html);

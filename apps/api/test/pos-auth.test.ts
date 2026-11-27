@@ -356,7 +356,10 @@ describe('auth nhân viên POS + thiết bị (CP03 lát 4)', () => {
        FROM core.sessions WHERE id = $1`,
       [r.body.session_id],
     );
-    expect(sess).toEqual({ user_type: 'STAFF', pos_device_id: d.id, amr: ['pin'], ttl: STAFF_SESSION_S });
+    // expires_at do app tính, created_at do DB đặt (now() của transaction) ⇒ lệch ≤ vài trăm ms, máy tải nặng có thể > 0,5 s
+    // ⇒ làm tròn lệch 1 giây (test chập chờn khi chạy cả bộ — CP04 lát 6)
+    expect(sess).toMatchObject({ user_type: 'STAFF', pos_device_id: d.id, amr: ['pin'] });
+    expect(Math.abs((sess?.ttl as number) - STAFF_SESSION_S)).toBeLessThanOrEqual(2);
     const [dev] = await rows(`SELECT last_seen_at IS NOT NULL AS seen FROM core.pos_devices WHERE id = $1`, [d.id]);
     expect(dev?.seen).toBe(true);
 

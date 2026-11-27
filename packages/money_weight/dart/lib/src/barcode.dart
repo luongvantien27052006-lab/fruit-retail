@@ -154,6 +154,18 @@ List<Segment> parsePattern(
       !(count(SegmentKind.plu) > 0 && count(SegmentKind.p) > 0)) {
     throw bad('Quy tắc PRICE cần {PLU:n} và {P:n}');
   }
+  // tem cân nội bộ: tiền tố 20–29 (§6.5)
+  if ((type == 'WEIGHT' || type == 'PRICE') &&
+      !(segs.first.kind == SegmentKind.lit &&
+          RegExp(r'^2[0-9]').hasMatch(segs.first.text))) {
+    throw bad('Tem cân (WEIGHT / PRICE) phải bắt đầu bằng tiền tố 20–29');
+  }
+  if (segs.any((s) => s.kind == SegmentKind.plu && s.len > 5)) {
+    throw bad('{PLU:n} tối đa 5 chữ số');
+  }
+  if (count(SegmentKind.c) > 0 && !ean13Checksum) {
+    throw bad('{C} chỉ dùng khi bật kiểm số EAN-13');
+  }
   if (ean13Checksum) {
     if (count(SegmentKind.c) == 0) throw bad('Kiểm số EAN-13 cần {C} ở cuối');
     if (_fixedLength(segs) != 13) {
@@ -328,5 +340,6 @@ String encodeWith(
         out.write(numStr(scaled(amount, 'Tiền'), s.len, 'Tiền'));
     }
   }
+  if (out.length > 64) throw bad('Mã tạo ra dài quá 64 ký tự');
   return out.toString();
 }

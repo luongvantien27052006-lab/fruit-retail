@@ -87,6 +87,12 @@ export function parsePattern(
   if (variable && count('c')) throw bad('Phần biến đổi không đi cùng số kiểm {C}');
   if (opts.type === 'WEIGHT' && !(count('plu') && count('w'))) throw bad('Quy tắc WEIGHT cần {PLU:n} và {W:n}');
   if (opts.type === 'PRICE' && !(count('plu') && count('p'))) throw bad('Quy tắc PRICE cần {PLU:n} và {P:n}');
+  // tem cân nội bộ: tiền tố 20–29 (§6.5, GS1 dành cho dùng nội bộ) — không thì mã hàng đóng gói bị đọc nhầm thành hàng cân
+  if ((opts.type === 'WEIGHT' || opts.type === 'PRICE') && !/^2[0-9]/.test(segs[0]?.kind === 'lit' ? segs[0].text : ''))
+    throw bad('Tem cân (WEIGHT / PRICE) phải bắt đầu bằng tiền tố 20–29');
+  // PLU của SKU đúng 5 chữ số (CHECK skus_plu) — {PLU:n} n > 5 không bao giờ khớp
+  if (segs.some((s) => s.kind === 'plu' && s.len > 5)) throw bad('{PLU:n} tối đa 5 chữ số');
+  if (count('c') && !opts.ean13Checksum) throw bad('{C} chỉ dùng khi bật kiểm số EAN-13');
   if (opts.ean13Checksum) {
     if (!count('c')) throw bad('Kiểm số EAN-13 cần {C} ở cuối');
     if (fixedLength(segs) !== 13) throw bad('Mẫu EAN-13 phải dài đúng 13 ký tự');
@@ -206,5 +212,6 @@ export function encodeWith(
       out += num(scaled(v.amount, 'Tiền'), s.len, 'Tiền');
     }
   }
+  if (out.length > 64) throw bad('Mã tạo ra dài quá 64 ký tự');
   return out;
 }

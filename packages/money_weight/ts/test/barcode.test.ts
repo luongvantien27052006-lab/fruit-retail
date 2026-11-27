@@ -27,7 +27,15 @@ interface V {
     reason?: string;
     expected?: { plu?: string; grams?: number; amount?: string; value?: string };
   }[];
-  decodeFirst: { id: string; rules: string[]; barcode: string; ok: boolean; rule?: string; reason?: string }[];
+  decodeFirst: {
+    id: string;
+    rules: string[];
+    barcode: string;
+    ok: boolean;
+    rule?: string;
+    reason?: string;
+    failRule?: string;
+  }[];
   encode: { id: string; rule: string; input: In; expected: string }[];
   encodeRejects: { id: string; rule: string; input: In; error: string }[];
   patternRejects: { id: string; pattern: string; type: BarcodeRuleDef['type']; ean13Checksum: boolean }[];
@@ -66,7 +74,10 @@ describe('giải mã theo thứ tự quy tắc', () => {
     const r = decodeBarcode(c.rules.map(rule), c.barcode);
     expect(r.ok).toBe(c.ok);
     if (r.ok) expect(r.decoded.rule).toBe(c.rule);
-    else expect(r.reason).toBe(c.reason);
+    else {
+      expect(r.reason).toBe(c.reason);
+      if (c.failRule) expect(r.rule).toBe(c.failRule);
+    }
   });
 });
 

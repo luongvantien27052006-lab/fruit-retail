@@ -3,19 +3,17 @@ import ExcelJS from 'exceljs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ean13Modules } from '../src/labels/ean13-svg';
 import { schemaErrors } from './helpers/contract';
-import { type AdminEnv, type Client, startAdminEnv } from './helpers/admin-env';
+import { type AdminEnv, startAdminEnv } from './helpers/admin-env';
 
 // CP04 lát 6 — quy tắc mã vạch cân, xuất PLU (export_logs), thương hiệu (logo qua file), tem giá kệ (PostgreSQL + Redis + S3).
 // Cổng: checksum Phụ lục B (vector chung TS/Dart ở packages/money_weight); xuất PLU ghi log, thiếu quyền ⇒ 403.
 
 describe('PLU, mã vạch cân, thương hiệu, tem (CP04 lát 6)', () => {
   let e: AdminEnv;
-  let su: Client;
   const err = (r: { status: number; body: { code?: string } }) => [r.status, r.body.code];
 
   beforeAll(async () => {
     e = await startAdminEnv({ s3: true });
-    su = await e.masterStepUp();
   }, 240_000);
   afterAll(async () => {
     await e?.close();
@@ -44,7 +42,9 @@ describe('PLU, mã vạch cân, thương hiệu, tem (CP04 lát 6)', () => {
     });
     expect(r.status).toBe(200);
   };
-  const plu = () => String(10000 + Math.floor(Math.random() * 89999));
+  // PLU duy nhất trong lượt test (không ngẫu nhiên — tránh trùng)
+  let pluSeq = 30000 + Math.floor(Math.random() * 1000) * 50;
+  const plu = () => String(pluSeq++);
 
   it('quy tắc mã vạch: seed W1/W2/W3/PRODUCT; tạo / sửa; mẫu sai ⇒ 422; trùng code / priority ⇒ 409; quyền', async () => {
     const l = await e.master.get('/admin/barcode-rules');
@@ -93,7 +93,18 @@ describe('PLU, mã vạch cân, thương hiệu, tem (CP04 lát 6)', () => {
       pattern: 'X{CODE}',
       ean13_checksum: false,
     });
+    expect(err(dupC)).toEqual([409, 'VERSION_CONFLICT']);
     expect((dupC.body as { details: { field: string } }).details.field).toBe('code');
+    // tem cân phải có tiền tố 20–29 (mã hàng đóng gói 89… không bị đọc nhầm thành hàng cân — review TS lát 6 C1)
+    const p89 = await e.master.post('/admin/barcode-rules', {
+      code: 'P89',
+      name: 'x',
+      priority: 43,
+      type: 'WEIGHT',
+      pattern: '89{PLU:5}{W:5}{C}',
+      ean13_checksum: true,
+    });
+    expect(err(p89)).toEqual([422, 'CATALOG_RULE_VIOLATION']);
     const id = c.body.id as string;
     const on = await e.master.patch(`/admin/barcode-rules/${id}`, { enabled: true });
     expect(on.body.enabled).toBe(true);
@@ -124,6 +135,18 @@ describe('PLU, mã vạch cân, thương hiệu, tem (CP04 lát 6)', () => {
     expect(p.body).toMatchObject({ ok: true, rule: 'PRODUCT', value: '8938505970011' });
     expect(p.body.sku).toMatchObject({ id: packed.id });
     expect((await e.master.get('/admin/barcode-rules/decode?code=abc')).status).toBe(400);
+    expect(schemaErrors('BarcodeDecodeResult', ck.body)).toEqual([]);
+    // quy tắc hỏng trong DB (qua CHECK nhưng không phân tích được — sửa tay bằng SQL) ⇒ bỏ qua, không 500
+    await e.db.q(
+      `INSERT INTO core.barcode_rules (id, code, name, priority, type, pattern, value_scale, ean13_checksum, enabled)
+       VALUES (gen_random_uuid(), 'BROKEN', 'hỏng', 1, 'WEIGHT', '{C}20{PLU:5}{W:5}', 1, false, true)`,
+    );
+    try {
+      const again = await e.master.get('/admin/barcode-rules/decode?code=2000123008455');
+      expect(again.body).toMatchObject({ ok: true, rule: 'W1' });
+    } finally {
+      await e.db.q(`DELETE FROM core.barcode_rules WHERE code = 'BROKEN'`);
+    }
   });
 
   it('xuất PLU: chỉ SKU bán qua cân có giá, giá cửa hàng; ghi export_logs; thiếu quyền ⇒ 403; không chọn cửa hàng cần ALL', async () => {
@@ -168,6 +191,13 @@ describe('PLU, mã vạch cân, thương hiệu, tem (CP04 lát 6)', () => {
     expect((await sp.post('/admin/plu-export', { store_id: sp.storeId })).status).toBe(201);
     expect(err(await sp.post('/admin/plu-export', { store_id: storeId }))).toEqual([404, 'RESOURCE_NOT_FOUND']);
     expect(err(await sp.post('/admin/plu-export', {}))).toEqual([403, 'ACTION_FORBIDDEN']);
+    // cửa hàng đã lưu trữ ⇒ 422
+    const old = await e.master.post('/admin/stores', { code: `o${e.hex()}`, name: 'CH cũ' });
+    await e.master.patch(`/admin/stores/${old.body.id as string}`, { archived: true });
+    expect(err(await e.master.post('/admin/plu-export', { store_id: old.body.id as string }))).toEqual([
+      422,
+      'CATALOG_RULE_VIOLATION',
+    ]);
     // xuất danh sách (lát 5) cũng ghi export_logs
     const ex = await e.master.post('/admin/catalog-exports', { list: 'categories' });
     const [l2] = await e.db.q(`SELECT export_type FROM audit.export_logs WHERE file_id = $1`, [ex.body.file_id]);
@@ -226,21 +256,43 @@ describe('PLU, mã vạch cân, thương hiệu, tem (CP04 lát 6)', () => {
     expect((await sm.get('/admin/brand')).status).toBe(200);
     expect(err(await sm.put('/admin/brand', { brand_name: 'x' }))).toEqual([403, 'ACTION_FORBIDDEN']);
     expect((await e.master.put('/admin/brand', { logo_mono_file_id: null })).body.logo_mono_file_id).toBeNull();
-    void su;
   });
 
   it('tem giá kệ: HTML in được, chữ được thoát, giá cửa hàng, mã vạch SVG; phạm vi cửa hàng', async () => {
     const st = await e.master.post('/admin/stores', { code: `t${e.hex()}`, name: 'CH tem' });
     const storeId = st.body.id as string;
     const a = await sku({ name: '<script>alert(1)</script> Cam', scale_plu: plu(), sold_by_scale: true });
-    const b = await sku({ sale_unit_type: 'PIECE_FIXED', barcode: '8934567890120', name: 'Táo & lê' });
+    const b = await sku({
+      sale_unit_type: 'PIECE_FIXED',
+      name: 'Táo & lê',
+      units: [
+        {
+          unit_code: 'PACK',
+          name: 'Hộp 6 quả',
+          factor_units: 6,
+          for_sale: true,
+          for_purchase: false,
+          barcode: '8934567890120',
+        },
+      ],
+    });
     await price(a, '45000', [{ store_id: storeId, price: '52000' }]);
     await price(b, '12000');
-    const r = await e.master.get(`/admin/shelf-labels?sku_ids=${a.id},${b.id}&store_id=${storeId}`);
+    // đơn vị gốc của b không có mã vạch; đơn vị bán thêm có mã ⇒ tem lấy mã đó
+    const c = await sku({ sale_unit_type: 'PIECE_FIXED', name: 'Chưa có giá' });
+    const r = await e.master.post('/admin/shelf-labels', { sku_ids: [a.id, b.id, c.id], store_id: storeId });
     expect(r.status).toBe(200);
     expect(r.headers['content-type']).toContain('text/html');
-    expect(r.headers['content-security-policy']).toContain("default-src 'none'");
-    expect(r.headers['x-label-count']).toBe('2');
+    const csp = r.headers['content-security-policy'] as string;
+    for (const d of [
+      "default-src 'none'",
+      'sandbox',
+      "frame-ancestors 'none'",
+      "form-action 'none'",
+      "base-uri 'none'",
+    ])
+      expect(csp).toContain(d);
+    expect(r.headers['x-label-count']).toBe('3');
     const h = r.text;
     expect(h).not.toContain('<script>');
     expect(h).toContain('&lt;script&gt;alert(1)&lt;/script&gt; Cam');
@@ -248,17 +300,26 @@ describe('PLU, mã vạch cân, thương hiệu, tem (CP04 lát 6)', () => {
     expect(h).toContain('52.000đ');
     expect(h).toContain('/kg');
     expect(h).toContain('12.000đ');
+    expect(h).toMatch(/12\.000đ<span class="per">\/[^<]+<\/span>/); // hàng đếm có hậu tố đơn vị
+    expect(h).toContain('Chưa có giá');
     expect(h).toContain('<svg');
     expect(h).toContain('aria-label="8934567890120"');
-    expect((await e.master.get(`/admin/shelf-labels?sku_ids=${a.id}&category_id=${a.id}`)).status).toBe(400);
-    expect((await e.master.get(`/admin/shelf-labels`)).status).toBe(400);
+    expect(h.match(/class="page"/g)).toHaveLength(1);
+    expect((await e.master.post('/admin/shelf-labels', { sku_ids: [a.id], category_id: a.id })).status).toBe(400);
+    expect((await e.master.post('/admin/shelf-labels', {})).status).toBe(400);
     const sm = await e.storeManager();
-    expect((await sm.get(`/admin/shelf-labels?sku_ids=${a.id}&store_id=${sm.storeId}`)).status).toBe(200);
-    expect(err(await sm.get(`/admin/shelf-labels?sku_ids=${a.id}&store_id=${storeId}`))).toEqual([
+    expect((await sm.post('/admin/shelf-labels', { sku_ids: [a.id], store_id: sm.storeId })).status).toBe(200);
+    expect(err(await sm.post('/admin/shelf-labels', { sku_ids: [a.id], store_id: storeId }))).toEqual([
       404,
       'RESOURCE_NOT_FOUND',
     ]);
-  });
+    // không chọn cửa hàng (giá chung) ⇒ cần phạm vi toàn chuỗi
+    expect(err(await sm.post('/admin/shelf-labels', { sku_ids: [a.id] }))).toEqual([403, 'ACTION_FORBIDDEN']);
+    // > 24 tem ⇒ nhiều trang A4
+    const many = await Promise.all(Array.from({ length: 25 }, () => sku({ sale_unit_type: 'PIECE_FIXED' })));
+    const p2 = await e.master.post('/admin/shelf-labels', { sku_ids: many.map((x) => x.id) });
+    expect(p2.text.match(/class="page"/g)).toHaveLength(2);
+  }, 120_000);
 
   it('EAN-13 SVG: 95 mô-đun, vạch bảo vệ, bảng L/G/R nhất quán (R = bù L, G = đảo R), giải ngược ra đúng mã', () => {
     const code = '2000123008455';

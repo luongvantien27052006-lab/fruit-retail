@@ -8045,8 +8045,8 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
   /admin/shelf-labels:
-    get:
-      operationId: getAdminShelfLabels
+    post:
+      operationId: postAdminShelfLabels
       tags: [admin]
       summary: 'Trang HTML in tem giá kệ hàng loạt (A4)'
       x-permission: 'price:read'
@@ -8055,33 +8055,20 @@ paths:
       x-detail-cp: CP04
       x-not-in-spec-13-2: true # NC-29 (CP04)
       description: >-
-        Đúng một trong sku_ids (UUID cách nhau bằng dấu phẩy, ≤ 500) / category_id; store_id ⇒ giá riêng cửa hàng (nếu có). Trả text/html in được (không script, CSP chặn); mã vạch EAN-13 vẽ SVG. Header X-Label-Count = số tem.
+        Đúng một trong sku_ids (≤ 500) / category_id. store_id ⇒ giá riêng cửa hàng (nếu có); không có store_id ⇒ giá chung,
+        cần phạm vi toàn chuỗi (403). Chỉ đọc (không ghi audit). Trả text/html in được (không script); header
+        Content-Security-Policy có sandbox, frame-ancestors 'none' — client PHẢI hiển thị trong iframe sandbox KHÔNG có
+        allow-scripts / allow-same-origin, không mở bằng blob: cùng origin. Mã vạch EAN-13 vẽ SVG. Header X-Label-Count = số
+        tem. A4_24 = 3 × 8 tem / trang, A4_10 = 2 × 5 tem / trang.
       parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/RequestId'
-        - name: sku_ids
-          in: query
-          required: false
-          schema:
-            type: string
-        - name: category_id
-          in: query
-          required: false
-          schema:
-            type: string
-            format: uuid
-        - name: store_id
-          in: query
-          required: false
-          schema:
-            type: string
-            format: uuid
-        - name: layout
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [A4_24, A4_10]
-            default: A4_24
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShelfLabelsRequest'
       responses:
         '200':
           description: Thành công
@@ -11890,18 +11877,20 @@ components:
         enabled:
           type: boolean
     BarcodeDecodeResult:
+      description: ok true ⇒ khớp quy tắc (sku null = không tìm thấy SKU đang dùng); ok false ⇒ NO_MATCH | CHECKSUM (rule = quy tắc khớp cấu trúc mà sai số kiểm).
+      oneOf:
+        - $ref: '#/components/schemas/BarcodeDecodeOk'
+        - $ref: '#/components/schemas/BarcodeDecodeFail'
+    BarcodeDecodeOk:
       type: object
-      description: ok false ⇒ reason NO_MATCH (không quy tắc nào khớp) | CHECKSUM (khớp cấu trúc, sai số kiểm — rule nêu quy tắc). sku null = không tìm thấy SKU đang dùng.
-      required: [ok, sku]
+      required: [ok, rule, type, plu, grams, amount, value, sku]
       additionalProperties: false
       properties:
         ok:
           type: boolean
-        reason:
-          type: string
-          enum: [NO_MATCH, CHECKSUM]
+          const: true
         rule:
-          type: [string, 'null']
+          type: string
         type:
           $ref: '#/components/schemas/BarcodeRuleType'
         plu:
@@ -11928,6 +11917,42 @@ components:
                   type: string
                 name:
                   type: string
+    BarcodeDecodeFail:
+      type: object
+      required: [ok, reason, rule, sku]
+      additionalProperties: false
+      properties:
+        ok:
+          type: boolean
+          const: false
+        reason:
+          type: string
+          enum: [NO_MATCH, CHECKSUM]
+        rule:
+          type: [string, 'null']
+        sku:
+          type: 'null'
+    ShelfLabelsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        sku_ids:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: string
+            format: uuid
+        category_id:
+          type: string
+          format: uuid
+        store_id:
+          type: string
+          format: uuid
+        layout:
+          type: string
+          enum: [A4_24, A4_10]
+          default: A4_24
     PluExportRequest:
       type: object
       additionalProperties: false
@@ -12030,6 +12055,7 @@ components:
         privacy_url:
           type: [string, 'null']
           maxLength: 500
+          pattern: '^https://[A-Za-z0-9._~:/?#\[\]@!$&()*+,;=%-]{1,492}$'
         logo_mono_file_id:
           type: [string, 'null']
           format: uuid

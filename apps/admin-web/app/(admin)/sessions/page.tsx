@@ -8,7 +8,6 @@ interface Session {
   created_at: string;
   last_used_at: string;
   user_agent: string | null;
-  client_device: string | null;
   current: boolean;
 }
 

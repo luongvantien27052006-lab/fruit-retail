@@ -17,6 +17,8 @@ interface CallInit {
   body?: string | undefined;
   bearer?: string | undefined;
   idempotencyKey?: string | undefined;
+  /** X-Device-Id = định danh trình duyệt (chỉ khi tạo phiên: login / 2FA) */
+  deviceId?: string | undefined;
 }
 
 const IDEMPOTENCY_RE = /^[A-Za-z0-9_-]{16,128}$/;
@@ -37,6 +39,7 @@ function forwardHeaders(req: NextRequest, init: CallInit): Headers {
   const rid = req.headers.get('x-request-id');
   if (rid && REQUEST_ID_RE.test(rid)) h.set('x-request-id', rid);
   if (init.idempotencyKey && IDEMPOTENCY_RE.test(init.idempotencyKey)) h.set('idempotency-key', init.idempotencyKey);
+  if (init.deviceId) h.set('x-device-id', init.deviceId);
   return h;
 }
 
@@ -184,13 +187,17 @@ export async function upstream(
   }
   if (!r) throw new Error('unreachable');
   const s = stripTokens(r.body, TOKEN_ISSUERS.has(path.split('?')[0] ?? ''));
-  const loggedOut = r.status === 401 && codeOf(r.body) === 'SESSION_REVOKED';
+  // SESSION_REVOKED, hoặc 401 AUTHENTICATION_REQUIRED NGAY SAU khi đã refresh thành công (access mới vẫn bị từ chối) ⇒
+  // phiên chết thật — xóa cookie, client về /login (review cổng CP03)
+  const loggedOut =
+    r.status === 401 &&
+    (codeOf(r.body) === 'SESSION_REVOKED' || (codeOf(r.body) === 'AUTHENTICATION_REQUIRED' && expired));
   return { status: r.status, body: s.body, tokens: { ...tokens, ...s.tokens }, loggedOut };
 }
 
 /** Gọi route xác thực công khai (login, 2fa verify/recover) — Bearer chỉ là mfa_challenge nếu có. */
-export async function publicCall(req: NextRequest, path: string, body: unknown, bearer?: string) {
-  return call(req, path, { method: 'POST', body: JSON.stringify(body), bearer });
+export async function publicCall(req: NextRequest, path: string, body: unknown, bearer?: string, deviceId?: string) {
+  return call(req, path, { method: 'POST', body: JSON.stringify(body), bearer, deviceId });
 }
 
 /** Thu hồi phiên ở API khi đăng xuất (bỏ qua lỗi — cookie vẫn bị xóa). */

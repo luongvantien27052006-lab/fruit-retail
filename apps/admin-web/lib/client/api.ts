@@ -90,7 +90,46 @@ export async function bff<T = unknown>(path: string, method = 'GET', body?: unkn
   return b as T;
 }
 
+const FIELD_VI: Record<string, string> = {
+  reason: 'lý do (3–500 ký tự)',
+  name: 'tên (tối đa 100 ký tự)',
+  email: 'email',
+  pairing_code: 'mã ghép',
+  store_id: 'mã cửa hàng',
+  warehouse_id: 'mã kho',
+  staff_code: 'mã nhân viên',
+  full_name: 'họ tên',
+  pin: 'PIN',
+  viewer_profile_id: 'hồ sơ xem',
+  new_password: 'mật khẩu mới',
+  current_password: 'mật khẩu hiện tại',
+  code: 'mã 6 số',
+};
+
+/** Thông điệp cho người dùng; lỗi dữ liệu (400) nêu rõ trường sai thay vì câu chung chung (review cổng CP03). */
 export function errorText(e: unknown): string {
-  if (e instanceof ApiFailure) return e.error.message;
-  return 'Không kết nối được — thử lại';
+  if (!(e instanceof ApiFailure)) return 'Không kết nối được — thử lại';
+  const d = e.error.details as { field?: unknown; issues?: { path?: unknown }[] } | undefined;
+  if (e.error.code === 'INVALID_REQUEST' && d) {
+    const fields = [
+      ...(typeof d.field === 'string' ? [d.field] : []),
+      ...(Array.isArray(d.issues) ? d.issues.map((i) => String(i.path ?? '')) : []),
+    ]
+      .map((f) => f.split('.').pop() ?? f)
+      .filter((f, i, a) => f && a.indexOf(f) === i);
+    if (fields.length) return `${e.error.message}: ${fields.map((f) => FIELD_VI[f] ?? f).join(', ')}`;
+  }
+  return e.error.message;
+}
+
+/** Hỏi lý do bằng prompt và kiểm độ dài TRƯỚC khi gửi (3–500 ký tự). Hủy / sai ⇒ null. */
+export function askReason(label = 'Lý do (ít nhất 3 ký tự):'): string | null {
+  const r = window.prompt(label);
+  if (r === null) return null;
+  const t = r.trim();
+  if (t.length < 3 || t.length > 500) {
+    window.alert('Lý do phải từ 3 đến 500 ký tự.');
+    return null;
+  }
+  return t;
 }

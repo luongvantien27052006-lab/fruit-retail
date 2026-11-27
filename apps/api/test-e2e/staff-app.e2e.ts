@@ -159,10 +159,15 @@ describe.runIf(run)('staff app Windows thật ↔ API (CP03 lát 9)', () => {
       expect(code, out.slice(-6000)).toBe(0);
       expect(existsSync(join(coord, 'done.txt'))).toBe(true);
 
-      const sessions = await db.q(
-        `SELECT revoked_at, revoke_reason, pos_device_id FROM core.sessions WHERE user_id = $1`,
-        [staffId],
-      );
+      // logout chạy SAU khi app đổi màn ⇒ chờ DB thấy LOGOUT (có hạn) thay vì tin vào thời gian chờ cố định
+      let sessions: Record<string, unknown>[] = [];
+      for (const end = Date.now() + 15_000; Date.now() < end;) {
+        sessions = await db.q(`SELECT revoked_at, revoke_reason, pos_device_id FROM core.sessions WHERE user_id = $1`, [
+          staffId,
+        ]);
+        if (sessions[0]?.revoke_reason === 'LOGOUT') break;
+        await new Promise((r) => setTimeout(r, 200));
+      }
       expect(sessions).toHaveLength(1);
       expect(sessions[0]?.pos_device_id).toBe(deviceId);
       expect(sessions[0]?.revoke_reason).toBe('LOGOUT'); // khóa màn hình ⇒ thu hồi phiên ở server

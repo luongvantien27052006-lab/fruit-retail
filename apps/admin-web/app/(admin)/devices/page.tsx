@@ -1,6 +1,7 @@
 'use client';
+import { Alert } from '../../../components/Alert';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { bff, errorText } from '../../../lib/client/api';
+import { askReason, bff, errorText } from '../../../lib/client/api';
 import { dt } from '../../../lib/client/format';
 
 interface Device {
@@ -64,7 +65,13 @@ export default function DevicesPage() {
   function activate(id: string) {
     const pairing = window.prompt('Mã ghép hiện trên thiết bị (10 ký tự):');
     if (!pairing) return;
-    const name = window.prompt('Tên thiết bị (vd Quầy 1):') ?? undefined;
+    const raw = window.prompt('Tên thiết bị (vd Quầy 1, tối đa 100 ký tự):');
+    if (raw === null) return;
+    const name = raw.trim() || undefined;
+    if (name && name.length > 100) {
+      window.alert('Tên thiết bị tối đa 100 ký tự.');
+      return;
+    }
     void guard(async () => {
       await bff(`/api/admin/pos-devices/${id}/activate`, 'POST', {
         pairing_code: pairing.trim(),
@@ -75,7 +82,7 @@ export default function DevicesPage() {
   }
 
   function revoke(id: string) {
-    const reason = window.prompt('Lý do thu hồi (ít nhất 3 ký tự):');
+    const reason = askReason('Lý do thu hồi (ít nhất 3 ký tự):');
     if (!reason) return;
     void guard(async () => {
       await bff(`/api/admin/pos-devices/${id}/revoke`, 'POST', { reason });
@@ -87,11 +94,7 @@ export default function DevicesPage() {
     <>
       <div className="card">
         <h1>Thiết bị POS</h1>
-        {err && (
-          <p className="error" role="alert">
-            {err}
-          </p>
-        )}
+        <Alert text={err} />
         <div className="table-wrap">
           <table>
             <thead>
@@ -100,7 +103,9 @@ export default function DevicesPage() {
                 <th>Trạng thái</th>
                 <th>Đăng ký</th>
                 <th>Lần cuối</th>
-                <th />
+                <th>
+                  <span className="sr-only">Thao tác</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -115,12 +120,23 @@ export default function DevicesPage() {
                   <td>
                     <div className="row">
                       {d.status === 'PENDING' && (
-                        <button type="button" disabled={busy} onClick={() => activate(d.id)}>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          aria-label={`Kích hoạt ${d.name}`}
+                          onClick={() => activate(d.id)}
+                        >
                           Kích hoạt
                         </button>
                       )}
                       {d.status !== 'REVOKED' && (
-                        <button type="button" className="danger" disabled={busy} onClick={() => revoke(d.id)}>
+                        <button
+                          type="button"
+                          className="danger"
+                          disabled={busy}
+                          aria-label={`Thu hồi ${d.name}`}
+                          onClick={() => revoke(d.id)}
+                        >
                           Thu hồi
                         </button>
                       )}

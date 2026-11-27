@@ -20,6 +20,8 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
       const p = new Promise<boolean>((r) => (resolve = r));
       pending.current = { p, resolve };
       setErr('');
+      // mở lại sau khi hủy: không giữ mã cũ trong ô (review cổng CP03)
+      dlg.current?.querySelector('form')?.reset();
       dlg.current?.showModal();
       return p;
     });
@@ -56,9 +58,9 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
   return (
     <>
       {children}
-      <dialog ref={dlg} onCancel={() => finish(false)} onClose={() => finish(false)}>
+      <dialog ref={dlg} aria-labelledby="stepup-title" onCancel={() => finish(false)} onClose={() => finish(false)}>
         <form onSubmit={submit}>
-          <h2>Xác thực lại</h2>
+          <h2 id="stepup-title">Xác thực lại</h2>
           <p className="muted">Thao tác nhạy cảm — nhập mã 6 số trong Authenticator (hiệu lực 5 phút).</p>
           <label>
             Mã 6 số

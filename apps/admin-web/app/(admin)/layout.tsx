@@ -1,8 +1,8 @@
-import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { LogoutButton } from '../../components/LogoutButton';
+import { NavLink } from '../../components/NavLink';
 import { StepUpProvider } from '../../components/StepUp';
 import { COOKIE, decodeHint } from '../../lib/server/session';
 
@@ -21,16 +21,16 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         <nav className="nav" aria-label="Điều hướng">
           <strong>Quản lý</strong>
           <span className="who">{master ? 'Master Admin' : 'Admin chỉ xem'}</span>
-          <Link href="/">Tổng quan</Link>
+          <NavLink href="/">Tổng quan</NavLink>
           {master && (
             <>
-              <Link href="/staff">Nhân viên</Link>
-              <Link href="/devices">Thiết bị POS</Link>
-              <Link href="/accounts">Tài khoản admin</Link>
-              <Link href="/audit">Nhật ký</Link>
+              <NavLink href="/staff">Nhân viên</NavLink>
+              <NavLink href="/devices">Thiết bị POS</NavLink>
+              <NavLink href="/accounts">Tài khoản admin</NavLink>
+              <NavLink href="/audit">Nhật ký</NavLink>
             </>
           )}
-          <Link href="/sessions">Phiên &amp; bảo mật</Link>
+          <NavLink href="/sessions">Phiên &amp; bảo mật</NavLink>
           <span className="spacer" />
           <LogoutButton />
         </nav>

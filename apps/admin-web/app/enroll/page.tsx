@@ -107,7 +107,7 @@ export default function EnrollPage() {
               Bạn đang dùng mật khẩu tạm. Hãy đặt mật khẩu mới (12 ký tự trở lên, không chứa tên email).
             </p>
             <label>
-              Mật khẩu tạm
+              Mật khẩu hiện tại (mật khẩu tạm)
               <input name="current" type="password" autoComplete="current-password" required maxLength={256} />
             </label>
             <label>

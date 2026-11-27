@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { forbidden, json, readBody } from '../../../../lib/server/respond';
-import { clearMfa, issueCsrf, originOk, setMfa, setTokens } from '../../../../lib/server/session';
+import { clearMfa, deviceOf, issueCsrf, originOk, setDevice, setMfa, setTokens } from '../../../../lib/server/session';
 import { publicCall, stripTokens } from '../../../../lib/server/upstream';
 
 export const dynamic = 'force-dynamic';
@@ -13,12 +13,18 @@ export async function POST(req: NextRequest) {
   if (!originOk(req)) return forbidden();
   const b = await readBody(req);
   if ('error' in b) return b.error;
-  const r = await publicCall(req, '/auth/login', JSON.parse(b.text));
-  if (r.status !== 200 || !r.body || typeof r.body !== 'object') return json(r.status, r.body);
+  const dev = deviceOf(req);
+  const r = await publicCall(req, '/auth/login', JSON.parse(b.text), undefined, dev.id);
+  if (r.status !== 200 || !r.body || typeof r.body !== 'object') {
+    const res = json(r.status, r.body);
+    setDevice(res, dev);
+    return res;
+  }
   const body = r.body as Record<string, unknown>;
   if (body['status'] === 'MFA_REQUIRED' && typeof body['mfa_challenge'] === 'string') {
     const res = json(200, { status: 'MFA_REQUIRED', expires_at: body['mfa_challenge_expires_at'] });
     setMfa(res, body['mfa_challenge']);
+    setDevice(res, dev);
     return res;
   }
   if (body['status'] === 'ENROLLMENT_REQUIRED') {
@@ -30,6 +36,7 @@ export async function POST(req: NextRequest) {
     setTokens(res, s.tokens);
     issueCsrf(res);
     clearMfa(res);
+    setDevice(res, dev);
     return res;
   }
   return json(502, { code: 'INTERNAL_ERROR', message: 'Phản hồi đăng nhập không hợp lệ' });

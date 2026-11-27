@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { badRequest, forbidden, json, readBody } from '../../../../lib/server/respond';
-import { COOKIE, clearMfa, issueCsrf, originOk, setTokens } from '../../../../lib/server/session';
+import { COOKIE, clearMfa, deviceOf, issueCsrf, originOk, setDevice, setTokens } from '../../../../lib/server/session';
 import { publicCall, stripTokens } from '../../../../lib/server/upstream';
 
 export const dynamic = 'force-dynamic';
@@ -14,11 +14,12 @@ export async function POST(req: NextRequest) {
   if ('error' in b) return b.error;
   const parsed: unknown = JSON.parse(b.text);
   const input = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
+  const dev = deviceOf(req);
   let r;
   if (typeof input['code'] === 'string')
-    r = await publicCall(req, '/auth/2fa/verify', { code: input['code'] }, challenge);
+    r = await publicCall(req, '/auth/2fa/verify', { code: input['code'] }, challenge, dev.id);
   else if (typeof input['recovery_code'] === 'string')
-    r = await publicCall(req, '/auth/2fa/recover', { recovery_code: input['recovery_code'] }, challenge);
+    r = await publicCall(req, '/auth/2fa/recover', { recovery_code: input['recovery_code'] }, challenge, dev.id);
   else return badRequest('Cần code hoặc recovery_code');
 
   if (r.status !== 200) {
@@ -38,5 +39,6 @@ export async function POST(req: NextRequest) {
   setTokens(res, s.tokens);
   issueCsrf(res);
   clearMfa(res);
+  setDevice(res, dev);
   return res;
 }

@@ -75,7 +75,9 @@ export default function SessionsPage() {
                 <th>Thiết bị</th>
                 <th>Tạo</th>
                 <th>Dùng gần nhất</th>
-                <th />
+                <th>
+                  <span className="sr-only">Thao tác</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -88,7 +90,13 @@ export default function SessionsPage() {
                     {s.current ? (
                       <span className="muted">Phiên này</span>
                     ) : (
-                      <button type="button" className="danger" disabled={busy} onClick={() => revoke(s.id)}>
+                      <button
+                        type="button"
+                        className="danger"
+                        disabled={busy}
+                        aria-label={`Thu hồi phiên tạo lúc ${dt(s.created_at)}`}
+                        onClick={() => revoke(s.id)}
+                      >
                         Thu hồi
                       </button>
                     )}

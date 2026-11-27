@@ -50,7 +50,12 @@ export default function AuditPage() {
           void load(null, filter.trim());
         }}
       >
-        <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Lọc theo mã đối tượng (uuid)" />
+        <input
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Lọc theo mã đối tượng (uuid)"
+          aria-label="Lọc theo mã đối tượng"
+        />
         <button type="submit">Lọc</button>
       </form>
       {err && (

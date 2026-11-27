@@ -1,6 +1,6 @@
 'use client';
 import { useRef, useState, type FormEvent } from 'react';
-import { bff, errorText } from '../../../lib/client/api';
+import { askReason, bff, errorText } from '../../../lib/client/api';
 import { dt, UUID_RE } from '../../../lib/client/format';
 
 interface Created {
@@ -65,7 +65,7 @@ export default function AccountsPage() {
 
   const id = target.trim();
   const valid = UUID_RE.test(id);
-  const reason = () => window.prompt('Lý do (ít nhất 3 ký tự):');
+  const reason = () => askReason();
 
   return (
     <>
@@ -98,8 +98,9 @@ export default function AccountsPage() {
         {created && (
           <div className="notice">
             <p>
-              Đã tạo <strong>{created.email}</strong> ({created.role}). Mật khẩu tạm — chỉ hiện MỘT lần, gửi qua kênh an
-              toàn; hết hạn sau 72 giờ nếu chưa kích hoạt:
+              Đã tạo <strong>{created.email}</strong> (
+              {created.role === 'MASTER_ADMIN' ? 'Master Admin' : 'Admin chỉ xem'}). Mật khẩu tạm — chỉ hiện MỘT lần,
+              gửi qua kênh an toàn; hết hạn sau 72 giờ nếu chưa kích hoạt:
             </p>
             <p className="mono">{created.temporary_password}</p>
             <button type="button" className="secondary" onClick={() => setCreated(null)}>
@@ -188,7 +189,9 @@ export default function AccountsPage() {
                   <th>Tạo</th>
                   <th>Dùng gần nhất</th>
                   <th>Trình duyệt / thiết bị</th>
-                  <th />
+                  <th>
+                    <span className="sr-only">Thao tác</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>

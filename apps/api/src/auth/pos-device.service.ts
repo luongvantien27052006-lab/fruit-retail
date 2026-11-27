@@ -224,7 +224,11 @@ export class PosDeviceService {
 
   async activate(p: Principal, id: string, b: { pairing_code: string; register_id?: string | null; name?: string }) {
     const d = await this.scopedDevice(p, id, true);
-    if (d.status !== 'PENDING') throw new AppError('INVALID_STATE_TRANSITION', `Thiết bị đang ${d.status}`);
+    if (d.status !== 'PENDING')
+      throw new AppError(
+        'INVALID_STATE_TRANSITION',
+        d.status === 'ACTIVE' ? 'Thiết bị đã được kích hoạt' : 'Thiết bị đã bị thu hồi — máy phải đăng ký lại',
+      );
     const store = await this.tx.store.findUnique({
       where: { id: d.storeId },
       select: { status: true, archivedAt: true },

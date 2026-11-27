@@ -144,6 +144,14 @@ describe('trang quản lý qua BFF (CP03 lát 8b)', () => {
     await page.fill('input[name=password]', tempPassword);
     await page.click('button[type=submit]');
     await page.waitForURL(`${origin}/enroll`);
+    // review cổng CP03: sai mật khẩu tạm ⇒ 422 CURRENT_PASSWORD_INVALID hiện tại chỗ (không đá ra /login)
+    await page.fill('input[name=current]', 'sai-mat-khau-tam');
+    await page.fill('input[name=new_password]', newPassword);
+    await page.fill('input[name=confirm]', newPassword);
+    await page.click('button[type=submit]');
+    await page.locator('p.error').waitFor();
+    expect(await page.locator('p.error').textContent()).toContain('Mật khẩu hiện tại không đúng');
+    expect(new URL(page.url()).pathname).toBe('/enroll');
     await page.fill('input[name=current]', tempPassword);
     await page.fill('input[name=new_password]', newPassword);
     await page.fill('input[name=confirm]', newPassword);
@@ -375,6 +383,34 @@ describe('trang quản lý qua BFF (CP03 lát 8b)', () => {
     await page.click('button[type=submit]');
     await page.waitForURL(`${origin}/`);
     expect((await cookieMap()).has('__Host-fa_mfa')).toBe(false);
+  });
+
+  it('review cổng CP03: cùng trình duyệt đăng nhập lại ⇒ KHÔNG phát thêm sự kiện thiết bị mới; phiên bị thu hồi ⇒ về /login', async () => {
+    const ev = async () =>
+      Number(
+        (
+          await db.q(
+            `SELECT count(*)::int AS n FROM integration.outbox WHERE event_type = 'auth.new_device_login' AND aggregate_id = $1`,
+            [userId],
+          )
+        )[0]?.n,
+      );
+    // đã có ≥ 2 lần đăng nhập trọn vẹn trên trình duyệt này (kích hoạt + đăng nhập lại 2FA) ⇒ chỉ lần đầu là "mới"
+    expect(await ev()).toBe(1);
+    const dev = (await cookieMap()).get('__Host-fa_dev');
+    expect(dev?.httpOnly).toBe(true);
+    const [s] = await db.q(`SELECT client_device FROM core.sessions WHERE user_id = $1 AND revoked_at IS NULL`, [
+      userId,
+    ]);
+    expect(s?.client_device).toBe(dev?.value);
+    // Master khác thu hồi phiên (giả lập ở DB) ⇒ thao tác tiếp theo đưa về /login, cookie bị xóa
+    await db.q(
+      `UPDATE core.sessions SET revoked_at = now(), revoke_reason = 'TEST' WHERE user_id = $1 AND revoked_at IS NULL`,
+      [userId],
+    );
+    await page.goto(`${origin}/staff`);
+    await page.waitForURL(`${origin}/login`);
+    expect((await cookieMap()).has('__Host-fa_rt')).toBe(false);
   });
 
   it('không có vi phạm CSP trên các trang đã đi qua', () => {

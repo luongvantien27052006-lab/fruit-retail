@@ -65,6 +65,18 @@ export async function proxy(req: NextRequest) {
       req.cookies.set(COOKIE.access, access);
       if (rf.tokens.refresh_token) req.cookies.set(COOKIE.refresh, rf.tokens.refresh_token);
     } else if (rf.dead && !isPublic(path)) return redirect('/login', true);
+    else if (!rf.ok && !isPublic(path)) {
+      // lỗi tạm (429/5xx): phiên có thể vẫn sống — KHÔNG đá về /login (đăng nhập lại sẽ tạo phiên thừa)
+      const r = new NextResponse(
+        '<!doctype html><html lang="vi"><meta charset="utf-8"><title>Tạm thời gián đoạn</title><body><p>Máy chủ tạm thời không phản hồi. Tải lại trang sau vài giây.</p></body></html>',
+        {
+          status: 503,
+          headers: { 'content-type': 'text/html; charset=utf-8', 'retry-after': '5', 'cache-control': 'no-store' },
+        },
+      );
+      r.headers.set('Content-Security-Policy', policy);
+      return r;
+    }
   }
 
   const hint = decodeHint(access);

@@ -22,6 +22,26 @@ const MFA_MAX_AGE_S = 5 * 60;
 
 const base = { httpOnly: true, secure: true, sameSite: 'strict' as const, path: '/' };
 
+/**
+ * Định danh trình duyệt (review cổng CP03 TB4): gửi làm X-Device-Id khi tạo phiên ⇒ API nhận ra "cùng thiết bị" (sự kiện
+ * auth.new_device_login chỉ phát khi trình duyệt THẬT SỰ mới; danh sách phiên có client_device). Ngẫu nhiên, HttpOnly,
+ * sống lâu, KHÔNG xóa khi đăng xuất (không phải bí mật phiên — chỉ là nhãn thiết bị).
+ */
+export const DEVICE_COOKIE = '__Host-fa_dev';
+const DEVICE_MAX_AGE_S = 400 * 24 * 3600;
+const DEVICE_RE = /^[A-Za-z0-9_-]{32}$/;
+
+/** Lấy định danh trình duyệt; chưa có / sai dạng ⇒ sinh mới (người gọi ghi cookie bằng `setDevice`). */
+export function deviceOf(req: NextRequest): { id: string; fresh: boolean } {
+  const v = req.cookies.get(DEVICE_COOKIE)?.value;
+  if (v && DEVICE_RE.test(v)) return { id: v, fresh: false };
+  return { id: randomBytes(24).toString('base64url'), fresh: true };
+}
+
+export function setDevice(res: NextResponse, d: { id: string; fresh: boolean }): void {
+  if (d.fresh) res.cookies.set(DEVICE_COOKIE, d.id, { ...base, maxAge: DEVICE_MAX_AGE_S });
+}
+
 export interface TokenSet {
   access_token?: string;
   refresh_token?: string;

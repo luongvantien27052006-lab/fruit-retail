@@ -1,4 +1,5 @@
 'use client';
+import { Alert } from '../../../components/Alert';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { bff, errorText } from '../../../lib/client/api';
 
@@ -88,12 +89,8 @@ export default function StaffPage() {
     <>
       <div className="card">
         <h1>Nhân viên</h1>
-        {err && (
-          <p className="error" role="alert">
-            {err}
-          </p>
-        )}
-        {msg && <p className="notice">{msg}</p>}
+        <Alert text={err} />
+        <Alert text={msg} kind="notice" />
         <div className="table-wrap">
           <table>
             <thead>
@@ -121,7 +118,12 @@ export default function StaffPage() {
                           {ROLE_VI[r.role] ?? r.role}{' '}
                           <span className="muted mono">{(r.store_id ?? r.warehouse_id ?? '').slice(0, 8)}</span>
                         </span>
-                        <button type="button" className="danger" onClick={() => void removeRole(r.id)}>
+                        <button
+                          type="button"
+                          className="danger"
+                          aria-label={`Gỡ vai trò ${ROLE_VI[r.role] ?? r.role} của ${s.full_name}`}
+                          onClick={() => void removeRole(r.id)}
+                        >
                           Gỡ
                         </button>
                       </div>

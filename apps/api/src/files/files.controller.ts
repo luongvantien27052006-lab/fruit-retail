@@ -3,13 +3,13 @@ import { z } from 'zod';
 import { Authenticated, OwnTransaction } from '../common/access';
 import { AuditOutboxService } from '../common/audit-outbox.service';
 import { ZodPipe } from '../common/zod.pipe';
-import { FILE_KINDS, FilesService } from './files.service';
+import { FILE_KINDS, FilesService, XLSX_MIME } from './files.service';
 
 const kinds = Object.keys(FILE_KINDS) as [string, ...string[]];
 const PresignBody = z
   .object({
     kind: z.enum(kinds),
-    mime: z.enum(['image/jpeg', 'image/webp']),
+    mime: z.enum(['image/jpeg', 'image/webp', XLSX_MIME]),
     bytes: z
       .number()
       .int()

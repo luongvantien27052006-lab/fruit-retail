@@ -29,7 +29,7 @@ export class ConsumerRunner {
             await c.handle(ev, tx);
             return true;
           },
-          { timeout: 30_000, maxWait: 10_000 },
+          { timeout: c.timeoutMs ?? 30_000, maxWait: 10_000 },
         );
         if (ran) done.push(c.name);
       } catch (err) {

@@ -27,6 +27,8 @@ export interface EventConsumer {
   /** loại sự kiện quan tâm; sự kiện khác bỏ qua (không ghi processed_events) */
   readonly eventTypes: ReadonlySet<string>;
   handle(event: EventEnvelope, tx: WorkerTx): Promise<void>;
+  /** trần transaction của runner (mặc định 30 s) — consumer chạy việc dài (nhập file) đặt lớn hơn */
+  readonly timeoutMs?: number;
 }
 
 export const EVENT_CONSUMERS = Symbol('EVENT_CONSUMERS');

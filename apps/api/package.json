@@ -25,6 +25,7 @@
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
     "bullmq": "6.7.4",
+    "exceljs": "4.4.0",
     "ioredis": "6.0.0",
     "jose": "6.2.16",
     "nestjs-cls": "7.0.2",
@@ -36,6 +37,7 @@
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
     "uuid": "14.0.3",
+    "yauzl": "3.4.0",
     "zod": "4.6.7"
   },
   "devDependencies": {
@@ -46,6 +48,7 @@
     "@types/express": "5.0.6",
     "@types/pg": "8.23.1",
     "@types/supertest": "7.2.1",
+    "@types/yauzl": "3.4.0",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "playwright": "1.65.0",

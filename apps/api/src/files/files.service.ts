@@ -10,7 +10,8 @@ import type { RequestStore } from '../common/request-context';
 import { ObjectStorage } from '../infra/object-storage.service';
 
 const MB = 1024 * 1024;
-type Mime = 'image/jpeg' | 'image/webp';
+export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+type Mime = 'image/jpeg' | 'image/webp' | typeof XLSX_MIME;
 interface KindRule {
   maxBytes: number;
   mimes: readonly Mime[];
@@ -33,7 +34,11 @@ export const FILE_KINDS: Readonly<Record<string, KindRule>> = {
   },
   PHOTO_RECEIPT: { maxBytes: 5 * MB, mimes: ['image/jpeg', 'image/webp'], cameraOnly: false, userTypes: STAFF_ADMIN },
   PHOTO_PRODUCT: { maxBytes: 5 * MB, mimes: ['image/jpeg', 'image/webp'], cameraOnly: false, userTypes: STAFF_ADMIN },
+  // file Excel để nhập danh mục / NCC (CP04 lát 5, ADR-031) — chỉ Master (quyền import:run); nội dung kiểm lại ở worker
+  IMPORT_XLSX: { maxBytes: 5 * MB, mimes: [XLSX_MIME], cameraOnly: false, userTypes: ['MASTER'] },
 };
+/** loại file do SERVER tạo (không qua presign) — xuất Excel danh sách (CP04 lát 5) */
+export const EXPORT_XLSX_KIND = 'EXPORT_XLSX';
 export const PRESIGN_TTL_S = 300;
 export const DOWNLOAD_TTL_S = 60;
 /** PENDING quá 1 giờ ⇒ complete từ chối (EXPIRED) */
@@ -50,8 +55,14 @@ export function sniffImage(head: Buffer): Mime | null {
   if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return 'image/jpeg';
   if (head.length >= 12 && head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WEBP')
     return 'image/webp';
+  // xlsx = zip (local file header PK\x03\x04); cấu trúc bên trong kiểm ở worker (xlsx-safe)
+  if (head.length >= 4 && head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04)
+    return XLSX_MIME;
   return null;
 }
+
+/** đuôi file khi tải về */
+export const extOf = (mime: string) => (mime === 'image/webp' ? 'webp' : mime === XLSX_MIME ? 'xlsx' : 'jpg');
 
 const notFound = () => new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy file');
 /** khóa lưu cuối của file READY — `files/…` (khóa tải lên, có URL PUT ký) ⇒ `final/…` (chỉ server ghi) */
@@ -290,7 +301,7 @@ export class FilesService {
     });
     if (!f || (f.createdBy !== p.userId && p.userType !== 'MASTER')) throw notFound();
     if (f.status !== 'READY' || !f.finalKey) throw new AppError('INVALID_STATE_TRANSITION', `File đang ${f.status}`);
-    const ext = f.mime === 'image/webp' ? 'webp' : 'jpg';
+    const ext = extOf(f.mime);
     const url = await this.storage.presignGet(f.finalKey, `${f.kind.toLowerCase()}-${f.id}.${ext}`, DOWNLOAD_TTL_S);
     return { url, expires_at: new Date(Date.now() + DOWNLOAD_TTL_S * 1000).toISOString() };
   }

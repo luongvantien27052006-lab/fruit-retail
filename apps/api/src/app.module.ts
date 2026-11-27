@@ -9,6 +9,7 @@ import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { OrgModule } from './org/org.module';
+import { ImportsModule } from './imports/imports.module';
 import { FilesModule } from './files/files.controller';
 import { AccessGuard } from './common/access.guard';
 import { AuditOutboxService } from './common/audit-outbox.service';
@@ -55,6 +56,17 @@ export const REDACT_PATHS = [
 
 export { REQUEST_ID_RE, resolveRequestId } from './common/request-context';
 
+/** Plugin transaction CLS dùng chung API + worker (ADR-016) */
+export const transactionalPlugin = () =>
+  new ClsPluginTransactional({
+    imports: [InfraModule],
+    adapter: new TransactionalAdapterPrisma({
+      prismaInjectionToken: TX_PRISMA,
+      // Khớp timeout của pg (statement_timeout 15 s, PrismaService): transaction tối đa 20 s, chờ kết nối 5 s
+      defaultTxOptions: { timeout: 20_000, maxWait: 5_000, isolationLevel: 'ReadCommitted' },
+    }),
+  });
+
 export interface AppExtras {
   /** chỉ dùng trong test: module/controller bổ sung */
   imports?: (Type | DynamicModule)[];
@@ -92,16 +104,7 @@ export class AppModule {
               store.set('auditCount', 0);
             },
           },
-          plugins: [
-            new ClsPluginTransactional({
-              imports: [InfraModule],
-              adapter: new TransactionalAdapterPrisma({
-                prismaInjectionToken: TX_PRISMA,
-                // Khớp timeout của pg (statement_timeout 15 s, PrismaService): transaction tối đa 20 s, chờ kết nối 5 s
-                defaultTxOptions: { timeout: 20_000, maxWait: 5_000, isolationLevel: 'ReadCommitted' },
-              }),
-            }),
-          ],
+          plugins: [transactionalPlugin()],
         }),
         DiscoveryModule,
         AuthModule,
@@ -109,6 +112,7 @@ export class AppModule {
         CatalogModule,
         OrgModule,
         FilesModule,
+        ImportsModule,
         ...(extras.imports ?? []),
       ],
       controllers: [HealthController, ...(extras.controllers ?? [])],

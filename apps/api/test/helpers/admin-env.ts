@@ -1,5 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
+import { GenericContainer, type StartedTestContainer } from 'testcontainers';
 import { generateKeyPairSync, randomBytes, randomUUID, sign } from 'node:crypto';
 import { generateSync } from 'otplib';
 import request from 'supertest';
@@ -15,7 +16,7 @@ import { ARGON_PROFILES, hashSecret } from '../../src/auth/password';
 import { PiiCipher, totpAad } from '../../src/auth/pii-cipher';
 import { createApp } from '../../src/bootstrap';
 import { createMaster } from '../../src/cli/create-master';
-import { loadEnv } from '../../src/config/env';
+import { type Env, loadEnv } from '../../src/config/env';
 import { testAuthEnv } from './auth-env';
 import { type MigratedDb, startMigratedDb } from './db';
 import { relaxedRatePolicies } from './rate-limit';
@@ -32,6 +33,8 @@ export interface Client {
 export interface AdminEnv {
   db: MigratedDb;
   app: INestApplication;
+  /** env của app (dựng worker trong test) */
+  env: Env;
   http: () => Http;
   /** Master đã qua 2FA (chưa step-up) */
   master: Client;
@@ -46,13 +49,53 @@ export interface AdminEnv {
   close(): Promise<void>;
 }
 
-/** Postgres + Redis thật, app đầy đủ, một Master đã đăng ký 2FA — dùng chung cho test API quản trị (CP04+). */
-export async function startAdminEnv(): Promise<AdminEnv> {
-  const [db, redis]: [MigratedDb, StartedRedisContainer] = await Promise.all([
-    startMigratedDb(),
-    new RedisContainer('redis:7.4-alpine').start(),
-  ]);
+/** S3 thật (SeaweedFS — cùng image diễn tập backup, ADR-025) cho test cần file */
+async function startS3(): Promise<{ c: StartedTestContainer; env: Record<string, string> }> {
+  const bucket = 'b-test';
+  const ak = randomBytes(10).toString('hex');
+  const sk = randomBytes(20).toString('hex');
+  const cfg = JSON.stringify({
+    identities: [
+      { name: 'app', credentials: [{ accessKey: ak, secretKey: sk }], actions: ['Admin', 'Read', 'Write', 'List'] },
+    ],
+  });
+  const c = await new GenericContainer('chrislusf/seaweedfs:3.97')
+    .withEntrypoint(['sh', '-c'])
+    .withCommand([
+      `printf '%s' '${cfg}' > /etc/s3.json && exec weed server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/s3.json -master.volumeSizeLimitMB=64 -volume.max=20`,
+    ])
+    .withExposedPorts(8333)
+    .start();
+  for (let i = 0; i < 60; i++) {
+    await c.exec(['sh', '-c', `echo "s3.bucket.create -name ${bucket}" | weed shell -master=localhost:9333`]);
+    const l = await c.exec(['sh', '-c', 'echo "s3.bucket.list" | weed shell -master=localhost:9333']);
+    if (l.output.includes(bucket)) break;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return {
+    c,
+    env: {
+      S3_ENDPOINT: `http://${c.getHost()}:${c.getMappedPort(8333)}`,
+      S3_BUCKET: bucket,
+      S3_ACCESS_KEY: ak,
+      S3_SECRET_KEY: sk,
+    },
+  };
+}
+
+/**
+ * Postgres + Redis thật, app đầy đủ, một Master đã đăng ký 2FA — dùng chung cho test API quản trị (CP04+).
+ * `s3: true` ⇒ thêm SeaweedFS (nhập / xuất Excel — CP04 lát 5).
+ */
+export async function startAdminEnv(o: { s3?: boolean } = {}): Promise<AdminEnv> {
+  const [db, redis, s3]: [MigratedDb, StartedRedisContainer, Awaited<ReturnType<typeof startS3>> | null] =
+    await Promise.all([
+      startMigratedDb(),
+      new RedisContainer('redis:7.4-alpine').start(),
+      o.s3 ? startS3() : Promise.resolve(null),
+    ]);
   const env = loadEnv({
+    ...(s3?.env ?? {}),
     NODE_ENV: 'test',
     DATABASE_URL_APP: db.roleUrl('app_rw'),
     DATABASE_URL_VIEWER: db.roleUrl('viewer_ro'),
@@ -187,6 +230,7 @@ export async function startAdminEnv(): Promise<AdminEnv> {
   return {
     db,
     app,
+    env,
     http,
     master,
     masterId: m.userId,
@@ -196,7 +240,7 @@ export async function startAdminEnv(): Promise<AdminEnv> {
     hex,
     close: async () => {
       await app.close();
-      await Promise.allSettled([db.pg.stop(), redis.stop()]);
+      await Promise.allSettled([db.pg.stop(), redis.stop(), s3?.c.stop()]);
     },
   };
 }

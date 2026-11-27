@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fruit-retail.local/events/catalog.import_requested.json",
+  "title": "catalog.import_requested",
+  "description": "Master tạo lượt nhập Excel (danh mục / NCC) — worker chạy lượt (CP04 lát 5, ADR-031). Chỉ mang id, không mang nội dung file.",
+  "x-detail-cp": "CP04",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "_envelope.json"
+    }
+  ],
+  "properties": {
+    "event_type": {
+      "const": "catalog.import_requested"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload": {
+      "type": "object",
+      "required": ["import_job_id", "type"],
+      "properties": {
+        "import_job_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["CATALOG", "SUPPLIER"]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-audience": "internal:worker",
+  "x-sensitivity": "internal"
+}

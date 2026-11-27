@@ -9,5 +9,6 @@ import { SuppliersService } from './suppliers.service';
 @Module({
   controllers: [OrgController, SuppliersController],
   providers: [OrgService, SuppliersService, AuditOutboxService],
+  exports: [SuppliersService],
 })
 export class OrgModule {}

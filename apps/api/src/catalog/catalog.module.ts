@@ -10,6 +10,6 @@ import { SkusService } from './skus.service';
 @Module({
   controllers: [CatalogController, SkusController, PricesController],
   providers: [CatalogService, SkusService, PricesService, AuditOutboxService],
-  exports: [SkusService, PricesService],
+  exports: [CatalogService, SkusService, PricesService],
 })
 export class CatalogModule {}

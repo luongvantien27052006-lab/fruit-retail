@@ -134,6 +134,56 @@ export class ObjectStorage implements OnModuleDestroy {
     return { bytes, sha256: h.digest(), head: Buffer.concat(head) };
   }
 
+  /** Tải cả object vào bộ nhớ (file nhỏ — nhập Excel ≤ 5 MB); vượt `maxBytes` ⇒ lỗi (không đọc tiếp). */
+  async read(key: string, maxBytes: number): Promise<Buffer> {
+    const { internal } = this.clients();
+    let body: Readable;
+    try {
+      const r = await internal.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+      body = r.Body as Readable;
+    } catch (e) {
+      this.log.warn(`GET ${key} lỗi: ${s3Err(e)}`);
+      throw new AppError('DEPENDENCY_UNAVAILABLE', 'Không đọc được kho lưu trữ file');
+    }
+    const parts: Buffer[] = [];
+    let bytes = 0;
+    try {
+      for await (const chunk of body) {
+        const b = Buffer.from(chunk as Uint8Array);
+        bytes += b.length;
+        if (bytes > maxBytes) {
+          body.destroy();
+          throw new AppError('INVALID_REQUEST', 'File vượt kích thước cho phép');
+        }
+        parts.push(b);
+      }
+    } catch (e) {
+      if (e instanceof AppError) throw e;
+      this.log.warn(`đọc ${key} bị gián đoạn: ${s3Err(e)}`);
+      throw new AppError('DEPENDENCY_UNAVAILABLE', 'Đọc file từ kho lưu trữ bị gián đoạn');
+    }
+    return Buffer.concat(parts);
+  }
+
+  /** Ghi object do server tạo (file xuất Excel) */
+  async put(key: string, body: Buffer, mime: string): Promise<void> {
+    const { internal } = this.clients();
+    try {
+      await internal.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          Body: body,
+          ContentType: mime,
+          ContentLength: body.length,
+        }),
+      );
+    } catch (e) {
+      this.log.warn(`PUT ${key} lỗi: ${s3Err(e)}`);
+      throw new AppError('DEPENDENCY_UNAVAILABLE', 'Không ghi được kho lưu trữ file');
+    }
+  }
+
   /** Chép object trong bucket (server-side) — khóa đích không có URL ký nào trỏ tới */
   async copy(from: string, to: string): Promise<void> {
     const { internal } = this.clients();

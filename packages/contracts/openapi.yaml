@@ -7702,10 +7702,14 @@ paths:
     post:
       operationId: postAdminImports
       tags: [admin]
-      summary: 'Nhập Excel (dry-run / chạy)'
+      summary: 'Nhập Excel (dry-run / chạy) — worker chạy nền'
       x-permission: 'import:run'
+      x-master-only: true
+      x-step-up: true
       x-spec-ref: '§21.3.17'
       x-detail-cp: CP04
+      description: >-
+        file_id: file IMPORT_XLSX READY do chính người gọi tải lên (POST /files/presign → PUT → complete). Lượt PENDING; worker chạy (sự kiện catalog.import_requested) rồi COMPLETED / FAILED — xem GET /admin/imports/{id}. dry_run: chạy đủ rồi hoàn tác, chỉ giữ báo cáo. Trùng (mã SKU / mã vạch / PLU / mã NCC, kể cả trong file): SKIP bỏ qua dòng, UPDATE cập nhật bản ghi trùng đúng mã (trùng mã vạch / PLU của bản ghi khác ⇒ lỗi dòng), STOP dừng cả lượt (FAILED, không nhập dòng nào). Tối đa 2 lượt chờ / chạy mỗi người (429).
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/RequestId'
@@ -7714,14 +7718,168 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PendingBody'
+              $ref: '#/components/schemas/ImportCreateRequest'
       responses:
         '201':
           description: Thành công
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PendingBody'
+                $ref: '#/components/schemas/ImportJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    get:
+      operationId: getAdminImports
+      tags: [admin]
+      summary: 'Các lượt nhập gần đây'
+      x-permission: 'import:run'
+      x-master-only: true
+      x-spec-ref: '§21.3.17'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportJobList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/imports/templates/{type}:
+    parameters:
+      - name: type
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [CATALOG, SUPPLIER]
+    get:
+      operationId: getAdminImportsTemplatesType
+      tags: [admin]
+      summary: 'File mẫu nhập (.xlsx)'
+      x-permission: 'import:run'
+      x-master-only: true
+      x-spec-ref: '§21.3.17'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/imports/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getAdminImportsId
+      tags: [admin]
+      summary: 'Lượt nhập + báo cáo từng dòng'
+      x-permission: 'import:run'
+      x-master-only: true
+      x-spec-ref: '§21.3.17'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /admin/catalog-exports:
+    post:
+      operationId: postAdminCatalogExports
+      tags: [admin]
+      summary: 'Xuất danh sách ra Excel (URL tải 60 giây)'
+      x-permission: 'report:export'
+      x-spec-ref: '§21.3.17'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      description: >-
+        Cần thêm quyền đọc của danh sách: skus / categories ⇒ catalog:read, suppliers ⇒ supplier:read, stores ⇒ report:read, locations ⇒ stock:read (cửa hàng theo phạm vi). skus xuất cùng cột với file nhập (sửa rồi nhập lại chế độ UPDATE). suppliers KHÔNG có SĐT / tài khoản ngân hàng. Tối đa 20.000 dòng.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CatalogExportRequest'
+      responses:
+        '201':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogExport'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -11295,6 +11453,173 @@ components:
         removed:
           type: boolean
           const: true
+    ImportCreateRequest:
+      type: object
+      required: [type, file_id, mode_on_duplicate, dry_run]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [CATALOG, SUPPLIER]
+        file_id:
+          type: string
+          format: uuid
+        mode_on_duplicate:
+          type: string
+          enum: [SKIP, UPDATE, STOP]
+        dry_run:
+          type: boolean
+    ImportReportRow:
+      type: object
+      description: Một dòng của file (row = số dòng trong Excel, 1 là tiêu đề). key = mã SKU / mã NCC — báo cáo không bao giờ chứa SĐT / số tài khoản.
+      required: [row, status]
+      additionalProperties: false
+      properties:
+        row:
+          type: integer
+          minimum: 2
+        status:
+          type: string
+          enum: [CREATED, UPDATED, SKIPPED, ERROR]
+        key:
+          type: string
+        field:
+          type: string
+        duplicate_of:
+          type: string
+        message:
+          type: string
+    ImportReport:
+      type: object
+      description: >-
+        dry_run true ⇒ số liệu là "sẽ" (đã hoàn tác). reason chỉ có khi file bị từ chối (FORMULA, ZIP_BOMB, ACTIVE_CONTENT,
+        NOT_XLSX, ENCRYPTED, TOO_LARGE, TOO_MANY_ROWS, …).
+      additionalProperties: false
+      properties:
+        dry_run:
+          type: boolean
+        mode:
+          type: string
+          enum: [SKIP, UPDATE, STOP]
+        created:
+          type: integer
+        updated:
+          type: integer
+        skipped:
+          type: integer
+        errors:
+          type: integer
+        stopped_at_row:
+          type: integer
+        reason:
+          type: string
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportReportRow'
+    ImportJob:
+      type: object
+      description: Lượt nhập. report chỉ có ở GET /admin/imports/{id}.
+      required:
+        [
+          id,
+          type,
+          file_id,
+          mode_on_duplicate,
+          dry_run,
+          status,
+          total_rows,
+          ok_rows,
+          skipped_rows,
+          error_rows,
+          error,
+          created_by,
+          created_at,
+          started_at,
+          finished_at,
+        ]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [CATALOG, SUPPLIER]
+        file_id:
+          type: string
+          format: uuid
+        mode_on_duplicate:
+          type: string
+          enum: [SKIP, UPDATE, STOP]
+        dry_run:
+          type: boolean
+        status:
+          type: string
+          enum: [PENDING, RUNNING, COMPLETED, FAILED]
+        total_rows:
+          type: [integer, 'null']
+        ok_rows:
+          type: [integer, 'null']
+        skipped_rows:
+          type: [integer, 'null']
+        error_rows:
+          type: [integer, 'null']
+        error:
+          type: [string, 'null']
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: [string, 'null']
+          format: date-time
+        finished_at:
+          type: [string, 'null']
+          format: date-time
+        report:
+          oneOf:
+            - $ref: '#/components/schemas/ImportReport'
+            - type: 'null'
+    ImportJobList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportJob'
+    CatalogExportRequest:
+      type: object
+      required: [list]
+      additionalProperties: false
+      properties:
+        list:
+          type: string
+          enum: [skus, categories, suppliers, stores, locations]
+    CatalogExport:
+      type: object
+      required: [file_id, list, rows, url, expires_at]
+      additionalProperties: false
+      properties:
+        file_id:
+          type: string
+          format: uuid
+        list:
+          type: string
+          enum: [skus, categories, suppliers, stores, locations]
+        rows:
+          type: integer
+          minimum: 0
+        url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
     VndAmount:
       type: string
       pattern: '^-?[0-9]{1,18}$'
@@ -11849,14 +12174,15 @@ components:
       description: >-
         Ảnh ≤ 5 MB, image/jpeg hoặc image/webp. PHOTO_SPOILAGE, PHOTO_WEIGHT, PHOTO_COMPLAINT (SPEC §8.8) chỉ nhận capture_source = CAMERA (app chụp
         trực tiếp). Khách chỉ được PHOTO_COMPLAINT; loại khác chỉ nhân viên/Master (403). Tối đa 20 file tạo mỗi giờ và 100
-        file mỗi ngày mỗi người, mọi trạng thái (429). Thiếu cấu hình S3 ⇒ 503.
+        file mỗi ngày mỗi người, mọi trạng thái (429). Thiếu cấu hình S3 ⇒ 503. IMPORT_XLSX (CP04 lát 5): file .xlsx ≤ 5 MB để
+        nhập, chỉ Master, capture_source GALLERY; nội dung (zip, công thức, macro) kiểm ở worker khi nhập.
       properties:
         kind:
           type: string
-          enum: [PHOTO_SPOILAGE, PHOTO_WEIGHT, PHOTO_COMPLAINT, PHOTO_RECEIPT, PHOTO_PRODUCT]
+          enum: [PHOTO_SPOILAGE, PHOTO_WEIGHT, PHOTO_COMPLAINT, PHOTO_RECEIPT, PHOTO_PRODUCT, IMPORT_XLSX]
         mime:
           type: string
-          enum: [image/jpeg, image/webp]
+          enum: [image/jpeg, image/webp, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet]
         bytes:
           type: integer
           minimum: 1

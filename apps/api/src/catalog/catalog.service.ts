@@ -4,7 +4,7 @@ import { v7 as uuidv7 } from 'uuid';
 import { AuditOutboxService, type Tx } from '../common/audit-outbox.service';
 import { AppError } from '../common/errors';
 import { catalogWrite } from './catalog-db';
-import { rule } from './catalog-rules';
+import { escapeLike, rule } from './catalog-rules';
 import { categoryWire, productWire, unitWire } from './catalog-wire';
 
 /** Đơn vị gốc mặc định của SKU (catalog-rules.baseUnitFor) — lưu trữ sẽ chặn tạo SKU mới ⇒ không cho lưu trữ. */
@@ -46,7 +46,7 @@ export interface ProductUpdate {
 
 /**
  * Đơn vị tính, cây danh mục, sản phẩm (CP04 lát 2, §4.1, §21.3.1). Không xóa — chỉ lưu trữ (`archived`); gắn con vào
- * cha đã lưu trữ hoặc lưu trữ cha còn con đang dùng ⇒ 422. Khóa: cha `FOR SHARE` khi gắn con, chính nó `FOR UPDATE` khi
+ * cha đã lưu trữ hoặc lưu trữ cha còn con đang dùng ⇒ 422. Khóa: cha `FOR SHARE` khi gắn con, chính nó `FOR NO KEY UPDATE` (không chặn FK FOR KEY SHARE của dòng bán/tồn) khi
  * sửa/lưu trữ ⇒ "lưu trữ cha" và "gắn con" song song không lọt (READ COMMITTED đọc lại bản mới sau khi chờ khóa).
  */
 @Injectable()
@@ -94,7 +94,7 @@ export class CatalogService {
 
   async updateUnit(code: string, b: { name?: string; archived?: boolean }) {
     const locked = await this.tx.$queryRaw<{ code: string }[]>`
-      SELECT code FROM core.units WHERE code = ${code} FOR UPDATE`;
+      SELECT code FROM core.units WHERE code = ${code} FOR NO KEY UPDATE`;
     if (!locked.length) throw new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy đơn vị tính');
     const before = await this.tx.unit.findUniqueOrThrow({ where: { code } });
     if (b.archived && BASE_UNIT_CODES.has(code))
@@ -132,11 +132,11 @@ export class CatalogService {
   }
 
   /** Khóa chia sẻ một danh mục đang dùng (làm cha / chứa sản phẩm) — chặn lưu trữ song song. */
-  private async shareActiveCategory(id: string, field: string): Promise<void> {
+  private async shareActiveCategory(id: string, field: string, requireActive = true): Promise<void> {
     const r = await this.tx.$queryRaw<{ archived: boolean }[]>`
       SELECT archived_at IS NOT NULL AS archived FROM core.categories WHERE id = ${id}::uuid FOR SHARE`;
     if (!r.length) throw rule('Danh mục không tồn tại', { field });
-    if (r[0]?.archived) throw rule('Danh mục đã lưu trữ — không gắn thêm vào', { field });
+    if (requireActive && r[0]?.archived) throw rule('Danh mục đã lưu trữ — không gắn thêm vào', { field });
   }
 
   async createCategory(b: CategoryCreate) {
@@ -156,8 +156,12 @@ export class CatalogService {
   }
 
   async updateCategory(id: string, b: CategoryUpdate) {
+    // đổi cha: lấy khóa cây TRƯỚC mọi khóa dòng (trigger categories_tree_guard cũng lấy khóa này) ⇒ hai lần đổi cha chéo
+    // nhau chạy nối tiếp, bên sau nhận 422 "tạo vòng" thay vì deadlock 40P01 (review DB lát 2, ghi chú 4)
+    if (b.parent_id !== undefined)
+      await this.tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('catalog:category_tree', 0))`;
     const locked = await this.tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM core.categories WHERE id = ${id}::uuid FOR UPDATE`;
+      SELECT id FROM core.categories WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
     if (!locked.length) throw new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy danh mục');
     const before = await this.tx.category.findUniqueOrThrow({ where: { id } });
     const parentId = b.parent_id === undefined ? before.parentId : b.parent_id;
@@ -165,6 +169,7 @@ export class CatalogService {
     // cha mới, hoặc mở lại khi cha cũ đã lưu trữ ⇒ cha phải đang dùng
     if (parentId && willBeActive && (parentId !== before.parentId || before.archivedAt !== null))
       await this.shareActiveCategory(parentId, 'parent_id');
+    else if (parentId && parentId !== before.parentId) await this.shareActiveCategory(parentId, 'parent_id', false);
     if (b.archived === true && before.archivedAt === null) {
       const [n] = await this.tx.$queryRaw<{ children: number; products: number }[]>`
         SELECT (SELECT count(*)::int FROM core.categories WHERE parent_id = ${id}::uuid AND archived_at IS NULL) AS children,
@@ -203,7 +208,7 @@ export class CatalogService {
       where: {
         ...(q.include_archived ? {} : { archivedAt: null }),
         ...(q.category_id ? { categoryId: q.category_id } : {}),
-        ...(q.q ? { name: { contains: q.q, mode: 'insensitive' as const } } : {}),
+        ...(q.q ? { name: { contains: escapeLike(q.q), mode: 'insensitive' as const } } : {}),
       },
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
       take: 1000,
@@ -241,13 +246,14 @@ export class CatalogService {
 
   async updateProduct(id: string, b: ProductUpdate) {
     const locked = await this.tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM core.products WHERE id = ${id}::uuid FOR UPDATE`;
+      SELECT id FROM core.products WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
     if (!locked.length) throw new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy sản phẩm');
     const before = await this.tx.product.findUniqueOrThrow({ where: { id } });
     const categoryId = b.category_id ?? before.categoryId;
     const willBeActive = b.archived === undefined ? before.archivedAt === null : !b.archived;
     if (willBeActive && (categoryId !== before.categoryId || before.archivedAt !== null))
       await this.shareActiveCategory(categoryId, 'category_id');
+    else if (categoryId !== before.categoryId) await this.shareActiveCategory(categoryId, 'category_id', false);
     if (b.archived === true && before.archivedAt === null) {
       const [n] = await this.tx.$queryRaw<{ skus: number }[]>`
         SELECT count(*)::int AS skus FROM core.skus WHERE product_id = ${id}::uuid AND archived_at IS NULL`;

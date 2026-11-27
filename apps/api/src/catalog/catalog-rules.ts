@@ -34,6 +34,12 @@ export function stockBase(t: SaleUnitType): StockBase {
   return WEIGHT_PRICED.has(t) ? 'GRAM' : 'COUNT';
 }
 
+/** Thoát ký tự đại diện LIKE (Prisma contains/startsWith không thoát `%`, `_`) — ký tự thoát mặc định `\`. */
+export const escapeLike = (s: string) => s.replace(/[\\%_]/g, (m) => `\\${m}`);
+
+/** Khóa so trùng tên giống index `lower(btrim(name))` (btrim chỉ bỏ dấu cách). */
+export const nameKey = (s: string) => s.replace(/^ +| +$/g, '').toLowerCase();
+
 export const rule = (message: string, details: Record<string, unknown> = {}) =>
   new AppError('CATALOG_RULE_VIOLATION', message, details);
 

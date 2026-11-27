@@ -8,6 +8,8 @@ import { assertGs1Checksum, catalogWrite } from './catalog-db';
 import {
   assertSkuShape,
   assertSkuUnitShape,
+  escapeLike,
+  nameKey,
   baseUnitFor,
   rule,
   type SaleUnitType,
@@ -79,7 +81,10 @@ export interface SkuListQuery {
 
 const notFound = () => new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy SKU');
 const conflict = (field: string) =>
-  new AppError('VERSION_CONFLICT', `Trùng ${field} với bản ghi đang dùng`, { reason: 'UNIQUE', field });
+  new AppError('VERSION_CONFLICT', `Trùng ${field} với bản ghi khác (gồm cả đơn vị của SKU đã lưu trữ)`, {
+    reason: 'UNIQUE',
+    field,
+  });
 
 /** prisma data ← trường API (chỉ trường có mặt; undefined = giữ nguyên) */
 function attrsData(b: SkuAttrs) {
@@ -146,8 +151,8 @@ export class SkusService {
       ...(q.q
         ? {
             OR: [
-              { name: { contains: q.q, mode: 'insensitive' as const } },
-              { skuCode: { startsWith: q.q.toUpperCase() } },
+              { name: { contains: escapeLike(q.q), mode: 'insensitive' as const } },
+              { skuCode: { startsWith: escapeLike(q.q.toUpperCase()) } },
               { scalePlu: q.q },
               { units: { some: { barcode: q.q.toUpperCase(), archivedAt: null } } },
             ],
@@ -175,15 +180,19 @@ export class SkusService {
     return skuWire(s, s.units);
   }
 
-  private async shareActiveProduct(id: string): Promise<void> {
+  /** Khóa chia sẻ sản phẩm cha; `requireActive` = gắn vào SKU đang dùng (SKU lưu trữ chỉ cần sản phẩm tồn tại). */
+  private async shareActiveProduct(id: string, requireActive = true): Promise<void> {
     const r = await this.tx.$queryRaw<{ archived: boolean }[]>`
       SELECT archived_at IS NOT NULL AS archived FROM core.products WHERE id = ${id}::uuid FOR SHARE`;
     if (!r.length) throw rule('Sản phẩm không tồn tại', { field: 'product_id' });
-    if (r[0]?.archived) throw rule('Sản phẩm đã lưu trữ — không gắn thêm SKU', { field: 'product_id' });
+    if (requireActive && r[0]?.archived)
+      throw rule('Sản phẩm đã lưu trữ — không gắn thêm SKU', { field: 'product_id' });
   }
 
   private async lockSku(id: string): Promise<Sku> {
-    const r = await this.tx.$queryRaw<{ id: string }[]>`SELECT id FROM core.skus WHERE id = ${id}::uuid FOR UPDATE`;
+    const r = await this.tx.$queryRaw<
+      { id: string }[]
+    >`SELECT id FROM core.skus WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
     if (!r.length) throw notFound();
     return this.tx.sku.findUniqueOrThrow({ where: { id } });
   }
@@ -224,10 +233,10 @@ export class SkusService {
       forPurchase: u.for_purchase,
     };
     assertSkuUnitShape(sku.saleUnitType as SaleUnitType, await this.unitRow(u.unit_code), conv);
-    const nameKey = u.name.trim().toLowerCase();
-    if (seen.has(`n:${nameKey}`)) throw conflict('name');
+    const nk = nameKey(u.name);
+    if (seen.has(`n:${nk}`)) throw conflict('name');
     if (u.barcode && seen.has(`b:${u.barcode}`)) throw conflict('barcode');
-    seen.add(`n:${nameKey}`);
+    seen.add(`n:${nk}`);
     if (u.barcode) seen.add(`b:${u.barcode}`);
     await this.assertBarcodeFree(u.barcode);
     return catalogWrite(() =>
@@ -297,8 +306,7 @@ export class SkusService {
       if (productId !== before.productId || before.archivedAt !== null) await this.shareActiveProduct(productId);
       const plu = b.scale_plu !== undefined ? b.scale_plu : before.scalePlu;
       if (plu !== before.scalePlu || before.archivedAt !== null) await this.assertPluFree(plu, id);
-      if (before.archivedAt !== null) await this.assertUnitsFreeOnRestore(id);
-    }
+    } else if (productId !== before.productId) await this.shareActiveProduct(productId, false);
     const sku = await catalogWrite(() =>
       this.tx.sku.update({
         where: { id },
@@ -323,15 +331,6 @@ export class SkusService {
     return out;
   }
 
-  /** Mở lại SKU: mã vạch của các đơn vị đang dùng của nó không được trùng với đơn vị đang dùng khác. */
-  private async assertUnitsFreeOnRestore(skuId: string): Promise<void> {
-    const mine = await this.tx.skuUnit.findMany({
-      where: { skuId, archivedAt: null, barcode: { not: null } },
-      select: { id: true, barcode: true },
-    });
-    for (const u of mine) await this.assertBarcodeFree(u.barcode, u.id);
-  }
-
   /** SKU đang dùng phải còn ít nhất một đơn vị bán đang dùng (POS/app luôn có đơn vị để ghi dòng bán). */
   private assertSellable(units: SkuUnit[]): void {
     if (!units.some((u) => u.archivedAt === null && u.forSale))
@@ -340,9 +339,9 @@ export class SkusService {
 
   async createUnit(skuId: string, b: SkuUnitCreate) {
     const sku = await this.lockSku(skuId);
-    if (sku.archivedAt) throw rule('SKU đã lưu trữ — không thêm đơn vị', { field: 'sku_id' });
+    // SKU lưu trữ vẫn thêm / mở lại đơn vị được (chuẩn bị trước khi mở lại SKU — review lát 2 C1)
     const existing = await this.tx.skuUnit.findMany({ where: { skuId, archivedAt: null }, select: { name: true } });
-    if (existing.some((e) => e.name.trim().toLowerCase() === b.name.trim().toLowerCase())) throw conflict('name');
+    if (existing.some((e) => nameKey(e.name) === nameKey(b.name))) throw conflict('name');
     const u = await this.insertUnit(sku, b, new Set());
     await this.ao.recordAudit({
       action: 'sku_unit.create',
@@ -356,15 +355,14 @@ export class SkusService {
   async updateUnit(skuId: string, unitId: string, b: SkuUnitUpdate) {
     const sku = await this.lockSku(skuId);
     const r = await this.tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM core.sku_units WHERE id = ${unitId}::uuid AND sku_id = ${skuId}::uuid FOR UPDATE`;
+      SELECT id FROM core.sku_units WHERE id = ${unitId}::uuid AND sku_id = ${skuId}::uuid FOR NO KEY UPDATE`;
     if (!r.length) throw new AppError('RESOURCE_NOT_FOUND', 'Không tìm thấy đơn vị của SKU');
     const before = await this.tx.skuUnit.findUniqueOrThrow({ where: { id: unitId } });
     const willBeActive = b.archived === undefined ? before.archivedAt === null : !b.archived;
     const forSale = b.for_sale ?? before.forSale;
     const forPurchase = b.for_purchase ?? before.forPurchase;
+    if (b.barcode) assertGs1Checksum(b.barcode);
     if (willBeActive) {
-      if (sku.archivedAt && before.archivedAt !== null)
-        throw rule('SKU đã lưu trữ — mở lại SKU trước', { field: 'archived' });
       const unit = await this.unitRow(before.unitCode);
       // đơn vị cũ đã lưu trữ vẫn dùng tiếp được cho dòng có sẵn; chỉ chặn khi MỞ LẠI đơn vị trên đơn vị tính đã lưu trữ
       assertSkuUnitShape(sku.saleUnitType as SaleUnitType, before.archivedAt ? unit : { ...unit, archivedAt: null }, {
@@ -381,12 +379,12 @@ export class SkusService {
       const barcode = b.barcode !== undefined ? b.barcode : before.barcode;
       if (barcode !== before.barcode || before.archivedAt !== null) await this.assertBarcodeFree(barcode, unitId);
       if (b.name !== undefined || before.archivedAt !== null) {
-        const name = (b.name ?? before.name).trim().toLowerCase();
+        const name = nameKey(b.name ?? before.name);
         const others = await this.tx.skuUnit.findMany({
           where: { skuId, archivedAt: null, id: { not: unitId } },
           select: { name: true },
         });
-        if (others.some((o) => o.name.trim().toLowerCase() === name)) throw conflict('name');
+        if (others.some((o) => nameKey(o.name) === name)) throw conflict('name');
       }
     }
     const u = await catalogWrite(() =>

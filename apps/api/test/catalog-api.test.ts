@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
 import { generateKeyPairSync, type KeyObject, randomBytes, randomUUID, sign } from 'node:crypto';
 import { generateSync } from 'otplib';
+import { Client } from 'pg';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadAuthKeys } from '../src/auth/auth-config';
@@ -405,11 +406,20 @@ describe('API danh mục (CP04 lát 2)', () => {
       const r = await sku(body);
       expect([why, ...err(r)]).toEqual([why, 422, 'CATALOG_RULE_VIOLATION']);
     }
-    // không để lại SKU dở dang (transaction rollback cả SKU + đơn vị gốc)
+    // lỗi ở đơn vị xảy ra SAU khi đã INSERT skus + đơn vị gốc ⇒ transaction rollback hết, mã SKU dùng lại được
+    const code = `RB-${hex()}`;
+    const r1 = await sku({
+      sku_code: code,
+      units: [{ unit_code: 'KG', name: 'nửa kg', factor_g: 500, for_sale: true, for_purchase: false }],
+    });
+    expect(err(r1)).toEqual([422, 'CATALOG_RULE_VIOLATION']);
     const [n] = await rows(
-      `SELECT count(*)::int AS n FROM core.skus WHERE name LIKE 'SKU %' AND sale_unit_type = 'SERVICE' AND std_weight_g IS NOT NULL`,
+      `SELECT (SELECT count(*)::int FROM core.skus WHERE sku_code = $1) AS skus,
+              (SELECT count(*)::int FROM core.sku_units u JOIN core.skus s ON s.id = u.sku_id WHERE s.sku_code = $1) AS units`,
+      [code],
     );
-    expect(n?.n).toBe(0);
+    expect(n).toEqual({ skus: 0, units: 0 });
+    expect((await sku({ sku_code: code })).status).toBe(201);
     // kiểu bán sai ⇒ 400 (zod); giá không nhận ở đây
     expect(err(await sku({ sale_unit_type: 'KG' }))).toEqual([400, 'INVALID_REQUEST']);
     expect(err(await sku({ retail_price_per_kg: '95000' }))).toEqual([400, 'INVALID_REQUEST']);
@@ -454,6 +464,38 @@ describe('API danh mục (CP04 lát 2)', () => {
       409,
       'VERSION_CONFLICT',
     ]);
+
+    // review lát 2 C1: SKU lưu trữ + lưu trữ hết đơn vị bán vẫn mở lại được (mở lại / thêm đơn vị trước, rồi mở lại SKU)
+    const z = await sku({ sale_unit_type: 'PIECE_FIXED' });
+    const zid = z.body.id as string;
+    const zbase = (z.body.units as { id: string }[])[0]?.id ?? '';
+    expect((await patch(`/admin/skus/${zid}`, { version: 0, archived: true })).status).toBe(200);
+    expect((await patch(`/admin/skus/${zid}/units/${zbase}`, { archived: true })).status).toBe(200);
+    const stuck = await patch(`/admin/skus/${zid}`, { version: 1, archived: false });
+    expect(err(stuck)).toEqual([422, 'CATALOG_RULE_VIOLATION']);
+    // UPDATE đã chạy rồi mới kiểm ⇒ rollback: version không tăng
+    expect((await get(`/admin/skus/${zid}`)).body).toMatchObject({ version: 1 });
+    const added = await post(`/admin/skus/${zid}/units`, {
+      unit_code: 'PACK',
+      name: 'Hộp 2 quả',
+      factor_units: 2,
+      for_sale: true,
+      for_purchase: false,
+    });
+    expect(added.status).toBe(201);
+    expect((await patch(`/admin/skus/${zid}/units/${zbase}`, { archived: false })).status).toBe(200);
+    const back = await patch(`/admin/skus/${zid}`, { version: 1, archived: false });
+    expect(back.status).toBe(200);
+    expect(back.body).toMatchObject({ version: 2, archived_at: null });
+    // mã vạch sai số kiểm tra bị chặn cả khi sửa đơn vị đang lưu trữ
+    expect(
+      err(
+        await patch(`/admin/skus/${zid}/units/${added.body.id as string}`, {
+          archived: true,
+          barcode: '8930000000027',
+        }),
+      ),
+    ).toEqual([422, 'BARCODE_CHECKSUM_INVALID']);
   });
 
   it('sửa SKU: version lệch ⇒ 409; mã / kiểu bán / giá bất biến ở đây; audit trước–sau; sản phẩm lưu trữ ⇒ 422', async () => {
@@ -588,5 +630,89 @@ describe('API danh mục (CP04 lát 2)', () => {
     expect((await sm.post('/admin/categories', { name: 'x' })).status).toBe(403);
     expect((await sm.post('/admin/units', { code: 'XX', name: 'x', kind: 'COUNT' })).status).toBe(403);
     expect((await http().get('/v1/admin/skus')).status).toBe(401);
+  });
+  it('trùng đi qua index (dòng song song chưa commit, kiểm trước không thấy) ⇒ 409 kèm trường; tìm kiếm thoát % và _', async () => {
+    /** owner giữ INSERT chưa commit ⇒ API INSERT chờ index ⇒ owner COMMIT ⇒ API nhận 23505 */
+    async function racing(
+      holdSql: string,
+      holdParams: unknown[],
+      call: () => Promise<{ status: number; body: { code?: string; details?: { field?: string } } }>,
+    ) {
+      const c = new Client({ connectionString: db.ownerUrl });
+      await c.connect();
+      try {
+        await c.query('BEGIN');
+        await c.query(holdSql, holdParams);
+        const pending = call();
+        // chờ API chạm tới INSERT và bị chặn bởi khóa của index
+        for (let i = 0; i < 50; i++) {
+          const w = await rows(
+            `SELECT count(*)::int AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND usename = 'app_rw'`,
+          );
+          if ((w[0]?.n as number) > 0) break;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        await c.query('COMMIT');
+        const r = await pending;
+        return [r.status, r.body.code, r.body.details?.field];
+      } finally {
+        await c.end();
+      }
+    }
+    const prod = await product();
+    const p = plu();
+    expect(
+      await racing(
+        `INSERT INTO core.skus (id, product_id, sku_code, name, sale_unit_type, scale_plu) VALUES ($1, $2, $3, $3, 'WEIGHT', $4)`,
+        [randomUUID(), prod, `RACE-${hex()}`, p],
+        () =>
+          post('/admin/skus', {
+            product_id: prod,
+            sku_code: `RACE-${hex()}`,
+            name: 'x',
+            sale_unit_type: 'WEIGHT',
+            scale_plu: p,
+          }),
+      ),
+    ).toEqual([409, 'VERSION_CONFLICT', 'scale_plu']);
+    const root = await category();
+    const nm = `DM ${hex()}`;
+    expect(
+      await racing(
+        `INSERT INTO core.categories (id, parent_id, name) VALUES ($1, $2, $3)`,
+        [randomUUID(), root, nm],
+        () => post('/admin/categories', { parent_id: root, name: nm }),
+      ),
+    ).toEqual([409, 'VERSION_CONFLICT', 'name']);
+    const s = await sku({ sale_unit_type: 'PIECE_FIXED' });
+    expect(
+      await racing(
+        `INSERT INTO core.sku_units (id, sku_id, unit_code, name, factor_units, for_sale) VALUES ($1, $2, 'PACK', 'Hộp 3', 3, true)`,
+        [randomUUID(), s.body.id],
+        () =>
+          post(`/admin/skus/${s.body.id as string}/units`, {
+            unit_code: 'BAG',
+            name: 'Hộp 3',
+            factor_units: 3,
+            for_sale: true,
+            for_purchase: false,
+          }),
+      ),
+    ).toEqual([409, 'VERSION_CONFLICT', 'name']);
+
+    // ký tự đại diện LIKE được thoát: "%" / "_" không khớp mọi SKU
+    expect((await get('/admin/skus?q=%25')).body.items).toEqual([]);
+    expect((await get('/admin/skus?q=_')).body.items).toEqual([]);
+    const tag = hex(2);
+    const under = await sku({ sku_code: `U_${tag}`, name: `Giảm 100% ${tag}` });
+    expect(under.status).toBe(201);
+    await sku({ sku_code: `UX${tag}` });
+    expect((await get(`/admin/skus?q=u_${tag.toLowerCase()}`)).body.items.map((x: { id: string }) => x.id)).toEqual([
+      under.body.id,
+    ]);
+    expect(
+      (await get(`/admin/skus?q=${encodeURIComponent(`100% ${tag}`)}`)).body.items.map((x: { id: string }) => x.id),
+    ).toEqual([under.body.id]);
+    expect((await get('/admin/products?q=_')).body.items).toEqual([]);
   });
 });

@@ -38,7 +38,7 @@ export function catalogDbError(err: unknown): unknown {
     const field = UNIQUE_FIELDS.find(([re]) => re.test(where))?.[1];
     return new AppError(
       'VERSION_CONFLICT',
-      field ? `Trùng ${field} với bản ghi đang dùng` : 'Dữ liệu trùng với bản ghi đã có',
+      field ? `Trùng ${field} với bản ghi khác` : 'Dữ liệu trùng với bản ghi đã có',
       {
         reason: 'UNIQUE',
         ...(field ? { field } : {}),
@@ -47,9 +47,10 @@ export function catalogDbError(err: unknown): unknown {
   }
   if (s === '23514') {
     const msg = originalMessage(err);
-    return rule(msg && OWN_RAISE.test(msg) ? msg : 'Vi phạm quy tắc danh mục', {
-      ...(typeof d['constraint'] === 'string' ? { constraint: d['constraint'] } : {}),
-    });
+    // CHECK: adapter không điền `constraint` — tên nằm trong thông điệp (chỉ tên, không có giá trị)
+    const check = msg?.match(/violates check constraint "([a-z0-9_]+)"/)?.[1];
+    const constraint = typeof d['constraint'] === 'string' ? d['constraint'] : check;
+    return rule(msg && OWN_RAISE.test(msg) ? msg : 'Vi phạm quy tắc danh mục', constraint ? { constraint } : {});
   }
   return err;
 }

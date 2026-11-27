@@ -8952,6 +8952,7 @@ components:
           format: date-time
     ProductList:
       type: object
+      description: tối đa 1000 sản phẩm theo tên — lọc bằng category_id / q khi danh mục lớn hơn
       required: [items]
       additionalProperties: false
       properties:
@@ -9119,7 +9120,7 @@ components:
     Sku:
       type: object
       description: >-
-        SKU §4.3. stock_base: đơn vị tồn chuẩn (GRAM hàng cân, COUNT hàng đếm, NONE dịch vụ). Giá chỉ đọc ở đây (đổi qua /admin/prices — lát 3).
+        SKU §4.3. stock_base: đơn vị tồn chuẩn (GRAM hàng cân, COUNT hàng đếm, NONE dịch vụ). Giá chỉ đọc ở đây (đổi qua /admin/prices — lát 3). version chỉ tăng khi sửa chính SKU (PATCH /admin/skus/{id}); thêm/sửa đơn vị qua /admin/skus/{id}/units không tăng version.
       required:
         [
           id,

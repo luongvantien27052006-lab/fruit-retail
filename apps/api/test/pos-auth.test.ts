@@ -662,24 +662,51 @@ describe('auth nhân viên POS + thiết bị (CP03 lát 4)', () => {
     const s = await store();
     const n = await staff(s.id);
     const d = await activeDevice(s.code);
-    // mô phỏng thu hồi commit sau bước kiểm chữ ký: trigger chặn tạo phiên STAFF trên thiết bị này
-    await rows(`ALTER TABLE core.sessions DISABLE TRIGGER sessions_guard`);
+    // mô phỏng ĐÚNG cuộc đua: thu hồi commit NGAY SAU bước kiểm chữ ký (ghi nonce DEVICE_NONCE trong transaction riêng
+    // đã commit) và TRƯỚC khi tạo phiên ⇒ trigger thật sessions_guard chặn (23514) ⇒ API kiểm lại thiết bị ⇒ DEVICE_REVOKED
     await rows(`
-      CREATE FUNCTION core.zz_block_session() RETURNS trigger LANGUAGE plpgsql AS $f$
-      BEGIN RAISE EXCEPTION 'thu hồi giả lập' USING ERRCODE = 'check_violation'; END $f$`);
+      CREATE FUNCTION core.zz_revoke_after_nonce() RETURNS trigger LANGUAGE plpgsql AS $f$
+      BEGIN
+        UPDATE core.pos_devices SET status = 'REVOKED', revoked_at = now(),
+          revoked_by = (SELECT id FROM core.users WHERE type = 'MASTER' ORDER BY id LIMIT 1)
+        WHERE id = NEW.pos_device_id AND status = 'ACTIVE';
+        RETURN NEW;
+      END $f$`);
     await rows(
-      `CREATE TRIGGER zz_block BEFORE INSERT ON core.sessions FOR EACH ROW EXECUTE FUNCTION core.zz_block_session()`,
+      `CREATE TRIGGER zz_revoke AFTER INSERT ON core.auth_challenges FOR EACH ROW WHEN (NEW.kind = 'DEVICE_NONCE')
+       EXECUTE FUNCTION core.zz_revoke_after_nonce()`,
     );
     try {
       const r = await pin(d, n.code, n.pin);
       expect([r.status, r.body.code]).toEqual([403, 'DEVICE_REVOKED']);
     } finally {
+      await rows(`DROP TRIGGER zz_revoke ON core.auth_challenges`);
+      await rows(`DROP FUNCTION core.zz_revoke_after_nonce()`);
+    }
+    const logs = await rows(`SELECT result FROM audit.login_logs WHERE user_id = $1`, [n.userId]);
+    expect(logs.map((x) => x.result)).toEqual(['DEVICE_REVOKED']);
+  });
+
+  it('review cổng CP03 — lỗi CHECK 23514 khác lúc tạo phiên (thiết bị vẫn ACTIVE) KHÔNG bị gắn nhãn DEVICE_REVOKED', async () => {
+    const s = await store();
+    const n = await staff(s.id);
+    const d = await activeDevice(s.code);
+    await rows(`ALTER TABLE core.sessions DISABLE TRIGGER sessions_guard`);
+    await rows(`
+      CREATE FUNCTION core.zz_block_session() RETURNS trigger LANGUAGE plpgsql AS $f$
+      BEGIN RAISE EXCEPTION 'lỗi CHECK khác' USING ERRCODE = 'check_violation'; END $f$`);
+    await rows(
+      `CREATE TRIGGER zz_block BEFORE INSERT ON core.sessions FOR EACH ROW EXECUTE FUNCTION core.zz_block_session()`,
+    );
+    try {
+      const r = await pin(d, n.code, n.pin);
+      expect(r.body.code).not.toBe('DEVICE_REVOKED');
+      expect(r.status).toBeGreaterThanOrEqual(400);
+    } finally {
       await rows(`DROP TRIGGER zz_block ON core.sessions`);
       await rows(`DROP FUNCTION core.zz_block_session()`);
       await rows(`ALTER TABLE core.sessions ENABLE TRIGGER sessions_guard`);
     }
-    const logs = await rows(`SELECT result FROM audit.login_logs WHERE user_id = $1`, [n.userId]);
-    expect(logs.map((x) => x.result)).toEqual(['DEVICE_REVOKED']);
   });
 
   it('L2 — nghỉ việc ⇒ phiên chết ngay; mất vai trò ở cửa hàng ⇒ refresh bị từ chối', async () => {

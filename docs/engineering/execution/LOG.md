@@ -59,3 +59,4 @@
 | 2026-11-27 | CP03 | Lát 8b xong code: admin web BFF + CSP nonce + màn A01/A11/A15/A15+/A17 (ADR-027). E2E Playwright 8/8, API 169/169. Chờ kiểm thử agent. |
 | 2026-11-27 | CP03 | Lát 8b: security 3 vòng (CÒN LỖI → CÒN LỖI → SẠCH), react 2 vòng (CÒN LỖI → SẠCH). E2E 11/11. Lát 8 đóng. |
 | 2026-11-27 | CP03 | Lát 9 staff app Flutter (ADR-028): 38 test + chạy thật Windows với API local. flutter-reviewer 4 vòng → SẠCH (247f953). Lát 9 đóng. |
+| 2026-11-27 | CP03 | Lát 10: Redis ACL (ADR-029). Review tổng lần 1 (code/TS, security, react+flutter) CÒN LỖI; Tiến quyết NC-23 (khóa theo tài khoản + mạng, ADR-030) và NC-24. Đã sửa hết; chờ review tổng lần 2. |

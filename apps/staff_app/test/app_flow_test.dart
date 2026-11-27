@@ -376,6 +376,8 @@ void main() {
       await t.pumpAndSettle();
       expect(c.stage, Stage.home);
       expect(c.session, isNotNull);
+      await c.lock(); // dọn đồng hồ tự khóa trước khi test kết thúc
+      await t.pumpAndSettle();
     },
   );
 }

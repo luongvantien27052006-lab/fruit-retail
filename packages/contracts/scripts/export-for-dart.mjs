@@ -22,6 +22,44 @@ for (const item of Object.values(doc.paths ?? {})) {
   delete item.parameters;
   moved++;
 }
+// swagger_parser sinh lớp sealed `<Tên>Sealed` cho `oneOf` nhưng client vẫn import `<tên>.dart` (không tồn tại) ⇒ build
+// hỏng trên máy sạch (CI develop sau CP03). Gộp các nhánh object thành MỘT object: thuộc tính = hợp, bắt buộc = giao,
+// enum cùng tên = hợp. Phía Dart tự phân nhánh theo trường phân biệt (vd. `status`); nguồn hợp đồng giữ nguyên oneOf.
+let flattened = 0;
+for (const [name, sc] of Object.entries(doc.components?.schemas ?? {})) {
+  if (!Array.isArray(sc.oneOf)) continue;
+  if (!sc.oneOf.every((v) => v.type === 'object' && !v.$ref)) throw new Error(`oneOf chưa hỗ trợ: ${name}`);
+  const props = {};
+  for (const v of sc.oneOf)
+    for (const [k, p0] of Object.entries(v.properties ?? {})) {
+      // `const` (3.1) ⇒ enum một giá trị để gộp được
+      const { const: c, ...p1 } = p0;
+      const p = c === undefined ? p0 : { ...p1, enum: [c] };
+      const prev = props[k];
+      if (!prev) {
+        props[k] = p;
+        continue;
+      }
+      // so sánh không phụ thuộc thứ tự khóa; phần ngoài `enum` (type, format…) phải giống hệt
+      const canon = (o) =>
+        JSON.stringify(
+          Object.keys(o)
+            .sort()
+            .map((x) => [x, o[x]]),
+        );
+      const { enum: e1, ...r1 } = prev;
+      const { enum: e2, ...r2 } = p;
+      if (canon(r1) !== canon(r2) || Array.isArray(e1) !== Array.isArray(e2))
+        throw new Error(`oneOf ${name}: thuộc tính ${k} khác nhau giữa các nhánh — chưa hỗ trợ gộp`);
+      if (Array.isArray(e1)) props[k] = { ...prev, enum: [...new Set([...e1, ...e2])] };
+    }
+  const required = sc.oneOf.map((v) => v.required ?? []).reduce((acc, r) => acc.filter((k) => r.includes(k)));
+  const rest = { ...sc };
+  delete rest.oneOf;
+  delete rest.discriminator;
+  doc.components.schemas[name] = { ...rest, type: 'object', required, properties: props };
+  flattened++;
+}
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, stringify(doc, { lineWidth: 0 }));
-console.log(`export-for-dart: chuẩn hóa ${moved} path → ${out}`);
+console.log(`export-for-dart: chuẩn hóa ${moved} path, gộp ${flattened} oneOf → ${out}`);

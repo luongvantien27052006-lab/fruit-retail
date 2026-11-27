@@ -1,3 +1,5 @@
 # Phát hiện đã xác minh KHÔNG phải secret (chỉ ghi fingerprint, có lý do). Thêm mới phải được review.
 # Chuỗi ví dụ "sk_live_…" trong tài liệu skill upstream api-design (commit đầu CP00); đã thay bằng <api-key>.
 f9ea35f5c0345ee6d0598d3d7154aa214144a1f9:.claude/skills/api-design/SKILL.md:generic-api-key:306
+# Tham chiếu biến môi trường S3_SECRET_KEY khi tạo S3Client (CP03 lát 7), không phải giá trị secret.
+4af7852b6f56ef4d515ef628f7d0b3ac0b4673a1:apps/api/src/infra/object-storage.service.ts:generic-api-key:41

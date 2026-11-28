@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import ExcelJS from 'exceljs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ean13Modules } from '../src/labels/ean13-svg';
+import { pickLabelUnits } from '../src/labels/labels.service';
 import { schemaErrors } from './helpers/contract';
 import { type AdminEnv, startAdminEnv } from './helpers/admin-env';
 
@@ -309,9 +310,13 @@ describe('PLU, mã vạch cân, thương hiệu, tem (CP04 lát 6)', () => {
     });
     await price(a, '45000', [{ store_id: storeId, price: '52000' }]);
     await price(b, '12000');
-    // đơn vị gốc của b không có mã vạch; đơn vị bán thêm có mã ⇒ tem lấy mã đó
+    // người in chọn đơn vị (Tiến 2026-11-28): PACK ⇒ hộp (có mã vạch) của b
     const c = await sku({ sale_unit_type: 'PIECE_FIXED', name: 'Chưa có giá' });
-    const r = await e.master.post('/admin/shelf-labels', { sku_ids: [a.id, b.id, c.id], store_id: storeId });
+    const r = await e.master.post('/admin/shelf-labels', {
+      sku_ids: [a.id, b.id, c.id],
+      store_id: storeId,
+      unit_mode: 'PACK',
+    });
     expect(r.status).toBe(200);
     expect(r.headers['content-type']).toContain('text/html');
     const csp = r.headers['content-security-policy'] as string;
@@ -350,8 +355,26 @@ describe('PLU, mã vạch cân, thương hiệu, tem (CP04 lát 6)', () => {
         })
       ).status,
     ).toBe(200);
-    const r2 = await e.master.post('/admin/shelf-labels', { sku_ids: [b.id], store_id: storeId });
+    const r2 = await e.master.post('/admin/shelf-labels', { sku_ids: [b.id], store_id: storeId, unit_mode: 'PACK' });
     expect(r2.text).toContain('65.000đ<span class="per">/Hộp 6 quả</span>');
+    // mặc định BASE ⇒ đơn vị lẻ: 12.000đ/<đơn vị gốc>, KHÔNG mã vạch / tên hộp (kệ bày hàng lẻ)
+    const lo = await e.master.post('/admin/shelf-labels', { sku_ids: [b.id], store_id: storeId });
+    const loose = new RegExp('12\\.000đ<span class="per">/[^<]+</span>');
+    expect(lo.text).toMatch(loose);
+    expect(lo.text).not.toContain('Hộp 6 quả');
+    expect(lo.text).not.toContain('8934567890120');
+    expect(lo.headers['x-label-count']).toBe('1');
+    // BOTH ⇒ hai tem cho b (lẻ + hộp), một tem cho hàng cân a và cho c (chỉ một đơn vị)
+    const both = await e.master.post('/admin/shelf-labels', {
+      sku_ids: [a.id, b.id, c.id],
+      store_id: storeId,
+      unit_mode: 'BOTH',
+    });
+    expect(both.headers['x-label-count']).toBe('4');
+    expect(both.text).toContain('65.000đ<span class="per">/Hộp 6 quả</span>');
+    expect(both.text).toMatch(loose);
+    expect(both.text.split('52.000đ')).toHaveLength(2);
+    expect((await e.master.post('/admin/shelf-labels', { sku_ids: [b.id], unit_mode: 'X' })).status).toBe(400);
     expect((await e.master.post('/admin/shelf-labels', { sku_ids: [a.id], category_id: a.id })).status).toBe(400);
     expect((await e.master.post('/admin/shelf-labels', {})).status).toBe(400);
     const sm = await e.storeManager();
@@ -402,5 +425,28 @@ describe('PLU, mã vạch cân, thương hiệu, tem (CP04 lát 6)', () => {
     for (let i = 0; i < 6; i++) digits += String(R.indexOf(m.slice(50 + i * 7, 57 + i * 7)));
     expect(`${PAR.indexOf(parity)}${digits}`).toBe(code);
     expect(() => ean13Modules('2000123008454')).toThrow();
+  });
+});
+
+describe('chọn đơn vị in tem (pickLabelUnits)', () => {
+  const u = (name: string, factorUnits: number | null, barcode: string | null = null) => ({
+    name,
+    factorUnits,
+    barcode,
+    pricePerUnit: null,
+  });
+  it('BASE = quy đổi nhỏ nhất; PACK = hộp có mã vạch, không có ⇒ quy đổi lớn nhất, không có hộp ⇒ đơn vị lẻ; BOTH ≤ 2', () => {
+    const qua = u('Quả', 1);
+    const hop = u('Hộp 6', 6, '8934567890120');
+    const thung = u('Thùng 24', 24);
+    expect(pickLabelUnits([qua, hop, thung], 'BASE')).toEqual([qua]);
+    expect(pickLabelUnits([qua, hop, thung], 'PACK')).toEqual([hop]);
+    expect(pickLabelUnits([qua, thung, u('Hộp 6', 6)], 'PACK')).toEqual([thung]);
+    expect(pickLabelUnits([qua], 'PACK')).toEqual([qua]);
+    expect(pickLabelUnits([qua, hop], 'BOTH')).toEqual([qua, hop]);
+    expect(pickLabelUnits([qua], 'BOTH')).toEqual([qua]);
+    // quy đổi null (đơn vị gốc cũ) coi như 1
+    expect(pickLabelUnits([u('Cái', null), hop], 'BASE')).toEqual([u('Cái', null)]);
+    expect(pickLabelUnits([], 'BOTH')).toEqual([undefined]);
   });
 });

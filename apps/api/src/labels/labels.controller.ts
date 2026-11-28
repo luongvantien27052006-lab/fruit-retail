@@ -7,7 +7,7 @@ import { AppError } from '../common/errors';
 import type { RequestStore } from '../common/request-context';
 import { ZodPipe } from '../common/zod.pipe';
 import { optText, text, uuid } from '../org/org-fields';
-import { LabelsService } from './labels.service';
+import { LabelsService, UNIT_MODES } from './labels.service';
 
 const RULE_TYPES = ['WEIGHT', 'PRICE', 'PRODUCT', 'BATCH', 'ORDER', 'STAFF'] as const;
 const CODE = z
@@ -86,6 +86,8 @@ const ShelfLabels = z
     category_id: uuid.optional(),
     store_id: uuid.optional(),
     layout: z.enum(['A4_24', 'A4_10']).default('A4_24'),
+    /** hàng đếm có nhiều đơn vị bán: BASE = đơn vị lẻ, PACK = hộp / thùng, BOTH = in cả hai (Tiến chọn 2026-11-28) */
+    unit_mode: z.enum(UNIT_MODES).default('BASE'),
   })
   .strict()
   .refine(

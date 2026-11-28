@@ -57,7 +57,10 @@ function ShelfTab() {
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     const f = new FormData(e.currentTarget);
     const store = String(f.get('store_id') ?? '');
-    const body: Record<string, unknown> = { layout: String(f.get('layout') ?? 'A4_24') };
+    const body: Record<string, unknown> = {
+      layout: String(f.get('layout') ?? 'A4_24'),
+      unit_mode: String(f.get('unit_mode') ?? 'BASE'),
+    };
     if (store) body['store_id'] = store;
     if (by === 'category') {
       const c = String(f.get('category_id') ?? '');
@@ -92,8 +95,8 @@ function ShelfTab() {
       <h1>In tem giá kệ</h1>
       <Alert text={a.err} />
       <p className="muted">
-        Hàng cân in giá/kg + PLU; hàng đếm in theo đơn vị bán có mã vạch (vd hộp), giá riêng của đơn vị hoặc giá SKU ×
-        quy đổi. Không chọn cửa hàng = giá chung.
+        Hàng cân luôn in giá/kg + PLU. Hàng đếm in theo "Đơn vị in" chọn bên dưới (vd quả lẻ cho kệ hàng lẻ, hộp cho kệ
+        hàng hộp); giá = giá riêng của đơn vị, không có thì giá SKU × quy đổi. Không chọn cửa hàng = giá chung.
       </p>
       <form method="post" action="/bff/labels" target="labels-frame" onSubmit={onSubmit}>
         <input type="hidden" name="payload" ref={payload} />
@@ -115,6 +118,14 @@ function ShelfTab() {
             <select name="layout" defaultValue="A4_24">
               <option value="A4_24">A4 — 24 tem (3 × 8)</option>
               <option value="A4_10">A4 — 10 tem lớn (2 × 5)</option>
+            </select>
+          </label>
+          <label>
+            Đơn vị in (hàng đếm)
+            <select name="unit_mode" defaultValue="BASE">
+              <option value="BASE">Đơn vị lẻ (quả, cái…)</option>
+              <option value="PACK">Hộp / thùng (không có thì đơn vị lẻ)</option>
+              <option value="BOTH">Cả hai — 2 tem mỗi SKU có hộp</option>
             </select>
           </label>
           <label>

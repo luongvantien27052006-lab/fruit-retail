@@ -96,6 +96,39 @@ const csvCell = (v: string | number | null) => {
 };
 
 export const MAX_LABELS = 500;
+/** đơn vị in trên tem hàng đếm (hàng cân luôn in giá/kg + PLU) */
+export const UNIT_MODES = ['BASE', 'PACK', 'BOTH'] as const;
+export type UnitMode = (typeof UNIT_MODES)[number];
+
+interface LabelUnit {
+  barcode: string | null;
+  name: string;
+  pricePerUnit: bigint | null;
+  factorUnits: number | null;
+}
+
+/**
+ * Chọn đơn vị in cho một SKU hàng đếm (đơn vị đang bán, đơn vị gốc trước):
+ * - BASE: đơn vị lẻ = quy đổi nhỏ nhất (thường là đơn vị gốc, quy đổi 1);
+ * - PACK: hộp / thùng = đơn vị quy đổi > đơn vị lẻ, ưu tiên đơn vị có mã vạch rồi quy đổi lớn nhất; SKU không có ⇒ đơn vị lẻ;
+ * - BOTH: đơn vị lẻ + hộp (nếu khác nhau) ⇒ tối đa 2 tem.
+ * Không có đơn vị bán nào ⇒ [undefined] (tem in giá SKU, không tên đơn vị).
+ */
+export function pickLabelUnits(units: LabelUnit[], mode: UnitMode): (LabelUnit | undefined)[] {
+  if (!units.length) return [undefined];
+  const f = (u: LabelUnit) => u.factorUnits ?? 1;
+  const base = units.reduce((a, u) => (f(u) < f(a) ? u : a));
+  const packs = units.filter((u) => f(u) > f(base));
+  const pack = packs.length
+    ? packs.reduce((a, u) => {
+        if (!!u.barcode !== !!a.barcode) return u.barcode ? u : a;
+        return f(u) > f(a) ? u : a;
+      })
+    : undefined;
+  if (mode === 'BASE') return [base];
+  if (mode === 'PACK') return [pack ?? base];
+  return pack ? [base, pack] : [base];
+}
 
 /**
  * PLU, mã vạch cân, thương hiệu, tem giá kệ (CP04 lát 6, NC-26, §6.5, §21.3.8, §18.5). Mã vạch giải / kiểm bằng thư viện
@@ -415,7 +448,13 @@ export class LabelsService {
    * Trang HTML in được (A4) — tem giá kệ hàng loạt: tên thương hiệu, tên SKU, giá (đ/kg hoặc đ/đơn vị, giá cửa hàng nếu có),
    * PLU / mã vạch EAN-13 (SVG). Mọi chữ từ DB được thoát HTML; trang không có script (CSP chặn).
    */
-  async shelfLabels(q: { sku_ids?: string[]; category_id?: string; store_id?: string; layout: 'A4_24' | 'A4_10' }) {
+  async shelfLabels(q: {
+    sku_ids?: string[];
+    category_id?: string;
+    store_id?: string;
+    layout: 'A4_24' | 'A4_10';
+    unit_mode: UnitMode;
+  }) {
     if (q.store_id) await this.scope.assertStore('price:read', q.store_id);
     // không chọn cửa hàng ⇒ giá chung: người chỉ có phạm vi cửa hàng phải chọn cửa hàng mình (như xuất PLU)
     else if (!(await this.scope.isAll('price:read')))
@@ -440,33 +479,34 @@ export class LabelsService {
     if (skus.length > MAX_LABELS) throw new AppError('INVALID_REQUEST', `Tối đa ${MAX_LABELS} tem mỗi lần in`);
     const brand = await this.tx.brandSettings.findUniqueOrThrow({ where: { id: 1 }, select: { brandName: true } });
     const perKg = new Set(['WEIGHT', 'PIECE_BY_WEIGHT', 'PACK_VARIABLE']);
-    const cells = skus.map((s) => {
+    const cells = skus.flatMap((s) => {
       const kg = perKg.has(s.saleUnitType);
       const sp = (s as { storePrices?: { retailPricePerKg: bigint | null; retailPricePerUnit: bigint | null }[] })
         .storePrices?.[0];
-      // MỘT đơn vị hiển thị — giá, tên đơn vị, mã vạch cùng của đơn vị đó (review TS lát 6 vòng 2 C1):
-      // hàng cân ⇒ giá/kg + PLU (không in mã vạch của hộp — giá khác); hàng đếm ⇒ đơn vị bán có mã vạch, không thì đơn vị
-      // bán đầu tiên; giá = giá riêng của đơn vị, không có thì giá SKU (cửa hàng → chung, giá đơn vị gốc) × số quy đổi
-      // (như POS tính dòng bán — lát 3).
+      // MỖI tem MỘT đơn vị — giá, tên đơn vị, mã vạch cùng của đơn vị đó (review TS lát 6 vòng 2 C1):
+      // hàng cân ⇒ giá/kg + PLU (không in mã vạch của hộp — giá khác); hàng đếm ⇒ đơn vị theo unit_mode (pickLabelUnits);
+      // giá = giá riêng của đơn vị, không có thì giá SKU (cửa hàng → chung, giá đơn vị gốc) × số quy đổi (như POS — lát 3).
       const base = sp?.retailPricePerUnit ?? s.retailPricePerUnit;
-      const unit = kg ? undefined : (s.units.find((u) => u.barcode) ?? s.units[0]);
-      const price = kg
-        ? (sp?.retailPricePerKg ?? s.retailPricePerKg)
-        : unit
-          ? (unit.pricePerUnit ?? (base !== null && unit.factorUnits !== null ? base * BigInt(unit.factorUnits) : null))
-          : base;
-      const barcode = unit?.barcode ?? null;
-      const per = kg ? '/kg' : unit ? `/${unit.name}` : '';
-      const code =
-        barcode && isValidEan13(barcode)
-          ? ean13Svg(barcode, { moduleWidth: 1.2, height: 22 })
-          : `<div class="code">${html(barcode ?? (s.scalePlu ? `PLU ${s.scalePlu}` : s.skuCode))}</div>`;
-      return (
-        `<div class="label"><div class="brand">${html(brand.brandName)}</div>` +
-        `<div class="name">${html(s.name)}</div>` +
-        `<div class="price">${price !== null ? `${html(formatVnd(price))}<span class="per">${html(per)}</span>` : '<span class="per">Chưa có giá</span>'}</div>` +
-        `${code}<div class="sku">${html(s.skuCode)}${s.scalePlu ? ` · PLU ${html(s.scalePlu)}` : ''}</div></div>`
-      );
+      return (kg ? [undefined] : pickLabelUnits(s.units, q.unit_mode)).map((unit) => {
+        const price = kg
+          ? (sp?.retailPricePerKg ?? s.retailPricePerKg)
+          : unit
+            ? (unit.pricePerUnit ??
+              (base !== null && unit.factorUnits !== null ? base * BigInt(unit.factorUnits) : null))
+            : base;
+        const barcode = unit?.barcode ?? null;
+        const per = kg ? '/kg' : unit ? `/${unit.name}` : '';
+        const code =
+          barcode && isValidEan13(barcode)
+            ? ean13Svg(barcode, { moduleWidth: 1.2, height: 22 })
+            : `<div class="code">${html(barcode ?? (s.scalePlu ? `PLU ${s.scalePlu}` : s.skuCode))}</div>`;
+        return (
+          `<div class="label"><div class="brand">${html(brand.brandName)}</div>` +
+          `<div class="name">${html(s.name)}</div>` +
+          `<div class="price">${price !== null ? `${html(formatVnd(price))}<span class="per">${html(per)}</span>` : '<span class="per">Chưa có giá</span>'}</div>` +
+          `${code}<div class="sku">${html(s.skuCode)}${s.scalePlu ? ` · PLU ${html(s.scalePlu)}` : ''}</div></div>`
+        );
+      });
     });
     // vùng in A4 = 210 × 297 mm trừ lề 8 mm ⇒ 194 × 281 mm. A4_24: 3 × 8 tem 33 mm + 7 khe 1 mm = 271 mm; A4_10: 2 × 5 tem
     // 54 mm + 4 khe 1 mm = 274 mm. Mỗi trang một khối riêng (ngắt trang) — không để trình duyệt tự chia lưới.
@@ -479,7 +519,7 @@ export class LabelsService {
     for (let i = 0; i < cells.length; i += perPage)
       pages.push(`<div class="page">${cells.slice(i, i + perPage).join('')}</div>`);
     return {
-      count: skus.length,
+      count: cells.length,
       html:
         '<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>Tem giá kệ</title><style>' +
         '@page{size:A4;margin:8mm}html,body{margin:0;padding:0;font-family:Arial,sans-serif}' +

@@ -254,10 +254,18 @@ describe('trang quản lý — danh mục, nhập Excel, tem (CP04 lát 7)', () 
     const sentOrigin = page.waitForRequest((q) => q.url().endsWith('/bff/labels'));
     await page.goto(`${origin}/labels`);
     await page.locator('select[name=category_id]').selectOption({ label: catName });
+    // người in chọn đơn vị (Tiến 2026-11-28) ⇒ gửi trong yêu cầu
+    await page.locator('select[name=unit_mode]').selectOption('BOTH');
     const resp = page.waitForResponse((r) => r.url().endsWith('/bff/labels'));
     await page.click('button:has-text("Tạo trang tem")');
     const r = await resp;
-    expect((await (await sentOrigin).allHeaders())['origin']).toBe('null');
+    const sent = await sentOrigin;
+    expect((await sent.allHeaders())['origin']).toBe('null');
+    const payload = JSON.parse(new URLSearchParams(sent.postData() ?? '').get('payload') ?? '{}') as Record<
+      string,
+      unknown
+    >;
+    expect(payload['unit_mode']).toBe('BOTH');
     expect(r.status()).toBe(200);
     const csp = r.headers()['content-security-policy'] ?? '';
     expect(csp).toContain("default-src 'none'");

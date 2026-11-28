@@ -8101,7 +8101,7 @@ paths:
         `<iframe sandbox srcdoc=…>` (KHÔNG allow-scripts / allow-same-origin; srcdoc thừa hưởng CSP trang cha) — không mở bằng
         blob: / src cùng origin; CSP của response không còn tác dụng khi client tự hiển thị ⇒ lớp bảo vệ là thoát HTML phía
         server + thuộc tính sandbox. Mã vạch EAN-13 vẽ SVG. Header X-Label-Count = số
-        tem. A4_24 = 3 × 8 tem / trang, A4_10 = 2 × 5 tem / trang.
+        tem. A4_24 = 3 × 8 tem / trang, A4_10 = 2 × 5 tem / trang. unit_mode chọn đơn vị in cho hàng đếm (mặc định đơn vị lẻ).
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/RequestId'
@@ -12023,6 +12023,13 @@ components:
           type: string
           enum: [A4_24, A4_10]
           default: A4_24
+        unit_mode:
+          type: string
+          enum: [BASE, PACK, BOTH]
+          default: BASE
+          description: >-
+            Hàng đếm có nhiều đơn vị bán — BASE = đơn vị lẻ (quy đổi nhỏ nhất), PACK = hộp / thùng (ưu tiên đơn vị có mã vạch;
+            SKU không có ⇒ đơn vị lẻ), BOTH = in cả hai (tối đa 2 tem / SKU). Hàng cân luôn một tem giá/kg + PLU.
     PluExportRequest:
       type: object
       additionalProperties: false

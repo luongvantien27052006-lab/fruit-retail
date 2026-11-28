@@ -11,7 +11,8 @@
     "typecheck": "prisma generate && tsc -p tsconfig.json --noEmit",
     "lint": "eslint src test",
     "test": "vitest run",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts"
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "demo": "vitest run --config vitest.demo.config.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1166.0",

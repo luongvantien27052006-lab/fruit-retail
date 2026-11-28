@@ -135,7 +135,7 @@ export default function SuppliersPage() {
           </table>
         </div>
         {next && (
-          <button type="button" className="secondary" onClick={() => void a.load(() => load(next))}>
+          <button type="button" className="secondary" disabled={a.busy} onClick={() => void a.run(() => load(next))}>
             Xem thêm
           </button>
         )}

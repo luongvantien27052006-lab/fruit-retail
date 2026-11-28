@@ -551,7 +551,7 @@ export default function SkuPage() {
             className="secondary mt8"
             disabled={a.busy}
             onClick={() =>
-              void a.load(async () => {
+              void a.run(async () => {
                 // trang sau (cũ hơn) — review react cổng CP04 T1
                 const h = await bff<{ items: PriceChangeLog[]; next_before: string | null }>(
                   `/api/admin/prices/${sku.id}/history?limit=100&before=${nextBefore}`,

@@ -58,7 +58,13 @@ export const REDACT_PATHS = [
 
 /** URL trong log: che giá trị nhạy cảm của query (tìm NCC theo SĐT…) — review bảo mật cổng CP04 */
 export const LOG_SERIALIZERS = {
-  req: (r: { url?: unknown }) => ({ ...r, url: safeUrl(r.url) }),
+  // pino-http chạy serializer chuẩn trước (thêm `query` = object Express đã phân tích) ⇒ BỎ `query` (URL đã che vẫn giữ
+  // tên tham số để lần vết) — review bảo mật cổng CP04 vòng 2
+  req: (r: { url?: unknown; query?: unknown }) => {
+    const { query: _q, ...rest } = r;
+    void _q;
+    return { ...rest, url: safeUrl(r.url) };
+  },
 };
 
 export { REQUEST_ID_RE, resolveRequestId } from './common/request-context';

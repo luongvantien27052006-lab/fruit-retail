@@ -64,3 +64,4 @@
 | 2026-11-27 | CP03 | Tiến xác nhận CP03 ĐẠT. |
 | 2026-11-27 | CP04 | Mở CP04 (nhánh feat/cp04-catalog). Kế hoạch con 8 lát + NC-26…29 chờ Tiến duyệt. |
 | 2026-11-28 | CP04 | Lát 7 (admin web A10 / A11 / A13, thương hiệu, tem; reorder quy tắc mã vạch — migration 0011; BFF upload / file mẫu / trang tem; sửa export:dart) xong code (661c1b7). Kiểm thử vòng 1: react CÒN LỖI (Cao ×2, TB ×2, Thấp ×8), security CÒN LỖI (TB: Origin null sau Caddy, Thấp ×1) — sửa hết (d7930a5). Vòng 2: cả hai SẠCH. E2E 20/20. Lát 7 đóng. |
+| 2026-11-28 | CP04 | Lát 8 (cổng): sửa CI đỏ từ lát 4; diễn tập nạp 25 SKU DEV + runbook. Review tổng vòng 1: database / security / typescript CÒN LỖI (TB ×3: deadlock nhập ↔ đổi giá, SĐT lọt log, NUL ⇒ 500) + react Thấp ×6 — sửa (5d22ffc). Vòng 2–3: SĐT còn qua req.query ⇒ sửa (c9ee3d3); cả 4 agent SẠCH. API 258, e2e 20. Chờ danh mục thật của Tiến. |

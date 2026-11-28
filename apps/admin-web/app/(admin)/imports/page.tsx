@@ -43,6 +43,8 @@ export default function ImportsPage() {
   const [fileName, setFileName] = useState('');
   const a = useAction();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** lượt đang theo dõi; phản hồi của lượt khác / sau khi rời trang bị bỏ (review react lát 7 TB4) */
+  const active = useRef<string | null>(null);
 
   const loadJobs = useCallback(async () => {
     setJobs((await bff<{ items: ImportJob[] }>('/api/admin/imports?limit=20')).items);
@@ -50,6 +52,7 @@ export default function ImportsPage() {
   useEffect(() => {
     void a.load(loadJobs);
     return () => {
+      active.current = null;
       if (timer.current) clearTimeout(timer.current);
     };
   }, [loadJobs, a.load]);
@@ -58,14 +61,23 @@ export default function ImportsPage() {
   const poll = useCallback(
     (id: string, n = 0) => {
       if (timer.current) clearTimeout(timer.current);
+      active.current = id;
       timer.current = setTimeout(
         () => {
           void a.load(async () => {
             const j = await bff<ImportJob>(`/api/admin/imports/${id}`);
+            if (active.current !== id) return;
             setJob(j);
             if (j.status === 'PENDING' || j.status === 'RUNNING') {
               if (n < 300) poll(id, n + 1);
-            } else await loadJobs();
+              else {
+                active.current = null;
+                a.setErr('Lượt nhập chạy lâu bất thường — xem lại ở "Lượt nhập gần đây" sau ít phút');
+              }
+            } else {
+              active.current = null;
+              await loadJobs();
+            }
           });
         },
         n < 10 ? 1000 : 3000,
@@ -190,7 +202,17 @@ export default function ImportsPage() {
               <button
                 type="button"
                 className="secondary"
-                disabled={a.busy || !(job?.dry_run && job.status === 'COMPLETED' && job.file_id === fileId)}
+                disabled={
+                  a.busy ||
+                  // chỉ khi ĐÚNG file + loại + cách xử lý trùng vừa chạy thử xong (review react TB3)
+                  !(
+                    job?.dry_run &&
+                    job.status === 'COMPLETED' &&
+                    job.file_id === fileId &&
+                    job.type === type &&
+                    job.mode_on_duplicate === mode
+                  )
+                }
                 onClick={() => start(false)}
               >
                 Nhập thật

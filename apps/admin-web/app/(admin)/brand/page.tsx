@@ -14,6 +14,8 @@ const LOGOS = [
 /** §18.5 — thương hiệu: tên, hotline, địa chỉ hiển thị, chân phiếu, màu, chính sách riêng tư, logo (PNG / JPEG ≤ 1 MB). */
 export default function BrandPage() {
   const [b, setB] = useState<Brand | null>(null);
+  /** tăng CHỈ khi lưu form (tải logo không dựng lại form ⇒ không mất chữ đang gõ — review react T8) */
+  const [rev, setRev] = useState(0);
   const a = useAction();
   const load = useCallback(async () => {
     setB(await bff<Brand>('/api/admin/brand'));
@@ -41,6 +43,7 @@ export default function BrandPage() {
           privacy_url: url || null,
         }),
       );
+      setRev((r) => r + 1);
       return 'Đã lưu thương hiệu';
     });
   }
@@ -70,7 +73,7 @@ export default function BrandPage() {
       <p className="muted">Cập nhật {dt(b.updated_at)}</p>
       <Alert text={a.err} />
       <Alert text={a.notice} kind="notice" />
-      <form onSubmit={save} key={b.updated_at}>
+      <form onSubmit={save} key={rev}>
         <div className="grid">
           <label>
             Tên thương hiệu

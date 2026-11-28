@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Alert } from '../../../../../components/Alert';
-import { bff } from '../../../../../lib/client/api';
+import { ApiFailure, bff } from '../../../../../lib/client/api';
 import { dt, money, parseIntOrNull, parseMoney, UUID_RE } from '../../../../../lib/client/format';
 import {
   SALE_TYPE_VI,
@@ -102,7 +102,9 @@ export default function SkuPage() {
     const note = String(f.get('storage_note') ?? '').trim();
     body['storage_note'] = note || null;
     void a.run(async () => {
-      setSku(await bff<Sku>(`/api/admin/skus/${sku.id}`, 'PATCH', body));
+      // PATCH tăng skus.version = version của giá ⇒ tải lại CẢ giá (review react lát 7 C1)
+      await fresh(() => bff(`/api/admin/skus/${sku.id}`, 'PATCH', body));
+      await load();
       return 'Đã lưu thuộc tính';
     });
   }
@@ -111,11 +113,28 @@ export default function SkuPage() {
     if (!sku) return;
     if (!sku.archived_at && !window.confirm(`Lưu trữ SKU ${sku.sku_code}? SKU sẽ ngừng bán.`)) return;
     void a.run(async () => {
-      setSku(
-        await bff<Sku>(`/api/admin/skus/${sku.id}`, 'PATCH', { version: sku.version, archived: !sku.archived_at }),
+      await fresh(() =>
+        bff(`/api/admin/skus/${sku.id}`, 'PATCH', { version: sku.version, archived: !sku.archived_at }),
       );
+      await load();
       return sku.archived_at ? 'Đã khôi phục' : 'Đã lưu trữ';
     });
+  }
+
+  /** 409 VERSION_CONFLICT (người khác vừa sửa) ⇒ tải lại dữ liệu mới nhất rồi báo để người dùng kiểm và lưu lại */
+  async function fresh(fn: () => Promise<unknown>) {
+    try {
+      await fn();
+    } catch (x) {
+      if (x instanceof ApiFailure && x.error.code === 'VERSION_CONFLICT') {
+        await load().catch(() => undefined);
+        throw new ApiFailure({
+          ...x.error,
+          message: `${x.error.message} — đã tải lại dữ liệu mới nhất, kiểm rồi lưu lại`,
+        });
+      }
+      throw x;
+    }
   }
 
   function patchUnit(u: SkuUnit, body: Record<string, unknown>, msg: string) {
@@ -185,7 +204,7 @@ export default function SkuPage() {
     if (unitsChanged.length) body['units'] = unitsChanged;
     if (Object.keys(body).length === 2) return a.setNotice('Không có giá nào thay đổi');
     void a.run(async () => {
-      await bff(`/api/admin/prices/${prices.sku_id}`, 'PUT', body);
+      await fresh(() => bff(`/api/admin/prices/${prices.sku_id}`, 'PUT', body));
       form.reset();
       await load();
       return 'Đã đổi giá — chỉ áp cho giao dịch mới';

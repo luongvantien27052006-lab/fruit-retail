@@ -13,7 +13,7 @@ export default function LabelsPage() {
   const [tab, setTab] = useState<Tab>('shelf');
   return (
     <>
-      <div className="tabs" role="tablist" aria-label="Tem và mã vạch">
+      <div className="tabs" role="group" aria-label="Tem và mã vạch">
         {(
           [
             ['shelf', 'In tem giá kệ'],
@@ -21,7 +21,7 @@ export default function LabelsPage() {
             ['plu', 'File PLU cho cân'],
           ] as const
         ).map(([k, vi]) => (
-          <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>
+          <button key={k} type="button" aria-pressed={tab === k} onClick={() => setTab(k)}>
             {vi}
           </button>
         ))}
@@ -171,16 +171,16 @@ function ShelfTab() {
                           <input
                             type="checkbox"
                             checked={picked.has(s.id)}
-                            onChange={(e) =>
+                            onChange={(e) => {
+                              const on = e.target.checked;
+                              if (on && picked.size >= 500) return a.setErr('Tối đa 500 SKU mỗi lần in');
                               setPicked((cur) => {
                                 const m = new Map(cur);
-                                if (e.target.checked) {
-                                  if (m.size >= 500) return cur;
-                                  m.set(s.id, s);
-                                } else m.delete(s.id);
+                                if (on) m.set(s.id, s);
+                                else m.delete(s.id);
                                 return m;
-                              })
-                            }
+                              });
+                            }}
                           />
                           <span className="mono">{s.sku_code}</span> {s.name}
                         </label>
@@ -207,7 +207,8 @@ function ShelfTab() {
         // KHÔNG allow-scripts: trang tem không chạy mã; allow-same-origin chỉ để nút In gọi print()
         sandbox="allow-same-origin allow-modals"
 
-        onLoad={() => setLoaded(!!frame.current?.contentDocument?.body?.childElementCount)}
+        // chỉ bật In khi khung có trang tem thật (trang lỗi không có .page — review react T12)
+        onLoad={() => setLoaded(!!frame.current?.contentDocument?.querySelector('.page'))}
       />
     </div>
   );

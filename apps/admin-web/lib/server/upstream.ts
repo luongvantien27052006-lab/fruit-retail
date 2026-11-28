@@ -80,9 +80,27 @@ async function call(
   if (r.status === 204) return { status: 204, body: null };
   const type = r.headers.get('content-type') ?? '';
   if (init.raw && r.ok && !type.toLowerCase().startsWith('application/json')) {
-    const bytes = Buffer.from(await r.arrayBuffer());
-    if (bytes.length > RAW_MAX)
-      return { status: 502, body: { code: 'INTERNAL_ERROR', message: 'Phản hồi máy chủ quá lớn' } };
+    // đọc theo luồng có trần (không đọc hết rồi mới so — review bảo mật lát 7 L2)
+    const tooBig = { status: 502, body: { code: 'INTERNAL_ERROR', message: 'Phản hồi máy chủ quá lớn' } };
+    if (Number(r.headers.get('content-length') ?? '0') > RAW_MAX) {
+      await r.body?.cancel();
+      return tooBig;
+    }
+    const parts: Uint8Array[] = [];
+    let n = 0;
+    const reader = r.body?.getReader();
+    for (;;) {
+      if (!reader) break;
+      const { done, value } = await reader.read();
+      if (done) break;
+      n += value.byteLength;
+      if (n > RAW_MAX) {
+        await reader.cancel();
+        return tooBig;
+      }
+      parts.push(value);
+    }
+    const bytes = Buffer.concat(parts);
     return { status: r.status, body: null, raw: { bytes, type, disposition: r.headers.get('content-disposition') } };
   }
   const text = await r.text();

@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
   const text = await req.text();
   if (Buffer.byteLength(text) > MAX_PAYLOAD) return errorPage(413, 'Quá nhiều tem');
   const form = new URLSearchParams(text);
-  if (!csrfTokenOk(req, form.get('csrf'))) return errorPage(403, 'Yêu cầu bị chặn (CSRF/Origin) — tải lại trang');
+  if (!csrfTokenOk(req, form.get('csrf'), true)) return errorPage(403, 'Yêu cầu bị chặn (CSRF/Origin) — tải lại trang');
   const payload = form.get('payload') ?? '';
   try {
     const p: unknown = JSON.parse(payload);

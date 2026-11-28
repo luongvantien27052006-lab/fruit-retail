@@ -297,7 +297,7 @@ td select {
   flex-wrap: wrap;
   margin-bottom: 16px;
 }
-.tabs button[aria-selected='false'] {
+.tabs button[aria-pressed='false'] {
   background: transparent;
   color: var(--accent);
 }

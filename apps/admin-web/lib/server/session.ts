@@ -95,9 +95,19 @@ export function csrfOk(req: NextRequest): boolean {
   return csrfTokenOk(req, req.headers.get('x-csrf-token'));
 }
 
+/**
+ * Form POST (điều hướng) từ trang có Referrer-Policy no-referrer gửi `Origin: null` (Fetch spec). CHỈ form tem dùng: chấp
+ * nhận `null` khi Sec-Fetch-Site = same-origin (trang web không tự đặt được header Sec-Fetch-*); mã CSRF vẫn bắt buộc.
+ * KHÔNG nới cho mọi route: iframe sandbox của trang lạ cũng gửi `Origin: null` (khi đó Sec-Fetch-Site = cross-site).
+ */
+export function formOriginOk(req: NextRequest): boolean {
+  if (req.headers.get('origin') === 'null') return req.headers.get('sec-fetch-site') === 'same-origin';
+  return originOk(req);
+}
+
 /** Như csrfOk nhưng mã CSRF lấy từ trường form (form POST vào iframe tem — không đặt được header). */
-export function csrfTokenOk(req: NextRequest, token: string | null): boolean {
-  if (!originOk(req)) return false;
+export function csrfTokenOk(req: NextRequest, token: string | null, form = false): boolean {
+  if (!(form ? formOriginOk(req) : originOk(req))) return false;
   const header = Buffer.from(token ?? '', 'utf8');
   const cookie = Buffer.from(req.cookies.get(COOKIE.csrf)?.value ?? '', 'utf8');
   // so độ dài theo BYTE (ký tự nhiều byte làm timingSafeEqual ném RangeError ⇒ 500)

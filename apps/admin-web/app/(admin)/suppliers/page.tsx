@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Alert } from '../../../components/Alert';
 import { bff } from '../../../lib/client/api';
 import { dt, parseIntOrNull } from '../../../lib/client/format';
@@ -28,23 +28,28 @@ export default function SuppliersPage() {
   const [items, setItems] = useState<Supplier[]>([]);
   const [next, setNext] = useState<string | null>(null);
   const [q, setQ] = useState('');
-  const [sel, setSel] = useState<string | null>(null);
+  /** từ khóa ĐÃ gửi (Xem thêm dùng cái này, không dùng ô đang gõ — review react lát 7 T10) */
+  const applied = useRef('');
+  /** NCC đang mở giữ riêng (không suy từ danh sách — NCC ở trang 2 vẫn mở được sau khi lưu; T7) */
+  const [current, setCurrent] = useState<Supplier | null>(null);
   const a = useAction();
 
-  const load = useCallback(
-    async (after?: string) => {
-      const p = new URLSearchParams({ include_archived: 'true', limit: '100' });
-      if (q.trim()) p.set('q', q.trim());
-      if (after) p.set('after', after);
-      const r = await bff<{ items: Supplier[]; next_after: string | null }>(`/api/admin/suppliers?${p}`);
-      setItems((cur) => (after ? [...cur, ...r.items] : r.items));
-      setNext(r.next_after);
-    },
-    [q],
-  );
+  const load = useCallback(async (after?: string) => {
+    const p = new URLSearchParams({ include_archived: 'true', limit: '100' });
+    if (applied.current) p.set('q', applied.current);
+    if (after) p.set('after', after);
+    const r = await bff<{ items: Supplier[]; next_after: string | null }>(`/api/admin/suppliers?${p}`);
+    setItems((cur) => (after ? [...cur, ...r.items] : r.items));
+    setNext(r.next_after);
+  }, []);
   useEffect(() => {
     void a.load(() => load());
-    // chỉ tải lần đầu; tìm bằng nút
+  }, [load, a.load]);
+
+  /** bản mới của một NCC (sau lưu / tạo) ⇒ thay trong danh sách + panel đang mở */
+  const upsert = useCallback((s: Supplier) => {
+    setItems((cur) => (cur.some((x) => x.id === s.id) ? cur.map((x) => (x.id === s.id ? s : x)) : [s, ...cur]));
+    setCurrent(s);
   }, []);
 
   function create(e: FormEvent<HTMLFormElement>) {
@@ -55,13 +60,10 @@ export default function SuppliersPage() {
     void a.run(async () => {
       const s = await bff<Supplier>('/api/admin/suppliers', 'POST', body);
       form.reset();
-      await load();
-      setSel(s.id);
+      upsert(s);
       return `Đã thêm nhà cung cấp ${s.code}`;
     });
   }
-
-  const current = items.find((s) => s.id === sel);
 
   return (
     <>
@@ -73,6 +75,7 @@ export default function SuppliersPage() {
           className="row"
           onSubmit={(e) => {
             e.preventDefault();
+            applied.current = q.trim();
             void a.load(() => load());
           }}
         >
@@ -110,7 +113,12 @@ export default function SuppliersPage() {
                   </td>
                   <td>{s.payment_terms_days !== null ? `${s.payment_terms_days} ngày` : '—'}</td>
                   <td>
-                    <button type="button" className="secondary" onClick={() => setSel(s.id)}>
+                    <button
+                      type="button"
+                      className="secondary"
+                      aria-label={`Mở ${s.code} ${s.name}`}
+                      onClick={() => setCurrent(s)}
+                    >
                       Mở
                     </button>
                   </td>
@@ -133,7 +141,7 @@ export default function SuppliersPage() {
         )}
       </div>
 
-      {current && <SupplierPanel key={current.id} s={current} reload={() => load()} />}
+      {current && <SupplierPanel key={current.id} s={current} onSaved={upsert} />}
 
       <div className="card">
         <h2>Thêm nhà cung cấp</h2>
@@ -242,7 +250,9 @@ function SupplierFields({ s }: { s?: Supplier }) {
   );
 }
 
-function SupplierPanel({ s, reload }: { s: Supplier; reload: () => Promise<void> }) {
+function SupplierPanel({ s, onSaved }: { s: Supplier; onSaved: (s: Supplier) => void }) {
+  /** tăng sau mỗi lần lưu ⇒ form dựng lại từ bản mới (form.reset đưa <select> về giá trị LÚC MOUNT — review react C2) */
+  const [rev, setRev] = useState(0);
   const [skus, setSkus] = useState<SupplierSku[]>([]);
   const [found, setFound] = useState<Sku[]>([]);
   const [bank, setBank] = useState<{ account_number: string; account_holder: string } | null>(null);
@@ -260,10 +270,9 @@ function SupplierPanel({ s, reload }: { s: Supplier; reload: () => Promise<void>
     const body = readForm(new FormData(form), a.setErr, false);
     if (!body) return;
     void a.run(async () => {
-      await bff(`/api/admin/suppliers/${s.id}`, 'PATCH', body);
-      form.reset();
+      onSaved(await bff<Supplier>(`/api/admin/suppliers/${s.id}`, 'PATCH', body));
       setBank(null);
-      await reload();
+      setRev((r) => r + 1);
       return 'Đã lưu nhà cung cấp';
     });
   }
@@ -308,7 +317,7 @@ function SupplierPanel({ s, reload }: { s: Supplier; reload: () => Promise<void>
           )}
         </div>
       )}
-      <form onSubmit={save} key={s.id}>
+      <form onSubmit={save} key={rev}>
         <SupplierFields s={s} />
         <div className="row">
           <button type="submit" disabled={a.busy}>
@@ -320,8 +329,8 @@ function SupplierPanel({ s, reload }: { s: Supplier; reload: () => Promise<void>
             disabled={a.busy}
             onClick={() =>
               void a.run(async () => {
-                await bff(`/api/admin/suppliers/${s.id}`, 'PATCH', { archived: !s.archived_at });
-                await reload();
+                onSaved(await bff<Supplier>(`/api/admin/suppliers/${s.id}`, 'PATCH', { archived: !s.archived_at }));
+                setRev((r) => r + 1);
                 return s.archived_at ? 'Đã khôi phục' : 'Đã lưu trữ';
               })
             }
@@ -425,7 +434,7 @@ function SupplierPanel({ s, reload }: { s: Supplier; reload: () => Promise<void>
             <span>
               <span className="mono">{k.sku_code}</span> {k.name}
             </span>
-            <button type="button" disabled={a.busy} onClick={() => link(k.id, null)}>
+            <button type="button" disabled={a.busy} aria-label={`Gắn ${k.sku_code}`} onClick={() => link(k.id, null)}>
               Gắn
             </button>
           </div>

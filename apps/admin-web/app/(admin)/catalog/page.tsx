@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Alert } from '../../../components/Alert';
 import { bff } from '../../../lib/client/api';
 import { money, parseIntOrNull } from '../../../lib/client/format';
@@ -22,7 +22,7 @@ export default function CatalogPage() {
   const [tab, setTab] = useState<Tab>('tree');
   return (
     <>
-      <div className="tabs" role="tablist" aria-label="Danh mục">
+      <div className="tabs" role="group" aria-label="Danh mục">
         {(
           [
             ['tree', 'Danh mục & sản phẩm'],
@@ -30,7 +30,7 @@ export default function CatalogPage() {
             ['units', 'Đơn vị tính'],
           ] as const
         ).map(([k, vi]) => (
-          <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>
+          <button key={k} type="button" aria-pressed={tab === k} onClick={() => setTab(k)}>
             {vi}
           </button>
         ))}
@@ -54,9 +54,13 @@ function TreeTab() {
   const loadCats = useCallback(async () => {
     setCats((await bff<{ items: Category[] }>('/api/admin/categories?include_archived=true')).items);
   }, []);
+  /** danh mục đang chọn — phản hồi muộn của danh mục chọn trước bị bỏ (review react lát 7 T9) */
+  const selRef = useRef<string | null>(null);
+  selRef.current = sel;
   const loadProducts = useCallback(async (id: string | null) => {
     if (!id) return setProducts([]);
-    setProducts((await bff<{ items: Product[] }>(`/api/admin/products?category_id=${id}&include_archived=true`)).items);
+    const r = await bff<{ items: Product[] }>(`/api/admin/products?category_id=${id}&include_archived=true`);
+    if (selRef.current === id) setProducts(r.items);
   }, []);
   useEffect(() => {
     void a.load(loadCats);
@@ -209,6 +213,11 @@ function TreeTab() {
                 onChange={(e) => moveCategory(current, e.target.value)}
               >
                 <option value="">(Gốc — không có danh mục cha)</option>
+                {current.parent_id && !cats.some((c) => c.id === current.parent_id && !c.archived_at) && (
+                  <option value={current.parent_id} disabled>
+                    Trong: {cats.find((c) => c.id === current.parent_id)?.name ?? '?'} (đã lưu trữ)
+                  </option>
+                )}
                 {cats
                   .filter((c) => !c.archived_at && !descendants.has(c.id))
                   .map((c) => (
@@ -322,6 +331,8 @@ function SkusTab() {
   const [items, setItems] = useState<Sku[]>([]);
   const [next, setNext] = useState<string | null>(null);
   const [q, setQ] = useState('');
+  /** từ khóa ĐÃ gửi — "Xem thêm" không dùng ô đang gõ (review react T10) */
+  const applied = useRef('');
   const [archived, setArchived] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
@@ -331,14 +342,14 @@ function SkusTab() {
   const load = useCallback(
     async (after?: string) => {
       const p = new URLSearchParams({ limit: '100' });
-      if (q.trim()) p.set('q', q.trim());
+      if (applied.current) p.set('q', applied.current);
       if (archived) p.set('include_archived', 'true');
       if (after) p.set('after', after);
       const r = await bff<{ items: Sku[]; next_after: string | null }>(`/api/admin/skus?${p}`);
       setItems((cur) => (after ? [...cur, ...r.items] : r.items));
       setNext(r.next_after);
     },
-    [q, archived],
+    [archived],
   );
   useEffect(() => {
     void a.load(async () => {
@@ -350,10 +361,10 @@ function SkusTab() {
       setUnits(u.items);
     });
   }, [a.load]);
+  // tìm lại khi đổi bộ lọc lưu trữ; ô tìm gửi bằng nút
   useEffect(() => {
     void a.load(() => load());
-    // tìm lại khi đổi bộ lọc lưu trữ; ô tìm gửi bằng nút
-  }, [archived]);
+  }, [load, a.load]);
 
   const weighted = WEIGHT_PRICED.has(type);
   const noWeight = type === 'BUNDLE' || type === 'SERVICE';
@@ -404,6 +415,7 @@ function SkusTab() {
           className="row"
           onSubmit={(e) => {
             e.preventDefault();
+            applied.current = q.trim();
             void a.load(() => load());
           }}
         >

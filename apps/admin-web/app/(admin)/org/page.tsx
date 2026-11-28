@@ -122,7 +122,12 @@ export default function OrgPage() {
                       : `${s.status === 'ACTIVE' ? 'Hoạt động' : 'Ngừng'} · POS ${s.pos_status === 'OPEN' ? 'mở' : 'đóng'} · App ${s.app_status === 'ONLINE' ? 'nhận đơn' : 'tạm dừng'}`}
                   </td>
                   <td>
-                    <button type="button" className="secondary" onClick={() => setSel({ kind: 'store', id: s.id })}>
+                    <button
+                      type="button"
+                      className="secondary"
+                      aria-label={`Mở cửa hàng ${s.code}`}
+                      onClick={() => setSel({ kind: 'store', id: s.id })}
+                    >
                       Mở
                     </button>
                   </td>
@@ -135,7 +140,12 @@ export default function OrgPage() {
                   <td>Kho</td>
                   <td>{w.archived_at ? 'Đã lưu trữ' : 'Đang dùng'}</td>
                   <td>
-                    <button type="button" className="secondary" onClick={() => setSel({ kind: 'warehouse', id: w.id })}>
+                    <button
+                      type="button"
+                      className="secondary"
+                      aria-label={`Mở kho ${w.code}`}
+                      onClick={() => setSel({ kind: 'warehouse', id: w.id })}
+                    >
                       Mở
                     </button>
                   </td>
@@ -191,6 +201,7 @@ export default function OrgPage() {
 
 function StorePanel({ store, reload }: { store: Store; reload: () => Promise<void> }) {
   const a = useAction();
+  const [locRev, setLocRev] = useState(0);
 
   function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -311,8 +322,8 @@ function StorePanel({ store, reload }: { store: Store; reload: () => Promise<voi
         </form>
       </div>
       <Registers store={store} />
-      <Locations owner={{ store_id: store.id }} />
-      <DefaultLocations store={store} />
+      <Locations owner={{ store_id: store.id }} onChanged={() => setLocRev((r) => r + 1)} />
+      <DefaultLocations store={store} rev={locRev} />
     </>
   );
 }
@@ -470,16 +481,27 @@ function Registers({ store }: { store: Store }) {
   );
 }
 
-function Locations({ owner }: { owner: { store_id: string } | { warehouse_id: string } }) {
+function Locations({
+  owner,
+  onChanged,
+}: {
+  owner: { store_id: string } | { warehouse_id: string };
+  onChanged?: () => void;
+}) {
   const [items, setItems] = useState<Location[]>([]);
   const a = useAction();
   const q = 'store_id' in owner ? `store_id=${owner.store_id}` : `warehouse_id=${owner.warehouse_id}`;
-  const load = useCallback(async () => {
+  const reload = useCallback(async () => {
     setItems((await bff<{ items: Location[] }>(`/api/admin/locations?${q}&include_archived=true`)).items);
   }, [q]);
+  const load = useCallback(async () => {
+    await reload();
+    onChanged?.();
+  }, [reload, onChanged]);
+  // tải đầu chỉ đọc (không báo onChanged — prop là hàm mới mỗi lần render)
   useEffect(() => {
-    void a.load(load);
-  }, [load, a.load]);
+    void a.load(reload);
+  }, [reload, a.load]);
 
   function add(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -615,7 +637,7 @@ interface DefaultLoc {
   location_name: string;
 }
 
-function DefaultLocations({ store }: { store: Store }) {
+function DefaultLocations({ store, rev }: { store: Store; rev: number }) {
   const [items, setItems] = useState<DefaultLoc[]>([]);
   const [locs, setLocs] = useState<Location[]>([]);
   const [found, setFound] = useState<Sku[]>([]);
@@ -627,7 +649,8 @@ function DefaultLocations({ store }: { store: Store }) {
     ]);
     setItems(d.items);
     setLocs(l.items.filter((x) => x.type !== 'IN_TRANSIT'));
-  }, [store.id]);
+    void rev;
+  }, [store.id, rev]);
   useEffect(() => {
     void a.load(load);
   }, [load, a.load]);
@@ -657,6 +680,12 @@ function DefaultLocations({ store }: { store: Store }) {
       onChange={(e) => set(skuId, e.target.value || null)}
     >
       <option value="">(không có)</option>
+      {/* vị trí hiện tại đã lưu trữ (không còn trong danh sách) ⇒ vẫn hiện đúng (review react T6) */}
+      {value && !locs.some((l) => l.id === value) && (
+        <option value={value} disabled>
+          {items.find((d) => d.location_id === value)?.location_code ?? 'Vị trí'} (đã lưu trữ)
+        </option>
+      )}
       {locs.map((l) => (
         <option key={l.id} value={l.id}>
           {l.code} — {l.name}

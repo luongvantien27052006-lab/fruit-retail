@@ -127,7 +127,7 @@ describe('trang quản lý — danh mục, nhập Excel, tem (CP04 lát 7)', () 
     await page.click('button:has-text("Thêm sản phẩm")');
     await page.locator(`td:has-text("Cam ${tag}")`).waitFor();
 
-    await page.click('button[role=tab]:has-text("SKU")');
+    await page.click('.tabs button:has-text("SKU")');
     const f = page.locator('form:has(button:has-text("Tạo SKU"))');
     await f.locator('select[name=product_id]').selectOption({ label: `Cam ${tag}` });
     await f.locator('input[name=sku_code]').fill(`${tag}-CAM`);
@@ -139,6 +139,11 @@ describe('trang quản lý — danh mục, nhập Excel, tem (CP04 lát 7)', () 
     await page.locator(`a:has-text("${tag}-CAM")`).click();
     await page.waitForURL(/\/catalog\/skus\//);
     skuId = page.url().split('/').pop() ?? '';
+    // review react lát 7 C1: lưu thuộc tính (tăng version) rồi lưu giá NGAY ⇒ không được 409
+    const attrs = page.locator('form:has(button:has-text("Lưu thuộc tính"))');
+    await attrs.locator('input[name=storage_note]').fill('Để nơi thoáng mát');
+    await attrs.locator('button:has-text("Lưu thuộc tính")').click();
+    await page.locator('.notice:has-text("Đã lưu thuộc tính")').waitFor();
 
     const prices = page.locator('form:has(button:has-text("Lưu giá"))');
     await prices.locator('input[name=global]').fill('52.000');
@@ -241,11 +246,18 @@ describe('trang quản lý — danh mục, nhập Excel, tem (CP04 lát 7)', () 
   });
 
   it('tem giá kệ: trang HTML trong iframe sandbox (không allow-scripts), CSP riêng, đúng giá', async () => {
+    // review bảo mật lát 7 L1: sau Caddy cũ (Referrer-Policy no-referrer) form POST gửi `Origin: null` ⇒ vẫn phải chạy
+    await page.route(`${origin}/labels`, async (route) => {
+      const r = await route.fetch();
+      await route.fulfill({ response: r, headers: { ...r.headers(), 'referrer-policy': 'no-referrer' } });
+    });
+    const sentOrigin = page.waitForRequest((q) => q.url().endsWith('/bff/labels'));
     await page.goto(`${origin}/labels`);
     await page.locator('select[name=category_id]').selectOption({ label: catName });
     const resp = page.waitForResponse((r) => r.url().endsWith('/bff/labels'));
     await page.click('button:has-text("Tạo trang tem")');
     const r = await resp;
+    expect((await (await sentOrigin).allHeaders())['origin']).toBe('null');
     expect(r.status()).toBe(200);
     const csp = r.headers()['content-security-policy'] ?? '';
     expect(csp).toContain("default-src 'none'");
@@ -269,12 +281,13 @@ describe('trang quản lý — danh mục, nhập Excel, tem (CP04 lát 7)', () 
       return x.status;
     });
     expect(bad).toBe(403);
+    await page.unroute(`${origin}/labels`);
   });
 
   it('quy tắc mã vạch: đổi chỗ hai quy tắc trên màn ⇒ lưu thứ tự (giữ tập priority)', async () => {
     const before = await e.db.q(`SELECT code, priority FROM core.barcode_rules ORDER BY priority`);
     await page.goto(`${origin}/labels`);
-    await page.click('button[role=tab]:has-text("Quy tắc mã vạch")');
+    await page.click('.tabs button:has-text("Quy tắc mã vạch")');
     const first = before[0]?.['code'] as string;
     const second = before[1]?.['code'] as string;
     await page.click(`button[aria-label="Đưa ${first} xuống"]`);

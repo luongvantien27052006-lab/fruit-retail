@@ -15,7 +15,7 @@
 | `packages/shared_models` | staff_app, customer_app | cwd `packages/shared_models`: sinh rồi `dart test` | TEST-CODEGEN-002 | (CP02) |
 | `api: auth, rbac` (auth/, common/access*, scope, approval-limits, rate-limit) | mọi module API, viewer, admin-web, staff_app | `pnpm --filter @fruit/api run test` (auth, pos-auth, customer-auth, rbac, admin-accounts, contract-access, route-access) | TEST-AUTH-001…003, TEST-RBAC-001, TEST-ADMIN-001, TEST-VIEWER-001, TEST-VIEWER-002 | `bfaa2cd` (cổng CP03 SẠCH, 2026-11-27) |
 | `api: audit, outbox, files` (common/mutation, infra/outbox, files/) | mọi module ghi, worker | `pnpm --filter @fruit/api run test` (request-framework, outbox, files, redis-acl) | TEST-API-001, TEST-OUTBOX-001, TEST-FILE-001, TEST-REDISACL-001 | `bfaa2cd` (cổng CP03 SẠCH, 2026-11-27) |
-| `api: catalog, pricing` | inventory, pos, push-deals, wholesale, reporting | MISSING | TEST-CAT-001…003 | — |
+| `api: catalog, pricing, org, suppliers, imports, labels` (catalog/, org/, imports/, labels/; migration 0009–0011) | inventory, purchasing, pos, push-deals, wholesale, reporting, admin-web, staff_app | `pnpm --filter @fruit/api run test` (catalog-schema, catalog-api, prices-api, org-api, imports-api, labels-api, catalog-dev-load) + `pnpm --filter @fruit/money_weight run test` + cwd `packages/money_weight/dart`: `dart test` | TEST-CATALOG-001/002, TEST-PRICE-001, TEST-ORG-001, TEST-IMPORT-001, TEST-CAT-002, TEST-LABEL-001, TEST-CATLOAD-001 | (cổng CP04 — xem checkpoints/CP04.md) |
 | `api: purchasing` | inventory, reporting | MISSING | TEST-PUR-001…003 | — |
 | `api: inventory` | pos, app-orders, wholesale, push-deals, reporting | MISSING | TEST-INV-001…006 | — |
 | `api: pos` | payments, reporting | MISSING | TEST-POS-001…008, TEST-CORE-001 | — |
@@ -26,7 +26,7 @@
 | `api: wholesale` | delivery, reporting | MISSING | TEST-WS-001…002 | — |
 | `api: reporting, publish` | admin-web, viewer | MISSING | TEST-RPT-001…002, TEST-VIEWER-003, TEST-PUB-001 | — |
 | `infra/sql` (trigger, RLS, role) | inventory, reporting, viewer, audit | `pnpm --filter @fruit/api run test` (db-bootstrap) | TEST-VIEWER-002 | — |
-| `apps/admin-web` | — | `pnpm --filter @fruit/admin-web run typecheck` + `lint` + `build`, rồi `pnpm --filter @fruit/api run test:e2e -- admin-web` | TEST-ADMINWEB-001 | `bfaa2cd` (cổng CP03 SẠCH, 2026-11-27) |
+| `apps/admin-web` | — | `pnpm --filter @fruit/admin-web run typecheck` + `lint` + `build`, rồi `pnpm --filter @fruit/api run test:e2e` (admin-web, catalog-web) | TEST-ADMINWEB-001, TEST-WEB-CAT-001 | `bfaa2cd` (cổng CP03 SẠCH, 2026-11-27) |
 | `apps/staff_app` | — | cwd `apps/staff_app`: `flutter analyze --fatal-infos && flutter test`; Windows (Flutter + VS ATL): `pnpm --filter @fruit/api run test:e2e -- staff-app` | TEST-STAFFAPP-001 | `bfaa2cd` (cổng CP03 SẠCH, 2026-11-27) |
 | `infra/redis` (start.sh, ACL) | api (rate limit), worker (outbox) | `pnpm --filter @fruit/api run test` (redis-acl) + smoke compose | TEST-REDISACL-001 | `bfaa2cd` (cổng CP03 SẠCH, 2026-11-27) |
 | `apps/customer_app` | — | cwd `apps/customer_app`: `flutter analyze --fatal-infos && flutter test` | — | — |

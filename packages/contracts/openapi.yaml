@@ -6068,6 +6068,46 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /admin/barcode-rules/reorder:
+    post:
+      operationId: postAdminBarcodeRulesReorder
+      tags: [admin]
+      summary: 'Sắp lại thứ tự ưu tiên quy tắc mã vạch'
+      x-permission: 'barcode_rule:write'
+      x-spec-ref: '§6.5'
+      x-detail-cp: CP04
+      x-not-in-spec-13-2: true # NC-29 (CP04)
+      description: >-
+        ids = ĐÚNG toàn bộ quy tắc hiện có, theo thứ tự ưu tiên mới (đầu = ưu tiên cao nhất). Giữ tập giá trị priority đang
+        dùng, gán lại theo thứ tự. Thiếu / thừa / trùng id (danh sách đã đổi) ⇒ 409 VERSION_CONFLICT (reason STALE_LIST).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BarcodeRuleReorderRequest'
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BarcodeRuleList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /admin/barcode-rules/decode:
     get:
       operationId: getAdminBarcodeRulesDecode
@@ -11854,6 +11894,18 @@ components:
         enabled:
           type: boolean
           default: false
+    BarcodeRuleReorderRequest:
+      type: object
+      required: [ids]
+      additionalProperties: false
+      properties:
+        ids:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            type: string
+            format: uuid
     BarcodeRuleUpdateRequest:
       type: object
       description: Ít nhất một trường.

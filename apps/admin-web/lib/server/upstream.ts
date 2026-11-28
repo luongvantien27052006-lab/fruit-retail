@@ -3,9 +3,17 @@ import type { NextRequest } from 'next/server';
 import { apiBase } from './config';
 import { COOKIE, type TokenSet } from './session';
 
+/** thân KHÔNG phải JSON (file mẫu .xlsx, trang tem HTML) — chỉ khi gọi với `raw` và API trả 2xx không phải JSON */
+export interface RawBody {
+  bytes: Buffer;
+  type: string;
+  disposition: string | null;
+}
+
 export interface Upstream {
   status: number;
   body: unknown;
+  raw?: RawBody | undefined;
   /** token mới nếu API cấp (refresh / step-up / 2fa confirm) — BFF ghi vào cookie, không trả cho trình duyệt */
   tokens: TokenSet;
   /** phiên chết (refresh bị từ chối / SESSION_REVOKED) ⇒ BFF xóa cookie */
@@ -19,7 +27,12 @@ interface CallInit {
   idempotencyKey?: string | undefined;
   /** X-Device-Id = định danh trình duyệt (chỉ khi tạo phiên: login / 2FA) */
   deviceId?: string | undefined;
+  /** nhận thân nhị phân / HTML (2xx không phải JSON); tối đa `RAW_MAX` byte */
+  raw?: boolean | undefined;
 }
+
+/** trần thân nhị phân nhận từ API (trang tem 500 nhãn ≈ vài MB) */
+export const RAW_MAX = 16 * 1024 * 1024;
 
 const IDEMPOTENCY_RE = /^[A-Za-z0-9_-]{16,128}$/;
 const REQUEST_ID_RE = /^[A-Za-z0-9-]{8,64}$/;
@@ -43,7 +56,11 @@ function forwardHeaders(req: NextRequest, init: CallInit): Headers {
   return h;
 }
 
-async function call(req: NextRequest, path: string, init: CallInit): Promise<{ status: number; body: unknown }> {
+async function call(
+  req: NextRequest,
+  path: string,
+  init: CallInit,
+): Promise<{ status: number; body: unknown; raw?: RawBody }> {
   let r: Response;
   try {
     r = await fetch(`${apiBase()}/v1${path}`, {
@@ -61,6 +78,13 @@ async function call(req: NextRequest, path: string, init: CallInit): Promise<{ s
     };
   }
   if (r.status === 204) return { status: 204, body: null };
+  const type = r.headers.get('content-type') ?? '';
+  if (init.raw && r.ok && !type.toLowerCase().startsWith('application/json')) {
+    const bytes = Buffer.from(await r.arrayBuffer());
+    if (bytes.length > RAW_MAX)
+      return { status: 502, body: { code: 'INTERNAL_ERROR', message: 'Phản hồi máy chủ quá lớn' } };
+    return { status: r.status, body: null, raw: { bytes, type, disposition: r.headers.get('content-disposition') } };
+  }
   const text = await r.text();
   try {
     return { status: r.status, body: text ? JSON.parse(text) : null };
@@ -169,10 +193,11 @@ export async function upstream(
   method: string,
   body?: string,
   idempotencyKey?: string,
+  raw = false,
 ): Promise<Upstream> {
   const access = req.cookies.get(COOKIE.access)?.value;
   const refresh = req.cookies.get(COOKIE.refresh)?.value;
-  const base = { method, body, idempotencyKey };
+  const base = { method, body, idempotencyKey, raw };
   let tokens: TokenSet = {};
   let r = access ? await call(req, path, { ...base, bearer: access }) : null;
   const expired = !r || (r.status === 401 && codeOf(r.body) === 'AUTHENTICATION_REQUIRED');
@@ -196,7 +221,7 @@ export async function upstream(
   const loggedOut =
     r.status === 401 &&
     (codeOf(r.body) === 'SESSION_REVOKED' || (codeOf(r.body) === 'AUTHENTICATION_REQUIRED' && expired));
-  return { status: r.status, body: s.body, tokens: { ...tokens, ...s.tokens }, loggedOut };
+  return { status: r.status, body: s.body, raw: r.raw, tokens: { ...tokens, ...s.tokens }, loggedOut };
 }
 
 /** Gọi route xác thực công khai (login, 2fa verify/recover) — Bearer chỉ là mfa_challenge nếu có. */

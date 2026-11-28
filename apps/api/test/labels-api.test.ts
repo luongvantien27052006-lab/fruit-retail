@@ -119,6 +119,35 @@ describe('PLU, mã vạch cân, thương hiệu, tem (CP04 lát 6)', () => {
     await e.master.patch(`/admin/barcode-rules/${id}`, { enabled: false });
   });
 
+  it('sắp lại thứ tự: đổi chỗ không cần giá trị tạm; giữ tập priority; danh sách cũ ⇒ 409; quyền; audit', async () => {
+    type Rule = { id: string; code: string; priority: number };
+    const cur = (await e.master.get('/admin/barcode-rules')).body.items as Rule[];
+    const prios = cur.map((r) => r.priority);
+    const rev = [...cur].reverse().map((r) => r.id);
+    const r = await e.master.post('/admin/barcode-rules/reorder', { ids: rev });
+    expect(r.status).toBe(200);
+    expect(schemaErrors('BarcodeRuleList', r.body)).toEqual([]);
+    const after = r.body.items as Rule[];
+    expect(after.map((x) => x.id)).toEqual(rev);
+    expect(after.map((x) => x.priority)).toEqual(prios);
+    // thiếu một quy tắc / trùng id ⇒ danh sách đã đổi
+    expect(err(await e.master.post('/admin/barcode-rules/reorder', { ids: rev.slice(1) }))).toEqual([
+      409,
+      'VERSION_CONFLICT',
+    ]);
+    expect(err(await e.master.post('/admin/barcode-rules/reorder', { ids: [rev[0], ...rev.slice(0, -1)] }))).toEqual([
+      409,
+      'VERSION_CONFLICT',
+    ]);
+    const sm = await e.storeManager();
+    expect(err(await sm.post('/admin/barcode-rules/reorder', { ids: rev }))).toEqual([403, 'ACTION_FORBIDDEN']);
+    const audit = await e.db.q(`SELECT count(*)::text AS n FROM audit.logs WHERE action = 'barcode_rule.reorder'`);
+    expect(Number(audit[0]?.n)).toBeGreaterThanOrEqual(1);
+    // trả lại thứ tự cũ cho các test sau
+    const back = await e.master.post('/admin/barcode-rules/reorder', { ids: cur.map((x) => x.id) });
+    expect((back.body.items as Rule[]).map((x) => x.code)).toEqual(cur.map((x) => x.code));
+  });
+
   it('giải mã: Phụ lục B (2000123008455 ⇒ PLU 00123, 845 g) + tra SKU; sai số kiểm ⇒ CHECKSUM; mã hàng đóng gói', async () => {
     const pluCode = '00123';
     await e.db.q(`UPDATE core.skus SET scale_plu = NULL WHERE scale_plu = $1`, [pluCode]);

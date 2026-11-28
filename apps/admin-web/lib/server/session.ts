@@ -92,8 +92,13 @@ export function originOk(req: NextRequest): boolean {
 
 /** Request ghi có phiên: Origin + header X-CSRF-Token trùng cookie CSRF (so hằng thời gian). */
 export function csrfOk(req: NextRequest): boolean {
+  return csrfTokenOk(req, req.headers.get('x-csrf-token'));
+}
+
+/** Như csrfOk nhưng mã CSRF lấy từ trường form (form POST vào iframe tem — không đặt được header). */
+export function csrfTokenOk(req: NextRequest, token: string | null): boolean {
   if (!originOk(req)) return false;
-  const header = Buffer.from(req.headers.get('x-csrf-token') ?? '', 'utf8');
+  const header = Buffer.from(token ?? '', 'utf8');
   const cookie = Buffer.from(req.cookies.get(COOKIE.csrf)?.value ?? '', 'utf8');
   // so độ dài theo BYTE (ký tự nhiều byte làm timingSafeEqual ném RangeError ⇒ 500)
   if (!header.length || !cookie.length || header.length !== cookie.length) return false;

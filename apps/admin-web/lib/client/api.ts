@@ -131,3 +131,73 @@ export function askReason(label = 'Lý do (ít nhất 3 ký tự):'): string | n
   }
   return t;
 }
+
+export interface UploadedFile {
+  id: string;
+  status: 'READY' | 'REJECTED';
+  reject_reason: string | null;
+  bytes: number | null;
+}
+
+/** Tải file lên qua BFF (/bff/upload — BFF presign + PUT lên kho + complete). File bị từ chối ⇒ ApiFailure. */
+export async function uploadFile(kind: 'IMPORT_XLSX' | 'BRAND_LOGO', file: File): Promise<UploadedFile> {
+  const r = await fetch(`/bff/upload?kind=${kind}`, {
+    method: 'POST',
+    headers: {
+      'content-type': file.type || 'application/octet-stream',
+      'x-csrf-token': csrf(),
+      accept: 'application/json',
+    },
+    credentials: 'same-origin',
+    cache: 'no-store',
+    body: file,
+  });
+  const b = await parse(r);
+  if (r.headers.get('x-session-ended') === '1') {
+    window.location.assign('/login');
+    throw new ApiFailure(toError(401, b));
+  }
+  if (!r.ok) throw new ApiFailure(toError(r.status, b));
+  const f = b as UploadedFile;
+  if (f.status !== 'READY')
+    throw new ApiFailure({
+      status: 422,
+      code: 'FILE_REJECTED',
+      message: `File bị từ chối (${f.reject_reason ?? 'không rõ'}) — kiểm tra đúng định dạng`,
+    });
+  return f;
+}
+
+/** Tải một file nhị phân từ BFF rồi lưu bằng thẻ <a download> (lỗi hiện tại chỗ thay vì mở trang JSON). */
+export async function downloadBlob(path: string, filename: string): Promise<void> {
+  const r = await fetch(`/bff${path}`, { credentials: 'same-origin', cache: 'no-store' });
+  if (r.headers.get('x-session-ended') === '1') {
+    window.location.assign('/login');
+    throw new ApiFailure(toError(401, null));
+  }
+  if (!r.ok) throw new ApiFailure(toError(r.status, await parse(r)));
+  const url = URL.createObjectURL(await r.blob());
+  try {
+    saveUrl(url, filename);
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }
+}
+
+/** Mở URL tải (presigned 60 s của kho file) — CHỈ http(s) (không bao giờ javascript:/data:). */
+export function saveUrl(url: string, filename?: string): void {
+  if (!/^(https?:|blob:)/i.test(url))
+    throw new ApiFailure({ status: 502, code: 'INTERNAL_ERROR', message: 'URL tải không hợp lệ' });
+  const a = document.createElement('a');
+  a.href = url;
+  if (filename) a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/** Mã CSRF hiện tại (cho form POST vào iframe tem). */
+export function csrfToken(): string {
+  return csrf();
+}

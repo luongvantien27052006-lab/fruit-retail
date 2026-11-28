@@ -26,9 +26,18 @@ for (const item of Object.values(doc.paths ?? {})) {
 // hỏng trên máy sạch (CI develop sau CP03). Gộp các nhánh object thành MỘT object: thuộc tính = hợp, bắt buộc = giao,
 // enum cùng tên = hợp. Phía Dart tự phân nhánh theo trường phân biệt (vd. `status`); nguồn hợp đồng giữ nguyên oneOf.
 let flattened = 0;
+/** thêm null vào kiểu (type mảng hoặc oneOf đã có nhánh null thì giữ nguyên) */
+const nullable = (o) => {
+  if (Array.isArray(o.oneOf))
+    return o.oneOf.some((x) => x.type === 'null') ? o : { ...o, oneOf: [...o.oneOf, { type: 'null' }] };
+  const t = Array.isArray(o.type) ? o.type : [o.type];
+  return t.includes('null') ? o : { ...o, type: [...t, 'null'] };
+};
 for (const [name, sc] of Object.entries(doc.components?.schemas ?? {})) {
   if (!Array.isArray(sc.oneOf)) continue;
-  if (!sc.oneOf.every((v) => v.type === 'object' && !v.$ref)) throw new Error(`oneOf chưa hỗ trợ: ${name}`);
+  // nhánh `$ref` tới schema object trong components ⇒ thay bằng nội dung (CP04 lát 6: BarcodeDecodeResult)
+  sc.oneOf = sc.oneOf.map((v) => (v.$ref ? doc.components.schemas[v.$ref.split('/').pop()] : v));
+  if (!sc.oneOf.every((v) => v && v.type === 'object' && !v.$ref)) throw new Error(`oneOf chưa hỗ trợ: ${name}`);
   const props = {};
   for (const v of sc.oneOf)
     for (const [k, p0] of Object.entries(v.properties ?? {})) {
@@ -47,6 +56,23 @@ for (const [name, sc] of Object.entries(doc.components?.schemas ?? {})) {
             .sort()
             .map((x) => [x, o[x]]),
         );
+      // một nhánh chỉ là null (vd sku: null) ⇒ giữ nhánh kia làm nullable
+      const onlyNull = (o) => Object.keys(o).length === 1 && o.type === 'null';
+      if (onlyNull(p)) {
+        props[k] = nullable(prev);
+        continue;
+      }
+      if (onlyNull(prev)) {
+        props[k] = nullable(p);
+        continue;
+      }
+      // cùng kiểu, chỉ khác có null ⇒ gộp thành nullable
+      const base = (o) => ({ ...o, type: Array.isArray(o.type) ? o.type.filter((t) => t !== 'null') : o.type });
+      const one = (o) => (Array.isArray(o.type) && o.type.length === 1 ? { ...o, type: o.type[0] } : o);
+      if (canon(one(base(prev))) === canon(one(base(p))) && (Array.isArray(prev.type) || Array.isArray(p.type))) {
+        props[k] = nullable(prev);
+        continue;
+      }
       const { enum: e1, ...r1 } = prev;
       const { enum: e2, ...r2 } = p;
       if (canon(r1) !== canon(r2) || Array.isArray(e1) !== Array.isArray(e2))
@@ -57,9 +83,32 @@ for (const [name, sc] of Object.entries(doc.components?.schemas ?? {})) {
   const rest = { ...sc };
   delete rest.oneOf;
   delete rest.discriminator;
+  // `const` true/false của hai nhánh ⇒ enum boolean: swagger_parser sinh enum chuỗi sai kiểu ⇒ để boolean thường
+  for (const [k, p] of Object.entries(props))
+    if (p.type === 'boolean' && Array.isArray(p.enum)) {
+      const { enum: _e, ...b } = p;
+      props[k] = b;
+    }
   doc.components.schemas[name] = { ...rest, type: 'object', required, properties: props };
   flattened++;
 }
+// enum inline của tham số query tên trùng chú thích retrofit (vd `field` ⇒ enum `Field` đè @Field của retrofit) ⇒ đưa
+// lên components với tên riêng (CP04 lát 3: GET /admin/prices/{sku_id}/history?field=). Nguồn hợp đồng giữ nguyên.
+const RETROFIT = new Set(['Field', 'Query', 'Path', 'Body', 'Header', 'Part', 'Headers', 'Extra']);
+const pascal = (x) => x.replace(/(^|_)([a-z])/g, (_m, _p, c) => c.toUpperCase());
+let hoisted = 0;
+for (const item of Object.values(doc.paths ?? {}))
+  for (const m of METHODS) {
+    for (const p of item[m]?.parameters ?? []) {
+      if (p.$ref || !p.schema?.enum || !RETROFIT.has(pascal(p.name))) continue;
+      const nm = `${pascal(item[m].operationId ?? 'Op')}${pascal(p.name)}`;
+      doc.components.schemas[nm] = p.schema;
+      p.schema = { $ref: `#/components/schemas/${nm}` };
+      hoisted++;
+    }
+  }
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, stringify(doc, { lineWidth: 0 }));
-console.log(`export-for-dart: chuẩn hóa ${moved} path, gộp ${flattened} oneOf → ${out}`);
+console.log(
+  `export-for-dart: chuẩn hóa ${moved} path, gộp ${flattened} oneOf, đổi tên ${hoisted} enum tham số → ${out}`,
+);

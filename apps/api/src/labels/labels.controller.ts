@@ -48,6 +48,7 @@ const Decode = z
       .regex(/^[0-9A-Z-]{1,64}$/, 'mã vạch: 1–64 ký tự số / chữ HOA / -'),
   })
   .strict();
+const Reorder = z.object({ ids: z.array(uuid).min(1).max(200) }).strict();
 const PluExport = z.object({ store_id: uuid.optional(), format: z.enum(['CSV', 'XLSX']).default('CSV') }).strict();
 const BrandUpdate = z
   .object({
@@ -116,6 +117,14 @@ export class LabelsController {
   @Post('barcode-rules')
   createRule(@Body(new ZodPipe(RuleCreate)) b: z.infer<typeof RuleCreate>) {
     return this.labels.createRule(b);
+  }
+
+  /** sắp lại thứ tự ưu tiên — ids = toàn bộ quy tắc theo thứ tự mới */
+  @RequirePermission('barcode_rule:write')
+  @Post('barcode-rules/reorder')
+  @HttpCode(200)
+  reorderRules(@Body(new ZodPipe(Reorder)) b: z.infer<typeof Reorder>) {
+    return this.labels.reorderRules(b.ids);
   }
 
   /** thử giải mã (khai báo TRƯỚC `:id`) */

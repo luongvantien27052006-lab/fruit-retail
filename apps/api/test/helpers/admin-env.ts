@@ -39,6 +39,10 @@ export interface AdminEnv {
   /** Master đã qua 2FA (chưa step-up) */
   master: Client;
   masterId: string;
+  /** đăng nhập bằng trình duyệt (e2e trang quản lý) */
+  masterLogin: { email: string; password: string };
+  /** mã TOTP mới của Master (đã xóa mốc bước đã dùng) */
+  masterTotp(): Promise<string>;
   /** Master step-up còn hạn (5 phút) */
   masterStepUp(): Promise<Client>;
   /** cửa hàng trưởng đăng nhập PIN trên máy POS đã kích hoạt của một cửa hàng mới */
@@ -234,6 +238,11 @@ export async function startAdminEnv(o: { s3?: boolean } = {}): Promise<AdminEnv>
     http,
     master,
     masterId: m.userId,
+    masterLogin: { email: m.email, password: m.password },
+    masterTotp: async () => {
+      await db.q(`UPDATE core.users SET totp_last_step = NULL WHERE id = $1`, [m.userId]);
+      return totp(m.userId);
+    },
     masterStepUp,
     storeManager,
     pendingDevice,

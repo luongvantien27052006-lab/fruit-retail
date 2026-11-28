@@ -191,6 +191,41 @@ export class LabelsService {
     return ruleWire(r);
   }
 
+  /**
+   * Sắp lại thứ tự ưu tiên (màn A10): `ids` = ĐÚNG toàn bộ quy tắc hiện có theo thứ tự mới. Giữ nguyên tập giá trị priority
+   * đang dùng (sắp tăng dần) rồi gán lần lượt ⇒ không vượt khoảng CHECK. Khóa mọi quy tắc theo id (thứ tự cố định) rồi hoãn
+   * kiểm UNIQUE tới cuối (migration 0011) — đổi chỗ không cần giá trị tạm.
+   */
+  async reorderRules(ids: string[]) {
+    const rows = await this.tx.$queryRaw<{ id: string; priority: number }[]>`
+      SELECT id, priority FROM core.barcode_rules ORDER BY id FOR NO KEY UPDATE`;
+    const known = new Set(rows.map((r) => r.id));
+    if (new Set(ids).size !== ids.length || ids.length !== rows.length || ids.some((i) => !known.has(i)))
+      throw new AppError('VERSION_CONFLICT', 'Danh sách quy tắc đã thay đổi — tải lại rồi sắp lại', {
+        reason: 'STALE_LIST',
+        field: 'ids',
+      });
+    const before = [...rows].sort((a, b) => a.priority - b.priority);
+    const slots = before.map((r) => r.priority);
+    const next = new Map(ids.map((id, i) => [id, slots[i] as number]));
+    await this.tx.$executeRaw`SET CONSTRAINTS core.barcode_rules_priority_key DEFERRED`;
+    for (const r of rows) {
+      const p = next.get(r.id) as number;
+      if (p !== r.priority) await this.tx.barcodeRule.update({ where: { id: r.id }, data: { priority: p } });
+    }
+    // kiểm ngay tại đây (không để tới COMMIT) ⇒ lỗi vẫn qua bộ ánh xạ lỗi + rollback bình thường
+    await catalogWrite(() => this.tx.$executeRaw`SET CONSTRAINTS core.barcode_rules_priority_key IMMEDIATE`).catch(
+      ruleUnique,
+    );
+    await this.ao.recordAudit({
+      action: 'barcode_rule.reorder',
+      resourceType: 'barcode_rule',
+      before: { order: before.map((r) => r.id) },
+      after: { order: ids },
+    });
+    return this.listRules();
+  }
+
   /** Thử giải một mã theo các quy tắc ĐANG BẬT (thứ tự priority) + tra SKU — màn cấu hình (A10); POS dùng bản Dart. */
   async decode(code: string) {
     const rules = await this.tx.barcodeRule.findMany({ where: { enabled: true }, orderBy: { priority: 'asc' } });

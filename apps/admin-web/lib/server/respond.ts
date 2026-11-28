@@ -35,7 +35,15 @@ export async function readBody(req: NextRequest): Promise<{ text: string } | { e
 
 /** Chuyển kết quả upstream thành phản hồi: ghi token mới vào cookie, phiên chết ⇒ xóa cookie. */
 export function fromUpstream(req: NextRequest, u: Upstream): NextResponse {
-  const res = json(u.status, u.body);
+  return withSession(req, u, json(u.status, u.body));
+}
+
+/** Gắn kết quả phiên của upstream (token mới / phiên chết) vào một phản hồi bất kỳ. */
+export function withSession(
+  req: NextRequest,
+  u: Pick<Upstream, 'tokens' | 'loggedOut'>,
+  res: NextResponse,
+): NextResponse {
   if (u.loggedOut) {
     clearAll(res);
     res.headers.set('x-session-ended', '1'); // client về /login (lỗi 401 khác — vd sai mã — không đá người dùng ra)

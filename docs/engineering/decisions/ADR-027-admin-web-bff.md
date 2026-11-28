@@ -113,3 +113,18 @@
   `pnpm --filter @fruit/admin-web build`. Bài test dựng API thật trên PostgreSQL và Redis (Testcontainers), chạy
   `next start` bản production và Chromium.
 - Hoãn: route cấp lại mật khẩu tạm cho tài khoản quá 72 giờ (NC-22, ghi nhận của kiểm thử). Màn hình Viewer thuộc CP12.
+
+## Bổ sung CP04 lát 7 (2026-11-28) — route BFF không phải JSON
+- `/bff/upload?kind=IMPORT_XLSX|BRAND_LOGO`: trình duyệt gửi nguyên byte (CSRF header + Origin); BFF đọc theo luồng có trần
+  (5 MB / 1 MB, không tin Content-Length), tính sha256, gọi `/files/presign`, PUT lên URL ký sẵn, rồi `/files/{id}/complete`.
+  Lý do: giữ `connect-src 'self'` (không mở origin kho S3, không cần CORS ở kho). Hệ quả triển khai: tiến trình admin-web phải
+  tới được `S3_PUBLIC_ENDPOINT` mà API ký vào URL.
+- `/bff/template/{CATALOG|SUPPLIER}`: chuyển file mẫu .xlsx (tên file do BFF đặt). `upstream(..., raw=true)` nhận thân 2xx
+  không phải JSON, trần 16 MB.
+- `/bff/labels`: màn /labels gửi FORM POST (target = iframe; CSRF lấy từ trường form + Origin) ⇒ BFF gọi
+  `POST /admin/shelf-labels` và trả HTML làm tài liệu riêng của iframe với CSP riêng: `default-src 'none'`,
+  `style-src 'unsafe-inline'`, `img-src data:`, `form-action 'none'`, `base-uri 'none'`, `frame-ancestors 'self'`,
+  `sandbox allow-same-origin allow-modals`. KHÔNG allow-scripts ⇒ không mã nào chạy trong khung; allow-same-origin chỉ để
+  trang cha gọi `contentWindow.print()`. Không dùng srcdoc / blob: vì tài liệu đó kế thừa CSP nonce của trang cha (chặn
+  `<style>` của tem).
+- Trang không dùng thuộc tính `style=""` (CSP `style-src` chỉ nonce chặn) — tiện ích khoảng cách là class trong globals.css.

@@ -74,6 +74,7 @@ describe('0001_foundation', () => {
       'prisma/0008_auth_lockouts',
       'prisma/0009_catalog',
       'prisma/0010_org_defaults',
+      'prisma/0011_barcode_rule_order',
     ]);
     await expect(
       applySqlMigrations({ url: ownerUrl, dir: SQL_DIR, prismaDir: PRISMA_DIR, env: passwords, log: () => undefined }),

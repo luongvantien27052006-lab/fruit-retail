@@ -24,6 +24,12 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           <NavLink href="/">Tổng quan</NavLink>
           {master && (
             <>
+              <NavLink href="/catalog">Danh mục &amp; giá</NavLink>
+              <NavLink href="/imports">Nhập / xuất Excel</NavLink>
+              <NavLink href="/labels">Tem &amp; mã vạch</NavLink>
+              <NavLink href="/org">Cửa hàng &amp; kho</NavLink>
+              <NavLink href="/suppliers">Nhà cung cấp</NavLink>
+              <NavLink href="/brand">Thương hiệu</NavLink>
               <NavLink href="/staff">Nhân viên</NavLink>
               <NavLink href="/devices">Thiết bị POS</NavLink>
               <NavLink href="/accounts">Tài khoản admin</NavLink>

@@ -40,6 +40,16 @@ describe('API giá (CP04 lát 3)', () => {
     );
     return id;
   }
+  /**
+   * Mốc thời gian lấy từ ĐỒNG HỒ DB (cùng nguồn với changed_at = now()) — đồng hồ máy ảo Docker có thể lệch máy chủ test
+   * vài giây (gặp 2026-11-28: ±1,7 s) ⇒ mốc lấy từ Date() của Node làm test sai.
+   */
+  const dbNow = async () => {
+    const [r] = await e.db.q(
+      `SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS t`,
+    );
+    return new Date(r?.['t'] as string);
+  };
   const logs = (skuId: string) =>
     e.db.q(
       `SELECT field, store_id::text, sku_unit_id::text, old_value::text, new_value::text, reason, changed_by::text, changed_at
@@ -49,14 +59,14 @@ describe('API giá (CP04 lát 3)', () => {
 
   it('cổng: đổi giá chỉ áp cho giao dịch mới — giá hiệu lực tại thời điểm dựng lại từ lịch sử; lịch sử đủ ai / khi nào / cũ → mới / lý do', async () => {
     const s = await sku();
-    const t0 = new Date();
+    const t0 = await dbNow();
     await sleep(5);
     const r1 = await e.master.put(`/admin/prices/${s.id}`, { version: 0, global: '95000', reason: 'Giá mở bán' });
     expect(r1.status).toBe(200);
     expect(schemaErrors('SkuPrices', r1.body)).toEqual([]);
     expect(r1.body).toMatchObject({ price_field: 'PER_KG', global: '95000', version: 1 });
     await sleep(5);
-    const tMid = new Date();
+    const tMid = await dbNow();
     await sleep(5);
     const r2 = await e.master.put(`/admin/prices/${s.id}`, { version: 1, global: '99000', reason: 'Giá nhập tăng' });
     expect(r2.body).toMatchObject({ global: '99000', version: 2 });
@@ -130,7 +140,7 @@ describe('API giá (CP04 lát 3)', () => {
     expect(await eff(a)).toMatchObject({ source: 'STORE', price: '23000' });
     expect(await eff(b)).toMatchObject({ source: 'GLOBAL', price: '25000' });
     await sleep(5);
-    const before = new Date();
+    const before = await dbNow();
     await sleep(5);
     const off = await e.master.put(`/admin/prices/${s.id}`, {
       version: 1,

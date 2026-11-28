@@ -63,3 +63,4 @@
 | 2026-11-27 | CP03 | Cổng CP03: review tổng SẠCH (security lần 5 bfaa2cd, code lần 4, react+flutter lần 3); NC-25 Tiến duyệt. API 190/190, e2e 13, Flutter 39. Chờ Tiến xác nhận ĐẠT. |
 | 2026-11-27 | CP03 | Tiến xác nhận CP03 ĐẠT. |
 | 2026-11-27 | CP04 | Mở CP04 (nhánh feat/cp04-catalog). Kế hoạch con 8 lát + NC-26…29 chờ Tiến duyệt. |
+| 2026-11-28 | CP04 | Lát 7 (admin web A10 / A11 / A13, thương hiệu, tem; reorder quy tắc mã vạch — migration 0011; BFF upload / file mẫu / trang tem; sửa export:dart) xong code (661c1b7). Kiểm thử vòng 1: react CÒN LỖI (Cao ×2, TB ×2, Thấp ×8), security CÒN LỖI (TB: Origin null sau Caddy, Thấp ×1) — sửa hết (d7930a5). Vòng 2: cả hai SẠCH. E2E 20/20. Lát 7 đóng. |

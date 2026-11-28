@@ -99,6 +99,9 @@ export default function ImportsPage() {
           ? file
           : new File([file], file.name, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
       );
+      // ngừng theo dõi lượt của file cũ (kết quả cũ không hiện dưới file mới)
+      active.current = null;
+      if (timer.current) clearTimeout(timer.current);
       setFileId(f.id);
       setFileName(file.name);
       setJob(null);

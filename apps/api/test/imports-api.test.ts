@@ -322,7 +322,7 @@ describe('Nhập / xuất Excel (CP04 lát 5)', () => {
     const id = await upload(await xlsx(CATALOG_COLUMNS, []));
     const body = { type: 'CATALOG', file_id: id, mode_on_duplicate: 'SKIP', dry_run: true };
     // phiên Master đã step-up ở beforeAll ⇒ cho hết hạn để thử, rồi step-up lại
-    await e.db.q(`UPDATE core.sessions SET step_up_until = now() - interval '1 second' WHERE user_id = $1`, [
+    await e.db.q(`UPDATE core.sessions SET step_up_until = now() - interval '1 minute' WHERE user_id = $1`, [
       e.masterId,
     ]);
     expect(err(await e.master.post('/admin/imports', body))).toEqual([403, 'STEP_UP_REQUIRED']);

@@ -565,7 +565,7 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
       http().post('/v1/auth/login').set('X-Forwarded-For', x).send({ email: m.email, password: 'sai' });
     for (let i = 0; i < 5; i++) await bad();
     // hết khóa (giả lập) ⇒ 5 lần sai nữa ⇒ khóa gấp đôi
-    await rows(`UPDATE core.auth_lockouts SET locked_until = now() - interval '1 second' WHERE user_id = $1`, [
+    await rows(`UPDATE core.auth_lockouts SET locked_until = now() - interval '1 minute' WHERE user_id = $1`, [
       m.userId,
     ]);
     for (let i = 0; i < 5; i++) await bad();
@@ -799,7 +799,7 @@ describe('auth Master/Viewer (CP03 lát 3)', () => {
     const [n] = await rows(`SELECT count(*)::int AS n FROM core.recovery_codes WHERE user_id = $1`, [m.userId]);
     expect(n?.n).toBe(10);
     // hết hạn step-up (server đọc DB, không tin claim trong token)
-    await rows(`UPDATE core.sessions SET step_up_until = now() - interval '1 second' WHERE id = $1`, [t.session_id]);
+    await rows(`UPDATE core.sessions SET step_up_until = now() - interval '1 minute' WHERE id = $1`, [t.session_id]);
     const exp = await http()
       .post('/v1/auth/2fa/recovery-codes')
       .set('Authorization', `Bearer ${su.body.access_token as string}`)

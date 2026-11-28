@@ -825,7 +825,7 @@ describe('auth nhân viên POS + thiết bị (CP03 lát 4)', () => {
     const late = newDevice(s.code);
     late.enroll = await enrollSql(s.code);
     await rows(
-      `UPDATE core.pos_enrollment_codes SET created_at = now() - interval '1 hour', expires_at = now() - interval '1 second'
+      `UPDATE core.pos_enrollment_codes SET created_at = now() - interval '1 hour', expires_at = now() - interval '1 minute'
        WHERE code_hash = $1`,
       [Buffer.from(enrollmentCodeHash(late.enroll))],
     );

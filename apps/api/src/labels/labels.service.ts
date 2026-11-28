@@ -476,7 +476,7 @@ export class LabelsService {
         storePrices: q.store_id ? { where: { storeId: q.store_id } } : false,
       },
     });
-    if (skus.length > MAX_LABELS) throw new AppError('INVALID_REQUEST', `Tối đa ${MAX_LABELS} tem mỗi lần in`);
+    if (skus.length > MAX_LABELS) throw new AppError('INVALID_REQUEST', `Tối đa ${MAX_LABELS} SKU mỗi lần in`);
     const brand = await this.tx.brandSettings.findUniqueOrThrow({ where: { id: 1 }, select: { brandName: true } });
     const perKg = new Set(['WEIGHT', 'PIECE_BY_WEIGHT', 'PACK_VARIABLE']);
     const cells = skus.flatMap((s) => {

@@ -46,7 +46,8 @@ const rule = (k: string) => {
   if (!r) throw new Error(`thiếu quy tắc ${k}`);
   return r;
 };
-const input = (i: In) => ({ ...i, amount: i.amount === undefined ? undefined : BigInt(i.amount) });
+// exactOptionalPropertyTypes: không gán `amount: undefined` — bỏ hẳn khóa khi vector không có
+const input = ({ amount, ...rest }: In) => (amount === undefined ? rest : { ...rest, amount: BigInt(amount) });
 
 describe('EAN-13 — Phụ lục B', () => {
   it.each(v.ean13)('$code ⇒ $valid', (c) => expect(isValidEan13(c.code)).toBe(c.valid));

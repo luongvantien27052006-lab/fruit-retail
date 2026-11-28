@@ -23,7 +23,13 @@
 	}
 	log {
 		output stdout
-		format json
+		# che query string (tìm NCC theo SĐT, mã vạch…) — review bảo mật cổng CP04, ADR-015
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp [?].*$ ?[redacted]
+			}
+		}
 	}
 	# Không tin X-Request-Id từ client: Caddy đặt UUID riêng; API kiểm định dạng.
 	handle /v1/* {

@@ -66,6 +66,8 @@ function TreeTab() {
     void a.load(loadCats);
   }, [loadCats, a.load]);
   useEffect(() => {
+    // đổi danh mục ⇒ xóa bảng cũ ngay (không để sản phẩm danh mục trước nằm dưới tiêu đề mới — review react cổng CP04 T6)
+    setProducts([]);
     void a.load(() => loadProducts(sel));
   }, [sel, loadProducts, a.load]);
 

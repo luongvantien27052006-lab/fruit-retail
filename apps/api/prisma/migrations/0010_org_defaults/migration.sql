@@ -26,14 +26,14 @@ CREATE TRIGGER add_in_transit_location AFTER INSERT ON core.warehouses
 INSERT INTO core.locations (id, store_id, type, code, name, sort)
 SELECT gen_random_uuid(), s.id, 'IN_TRANSIT',
        CASE WHEN EXISTS (SELECT 1 FROM core.locations x WHERE x.store_id = s.id AND x.code = 'IN_TRANSIT')
-            THEN 'IN_TRANSIT_' || substr(md5(gen_random_uuid()::text), 1, 6) ELSE 'IN_TRANSIT' END,
+            THEN 'IN_TRANSIT_' || upper(substr(md5(gen_random_uuid()::text), 1, 6)) ELSE 'IN_TRANSIT' END,
        'Đang vận chuyển', 0
 FROM core.stores s
 WHERE NOT EXISTS (SELECT 1 FROM core.locations l WHERE l.store_id = s.id AND l.type = 'IN_TRANSIT' AND l.archived_at IS NULL);
 INSERT INTO core.locations (id, warehouse_id, type, code, name, sort)
 SELECT gen_random_uuid(), w.id, 'IN_TRANSIT',
        CASE WHEN EXISTS (SELECT 1 FROM core.locations x WHERE x.warehouse_id = w.id AND x.code = 'IN_TRANSIT')
-            THEN 'IN_TRANSIT_' || substr(md5(gen_random_uuid()::text), 1, 6) ELSE 'IN_TRANSIT' END,
+            THEN 'IN_TRANSIT_' || upper(substr(md5(gen_random_uuid()::text), 1, 6)) ELSE 'IN_TRANSIT' END,
        'Đang vận chuyển', 0
 FROM core.warehouses w
 WHERE NOT EXISTS (SELECT 1 FROM core.locations l WHERE l.warehouse_id = w.id AND l.type = 'IN_TRANSIT' AND l.archived_at IS NULL);

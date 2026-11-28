@@ -7,7 +7,7 @@ import { AppError } from '../common/errors';
 import type { RequestStore } from '../common/request-context';
 import { nameKey } from '../catalog/catalog-rules';
 import { CatalogService } from '../catalog/catalog.service';
-import { PricesService } from '../catalog/prices.service';
+import { type LogRow, PricesService } from '../catalog/prices.service';
 import { SkusService } from '../catalog/skus.service';
 import type { Prisma } from '../generated/prisma/client';
 import { ObjectStorage } from '../infra/object-storage.service';
@@ -152,6 +152,9 @@ export class ImportProcessor {
       }
       const out: ReportRow[] = [];
       const caches = { cats: new Map<string, string>(), prods: new Map<string, string>() };
+      // nhập thật: tạo trước cây danh mục file cần trong MỘT transaction ngắn ⇒ các lô không giữ khóa cây (advisory
+      // catalog:category_tree) suốt lô 500 dòng (review database cổng CP04 T2). Chạy thử: vẫn tạo trong lô (rồi hoàn tác).
+      if (type === 'CATALOG' && !job.dryRun) await this.precreateCategories(plans, caches);
       for (let i = 0; i < plans.length; i += this.batchSize) {
         const batch = plans.slice(i, i + this.batchSize);
         // chạy thử: id danh mục / sản phẩm của lô trước đã hoàn tác ⇒ bỏ bộ nhớ đệm
@@ -320,6 +323,18 @@ export class ImportProcessor {
   ): Promise<ReportRow[]> {
     const out: ReportRow[] = [];
     const reason = `Nhập file Excel (lượt ${jobId})`;
+    // ERD §6.2 (review database cổng CP04 TB1): khóa TRƯỚC mọi dòng sẽ cập nhật của lô theo id tăng dần — đổi giá hàng
+    // loạt (setMany) cũng khóa skus ORDER BY id ⇒ không khóa chéo; skus được khóa trước products / categories của lô.
+    const ids = [...new Set(batch.flatMap((p) => (p.kind === 'update' ? [p.id] : [])))].sort();
+    if (ids.length) {
+      if (type === 'CATALOG')
+        await this.tx.$queryRaw`SELECT id FROM core.skus WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR NO KEY UPDATE`;
+      else
+        await this.tx
+          .$queryRaw`SELECT id FROM core.suppliers WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR NO KEY UPDATE`;
+    }
+    // lịch sử giá của cả lô ghi MỘT lần cuối lô (changed_at sát lúc COMMIT — review database cổng CP04 T3)
+    const logs: LogRow[] = [];
     for (const p of batch) {
       if (p.kind === 'report') {
         out.push(p.report);
@@ -327,12 +342,13 @@ export class ImportProcessor {
       }
       const cats = new Map(caches.cats);
       const prods = new Map(caches.prods);
+      const rowLogs: LogRow[] = [];
       await this.tx.$executeRawUnsafe('SAVEPOINT import_row');
       try {
         if (type === 'CATALOG') {
           const v = p.v as CatalogRowT;
-          if (p.kind === 'create') await this.createSku(v, caches, reason);
-          else await this.updateSku(p.id, v, caches, reason);
+          if (p.kind === 'create') await this.createSku(v, caches, reason, rowLogs);
+          else await this.updateSku(p.id, v, caches, reason, rowLogs);
         } else {
           const v = p.v as SupplierRowT;
           if (p.kind === 'create')
@@ -340,6 +356,7 @@ export class ImportProcessor {
           else await this.suppliers.update(p.id, supplierFields(v));
         }
         await this.tx.$executeRawUnsafe('RELEASE SAVEPOINT import_row');
+        logs.push(...rowLogs);
         out.push({ row: p.row, status: p.kind === 'create' ? 'CREATED' : 'UPDATED', key: p.key });
       } catch (e) {
         await this.tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT import_row');
@@ -349,6 +366,7 @@ export class ImportProcessor {
         out.push(this.rowError(p.row, p.key, e));
       }
     }
+    await this.prices.flushLogs(logs, reason);
     return out;
   }
 
@@ -480,6 +498,37 @@ export class ImportProcessor {
 
   // ───────── ghi danh mục ─────────
 
+  /**
+   * Tạo trước mọi đường dẫn danh mục của file (chỉ nhập thật). Mỗi đường dẫn một SAVEPOINT: đường dẫn lỗi (danh mục đã lưu
+   * trữ…) bỏ qua tại đây — dòng dùng nó sẽ báo lỗi khi ghi. Danh mục tạo ở đây giữ lại kể cả khi dòng SKU sau đó lỗi.
+   */
+  private async precreateCategories(
+    plans: Plan<CatalogRowT | SupplierRowT>[],
+    caches: { cats: Map<string, string>; prods: Map<string, string> },
+  ): Promise<void> {
+    const paths = new Map<string, string[]>();
+    for (const p of plans)
+      if (p.kind !== 'report') {
+        const path = (p.v as CatalogRowT).category;
+        paths.set(path.map(nameKey).join('>'), path);
+      }
+    if (!paths.size) return;
+    await this.txHost.withTransaction(BATCH_TX, async () => {
+      for (const path of paths.values()) {
+        const before = new Map(caches.cats);
+        await this.tx.$executeRawUnsafe('SAVEPOINT import_cat');
+        try {
+          await this.categoryOf(path, caches.cats);
+          await this.tx.$executeRawUnsafe('RELEASE SAVEPOINT import_cat');
+        } catch (e) {
+          await this.tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT import_cat');
+          caches.cats = before;
+          if (!(e instanceof AppError)) throw e; // lỗi hệ thống (mất DB…) ⇒ dừng lượt như cũ
+        }
+      }
+    });
+  }
+
   /** danh mục theo đường dẫn — tìm theo tên (giống btrim/lower) dưới cha, chưa có thì tạo; lưu trữ ⇒ lỗi dòng */
   private async categoryOf(path: string[], cats: Map<string, string>): Promise<string> {
     let parent: string | null = null;
@@ -524,6 +573,7 @@ export class ImportProcessor {
     v: CatalogRowT,
     c: { cats: Map<string, string>; prods: Map<string, string> },
     reason: string,
+    logs: LogRow[],
   ) {
     const productId = await this.productOf(await this.categoryOf(v.category, c.cats), v.product, c.prods);
     const s = await this.skus.create({
@@ -534,7 +584,7 @@ export class ImportProcessor {
       ...(v.barcode ? { barcode: v.barcode } : {}),
     });
     if (v.retail_price !== undefined)
-      await this.prices.set(s.id, { version: s.version, global: v.retail_price }, reason);
+      await this.prices.set(s.id, { version: s.version, global: v.retail_price }, reason, logs);
   }
 
   private async updateSku(
@@ -542,6 +592,7 @@ export class ImportProcessor {
     v: CatalogRowT,
     c: { cats: Map<string, string>; prods: Map<string, string> },
     reason: string,
+    logs: LogRow[],
   ) {
     const cur = await this.tx.sku.findUniqueOrThrow({
       where: { id },
@@ -567,7 +618,7 @@ export class ImportProcessor {
     const price = cur.retailPricePerKg ?? cur.retailPricePerUnit;
     if (v.retail_price !== undefined && v.retail_price !== price) {
       const after = await this.tx.sku.findUniqueOrThrow({ where: { id }, select: { version: true } });
-      await this.prices.set(id, { version: after.version, global: v.retail_price }, reason);
+      await this.prices.set(id, { version: after.version, global: v.retail_price }, reason, logs);
     }
   }
 }

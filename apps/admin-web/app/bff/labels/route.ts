@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return errorPage(400, 'Yêu cầu không hợp lệ');
   }
-  // khóa idempotency do BFF sinh (POST chỉ đọc ở API nhưng interceptor vẫn yêu cầu)
+  // Idempotency-Key do BFF sinh: hợp đồng ghi tham số này cho mọi POST quản trị (API hiện chưa bắt buộc)
   const key = randomBytes(18).toString('base64url');
   const u = await upstream(req, '/admin/shelf-labels', 'POST', payload, key, true);
   if (u.loggedOut) return withSession(req, u, errorPage(401, 'Phiên đã hết — đăng nhập lại'));

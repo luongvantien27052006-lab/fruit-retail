@@ -11123,6 +11123,7 @@ components:
           maximum: 10000
     StoreUpdateRequest:
       type: object
+      minProperties: 1
       description: >-
         Ít nhất một trường; lat / lng đi cặp.
       additionalProperties: false
@@ -11206,6 +11207,7 @@ components:
           maxLength: 300
     WarehouseUpdateRequest:
       type: object
+      minProperties: 1
       description: >-
         Ít nhất một trường.
       additionalProperties: false
@@ -11288,6 +11290,7 @@ components:
           maximum: 1000000
     LocationUpdateRequest:
       type: object
+      minProperties: 1
       description: >-
         Ít nhất một trường. Lưu trữ vị trí đang là vị trí mặc định của SKU ⇒ 422.
       additionalProperties: false
@@ -11349,6 +11352,7 @@ components:
           maxLength: 100
     RegisterUpdateRequest:
       type: object
+      minProperties: 1
       description: >-
         Ít nhất một trường.
       additionalProperties: false
@@ -11539,6 +11543,7 @@ components:
           maxLength: 2000
     SupplierUpdateRequest:
       type: object
+      minProperties: 1
       description: >-
         Ít nhất một trường; null = xóa giá trị.
       additionalProperties: false
@@ -11908,6 +11913,7 @@ components:
             format: uuid
     BarcodeRuleUpdateRequest:
       type: object
+      minProperties: 1
       description: Ít nhất một trường.
       additionalProperties: false
       properties:
@@ -12097,6 +12103,7 @@ components:
           format: uuid
     BrandUpdateRequest:
       type: object
+      minProperties: 1
       description: Ít nhất một trường; null = xóa giá trị.
       additionalProperties: false
       properties:

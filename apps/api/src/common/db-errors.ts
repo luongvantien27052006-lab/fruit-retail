@@ -77,7 +77,15 @@ export function mapDbError(err: unknown): AppError | undefined {
   if (s === '23505') return new AppError('VERSION_CONFLICT', 'Dữ liệu trùng với bản ghi đã có', { reason: 'UNIQUE' });
   if (s === '40001' || s === '40P01')
     return new AppError('VERSION_CONFLICT', 'Xung đột ghi đồng thời — thử lại', { reason: 'RETRY' });
-  if (s === '23503' || s === '23514' || s === '23502' || s === '22P02' || s === '22001' || s === '22003')
+  if (
+    s === '23503' ||
+    s === '23514' ||
+    s === '23502' ||
+    s === '22P02' ||
+    s === '22001' ||
+    s === '22003' ||
+    s === '22021'
+  )
     return new AppError('INVALID_REQUEST', 'Dữ liệu vi phạm ràng buộc', { reason: s });
   if (s === '57014' || s.startsWith('08') || s === '53300' || s === '57P01')
     return new AppError('DEPENDENCY_UNAVAILABLE', 'Cơ sở dữ liệu tạm thời không sẵn sàng');

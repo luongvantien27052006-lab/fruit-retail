@@ -322,7 +322,11 @@ function StorePanel({ store, reload }: { store: Store; reload: () => Promise<voi
         </form>
       </div>
       <Registers store={store} />
-      <Locations owner={{ store_id: store.id }} onChanged={() => setLocRev((r) => r + 1)} />
+      <Locations
+        owner={{ store_id: store.id }}
+        archived={!!store.archived_at}
+        onChanged={() => setLocRev((r) => r + 1)}
+      />
       <DefaultLocations store={store} rev={locRev} />
     </>
   );
@@ -360,7 +364,7 @@ function WarehousePanel({ wh, reload }: { wh: Warehouse; reload: () => Promise<v
             <input name="address" defaultValue={wh.address ?? ''} maxLength={300} />
           </label>
           <div className="row">
-            <button type="submit" disabled={a.busy}>
+            <button type="submit" disabled={a.busy || !!wh.archived_at}>
               Lưu kho
             </button>
             <button
@@ -380,7 +384,7 @@ function WarehousePanel({ wh, reload }: { wh: Warehouse; reload: () => Promise<v
           </div>
         </form>
       </div>
-      <Locations owner={{ warehouse_id: wh.id }} />
+      <Locations owner={{ warehouse_id: wh.id }} archived={!!wh.archived_at} />
     </>
   );
 }
@@ -484,9 +488,12 @@ function Registers({ store }: { store: Store }) {
 function Locations({
   owner,
   onChanged,
+  archived = false,
 }: {
   owner: { store_id: string } | { warehouse_id: string };
   onChanged?: () => void;
+  /** nơi đã lưu trữ ⇒ không cho thêm vị trí (API trả 422 — review react cổng CP04 T3) */
+  archived?: boolean;
 }) {
   const [items, setItems] = useState<Location[]>([]);
   const a = useAction();
@@ -595,35 +602,37 @@ function Locations({
           </tbody>
         </table>
       </div>
-      <form onSubmit={add} className="grid mt12">
-        <label>
-          Loại
-          <select name="type" defaultValue="SHELF">
-            {KINDS.map((k) => (
-              <option key={k} value={k}>
-                {LOCATION_VI[k]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Mã
-          <input name="code" required maxLength={32} pattern="[A-Za-z0-9][A-Za-z0-9_\-]{0,31}" />
-        </label>
-        <label>
-          Tên
-          <input name="name" required maxLength={100} />
-        </label>
-        <label>
-          Thứ tự
-          <input name="sort" inputMode="numeric" />
-        </label>
-        <div>
-          <button type="submit" disabled={a.busy}>
-            Thêm vị trí
-          </button>
-        </div>
-      </form>
+      {!archived && (
+        <form onSubmit={add} className="grid mt12">
+          <label>
+            Loại
+            <select name="type" defaultValue="SHELF">
+              {KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {LOCATION_VI[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Mã
+            <input name="code" required maxLength={32} pattern="[A-Za-z0-9][A-Za-z0-9_\-]{0,31}" />
+          </label>
+          <label>
+            Tên
+            <input name="name" required maxLength={100} />
+          </label>
+          <label>
+            Thứ tự
+            <input name="sort" inputMode="numeric" />
+          </label>
+          <div>
+            <button type="submit" disabled={a.busy}>
+              Thêm vị trí
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }

@@ -2,24 +2,14 @@ import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Que
 import { z } from 'zod';
 import { RequirePermission } from '../common/access';
 import { ZodPipe } from '../common/zod.pipe';
+import { flag, minOne, optText, text } from '../org/org-fields';
 import { SALE_UNIT_TYPES } from './catalog-rules';
 import { CatalogService } from './catalog.service';
 import { SkusService } from './skus.service';
 
 // ───────── kiểu dùng chung ─────────
 
-/** chuỗi có nội dung; bỏ khoảng trắng hai đầu */
-const text = (max: number) => z.string().trim().min(1).max(max);
-const optText = (max: number) =>
-  z
-    .string()
-    .trim()
-    .max(max)
-    .nullable()
-    .optional()
-    .transform((v) => (v === '' ? null : v));
-const flag = z.enum(['true', 'false']).transform((v) => v === 'true');
-const minOne = (b: object) => Object.keys(b).length > 0;
+// text / optText dùng chung org-fields: cấm ký tự điều khiển (NUL ⇒ PostgreSQL 22021 ⇒ 500 — review TS cổng CP04 TB1)
 const intIn = (lo: number, hi: number) => z.number().int().min(lo).max(hi);
 
 const UNIT_CODE = z
@@ -99,7 +89,7 @@ const ProductList = z
   .object({
     category_id: z.string().uuid().optional(),
     include_archived: flag.default(false),
-    q: z.string().trim().min(1).max(100).optional(),
+    q: text(100).optional(),
   })
   .strict();
 
@@ -171,7 +161,7 @@ const SkuList = z
   .object({
     product_id: z.string().uuid().optional(),
     sale_unit_type: z.enum(SALE_UNIT_TYPES).optional(),
-    q: z.string().trim().min(1).max(100).optional(),
+    q: text(100).optional(),
     include_archived: flag.default(false),
     limit: z.coerce.number().int().min(1).max(500).default(200),
     after: SKU_CODE.optional(),

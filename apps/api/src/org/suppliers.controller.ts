@@ -48,7 +48,7 @@ const SupplierUpdate = z
   .refine(minOne, 'cần ít nhất một trường');
 const SupplierList = z
   .object({
-    q: z.string().trim().min(1).max(100).optional(),
+    q: text(100).optional(),
     type: z.enum(SUPPLIER_TYPES).optional(),
     include_archived: flag.default(false),
     limit: z.coerce.number().int().min(1).max(500).default(100),

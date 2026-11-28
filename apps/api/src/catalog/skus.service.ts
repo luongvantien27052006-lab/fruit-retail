@@ -1,8 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { TransactionHost } from '@nestjs-cls/transactional';
+import { ClsService } from 'nestjs-cls';
 import { v7 as uuidv7 } from 'uuid';
 import { AuditOutboxService, type Tx } from '../common/audit-outbox.service';
 import { AppError } from '../common/errors';
+import type { RequestStore } from '../common/request-context';
 import type { Prisma, Sku, SkuUnit, Unit } from '../generated/prisma/client';
 import { assertGs1Checksum, catalogWrite } from './catalog-db';
 import {
@@ -137,10 +139,36 @@ export class SkusService {
   constructor(
     @Inject(TransactionHost) private readonly txHost: Tx,
     private readonly ao: AuditOutboxService,
+    private readonly cls: ClsService<RequestStore>,
   ) {}
 
   private get tx() {
     return this.txHost.tx;
+  }
+
+  /**
+   * Giá lẻ chỉ trả cho người có price:read (catalog:read KHÔNG đủ — cùng quy tắc file xuất / API giá; review bảo mật cổng
+   * CP04 L2). Audit vẫn ghi đủ. Không có principal (worker nhập file) ⇒ giữ nguyên.
+   */
+  private view<
+    T extends { retail_price_per_kg: unknown; retail_price_per_unit: unknown; units: { price_per_unit: unknown }[] },
+  >(w: T): T {
+    if (this.priceVisible()) return w;
+    return {
+      ...w,
+      retail_price_per_kg: null,
+      retail_price_per_unit: null,
+      units: w.units.map((u) => ({ ...u, price_per_unit: null })),
+    };
+  }
+
+  private viewUnit<T extends { price_per_unit: unknown }>(u: T): T {
+    return this.priceVisible() ? u : { ...u, price_per_unit: null };
+  }
+
+  private priceVisible(): boolean {
+    const p = this.cls.get('principal');
+    return !p || p.permissions.has('price:read');
   }
 
   async list(q: SkuListQuery) {
@@ -169,7 +197,7 @@ export class SkusService {
     const more = rows.length > q.limit;
     const page = more ? rows.slice(0, q.limit) : rows;
     return {
-      items: page.map((s) => skuWire(s, s.units)),
+      items: page.map((s) => this.view(skuWire(s, s.units))),
       next_after: more ? (page[page.length - 1]?.skuCode ?? null) : null,
     };
   }
@@ -177,7 +205,7 @@ export class SkusService {
   async get(id: string) {
     const s = await this.tx.sku.findUnique({ where: { id }, include: { units: true } });
     if (!s) throw notFound();
-    return skuWire(s, s.units);
+    return this.view(skuWire(s, s.units));
   }
 
   /** Khóa chia sẻ sản phẩm cha; `requireActive` = gắn vào SKU đang dùng (SKU lưu trữ chỉ cần sản phẩm tồn tại). */
@@ -288,7 +316,7 @@ export class SkusService {
     for (const u of b.units ?? []) units.push(await this.insertUnit(sku, u, seen));
     const out = skuWire(sku, units);
     await this.ao.recordAudit({ action: 'sku.create', resourceType: 'sku', resourceId: sku.id, after: out });
-    return out;
+    return this.view(out);
   }
 
   async update(id: string, b: SkuUpdate) {
@@ -328,7 +356,7 @@ export class SkusService {
       before: skuWire(before, units),
       after: out,
     });
-    return out;
+    return this.view(out);
   }
 
   /** SKU đang dùng phải còn ít nhất một đơn vị bán đang dùng (POS/app luôn có đơn vị để ghi dòng bán). */
@@ -349,7 +377,7 @@ export class SkusService {
       resourceId: u.id,
       after: skuUnitWire(u),
     });
-    return skuUnitWire(u);
+    return this.viewUnit(skuUnitWire(u));
   }
 
   async updateUnit(skuId: string, unitId: string, b: SkuUnitUpdate) {
@@ -407,6 +435,6 @@ export class SkusService {
       before: skuUnitWire(before),
       after: skuUnitWire(u),
     });
-    return skuUnitWire(u);
+    return this.viewUnit(skuUnitWire(u));
   }
 }

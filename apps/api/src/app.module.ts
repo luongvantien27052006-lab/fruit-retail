@@ -18,6 +18,7 @@ import { ErrorFilter } from './common/error.filter';
 import { MutationInterceptor } from './common/mutation.interceptor';
 import { DEFAULT_RATE_POLICIES, RATE_POLICIES, RateLimitGuard } from './common/rate-limit';
 import { DEVICE_ID_RE, type RequestStore, resolveRequestId } from './common/request-context';
+import { safeUrl } from './common/log-url';
 import { SerializeInterceptor } from './common/serialize.interceptor';
 import type { Env } from './config/env';
 import { HealthController } from './health/health.controller';
@@ -55,6 +56,11 @@ export const REDACT_PATHS = [
   '*.code',
 ];
 
+/** URL trong log: che giá trị nhạy cảm của query (tìm NCC theo SĐT…) — review bảo mật cổng CP04 */
+export const LOG_SERIALIZERS = {
+  req: (r: { url?: unknown }) => ({ ...r, url: safeUrl(r.url) }),
+};
+
 export { REQUEST_ID_RE, resolveRequestId } from './common/request-context';
 
 /** Plugin transaction CLS dùng chung API + worker (ADR-016) */
@@ -87,6 +93,7 @@ export class AppModule {
             // Chỉ nhận X-Request-Id đúng dạng; sai/thiếu thì tạo UUID mới (không để client làm rối truy vết).
             genReqId: (req) => resolveRequestId(req),
             redact: REDACT_PATHS,
+            serializers: LOG_SERIALIZERS,
           },
         }),
         InfraModule.forRoot(env),

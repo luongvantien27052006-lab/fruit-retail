@@ -142,7 +142,7 @@ export const CatalogRow = z.object({
   std_weight_g: cellInt(1, 100_000),
   weight_min_g: cellInt(1, 100_000),
   weight_max_g: cellInt(1, 100_000),
-  tare_g: cellInt(0, 100_000),
+  tare_g: cellInt(0, 20_000),
   scale_plu: z.preprocess(
     (v) => {
       const s = str(v as Cell);
@@ -170,7 +170,7 @@ export const CatalogRow = z.object({
       .refine((x) => !/^2[0-9]{12}$/.test(x), 'mã 13 số bắt đầu bằng 2 dành cho tem cân')
       .optional(),
   ),
-  shelf_life_days: cellInt(0, 3650),
+  shelf_life_days: cellInt(1, 3650),
   has_ripeness: cellBool,
   is_high_value: cellBool,
   cold_required: cellBool,

@@ -27,7 +27,7 @@ export interface PriceSet extends PriceChange {
 }
 
 type Field = 'PER_KG' | 'PER_UNIT' | 'SKU_UNIT';
-interface LogRow {
+export interface LogRow {
   skuId: string;
   scope: 'GLOBAL' | 'STORE';
   field: Field;
@@ -241,10 +241,14 @@ export class PricesService {
 
   // ───────── ghi ─────────
 
-  /** Đặt giá một SKU (khóa dòng SKU trước). */
-  async set(skuId: string, b: PriceSet, reason: string) {
+  /**
+   * Đặt giá một SKU (khóa dòng SKU trước). `defer` (luồng nhập file): gom dòng lịch sử để ghi MỘT lần cuối lô qua
+   * `flushLogs` — changed_at gần lúc COMMIT của lô (review database cổng CP04 T3); API ghi ngay như cũ.
+   */
+  async set(skuId: string, b: PriceSet, reason: string, defer?: LogRow[]) {
     const out = await this.apply(skuId, b);
-    await this.writeLogs(out.logs, reason);
+    if (defer) defer.push(...out.logs);
+    else await this.writeLogs(out.logs, reason);
     await this.ao.recordAudit({
       action: 'price.set',
       resourceType: 'sku',
@@ -295,6 +299,11 @@ export class PricesService {
    * Ghi lịch sử CUỐI transaction, sau khi mọi dòng giá đã khóa và ghi (ERD §6.2). changed_at = mốc server lúc INSERT (trigger)
    * ⇒ cách lúc COMMIT ≤ phần còn lại của transaction: ghi cuối để sai số nhỏ nhất (review bảo mật lát 3 N1).
    */
+  /** ghi lịch sử đã gom (luồng nhập file, cuối lô) */
+  async flushLogs(logs: LogRow[], reason: string): Promise<void> {
+    await this.writeLogs(logs, reason);
+  }
+
   private async writeLogs(logs: LogRow[], reason: string): Promise<void> {
     if (!logs.length) return;
     const p = this.principal();

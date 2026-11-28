@@ -728,4 +728,25 @@ describe('API danh mục (CP04 lát 2)', () => {
       expect(rs.map((r) => r.status)).toEqual([201, 200, 201]);
     }
   });
+
+  it('ký tự điều khiển (NUL…) trong chữ tự do / ô tìm ⇒ 400, không 500 (review TS cổng CP04 TB1)', async () => {
+    const NUL = String.fromCharCode(0);
+    const c = await post('/admin/categories', { name: `DM ${hex()}` });
+    const p = await post('/admin/products', { category_id: c.body.id as string, name: `SP ${hex()}` });
+    const bad = [
+      await post('/admin/units', { code: `U${hex()}`, name: `a${NUL}b`, kind: 'COUNT' }),
+      await post('/admin/categories', { name: `a${NUL}b` }),
+      await post('/admin/products', { category_id: c.body.id as string, name: 'ok', description: `x${NUL}` }),
+      await post('/admin/skus', {
+        product_id: p.body.id as string,
+        sku_code: `N-${hex()}`,
+        name: `n${NUL}`,
+        sale_unit_type: 'WEIGHT',
+      }),
+      await get('/admin/products?q=a%00b'),
+      await get('/admin/skus?q=a%00b'),
+      await get('/admin/suppliers?q=a%00b'),
+    ];
+    expect(bad.map(err)).toEqual(Array.from({ length: bad.length }, () => [400, 'INVALID_REQUEST']));
+  });
 });

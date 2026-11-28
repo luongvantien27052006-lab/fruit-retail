@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { NextRequest } from 'next/server';
 import { json, forbidden, fromUpstream, withSession } from '../../../lib/server/respond';
 import { COOKIE, csrfOk, type TokenSet } from '../../../lib/server/session';
@@ -63,7 +63,8 @@ export async function POST(req: NextRequest) {
   // token mới (nếu lượt đầu phải làm mới) dùng cho các lượt sau — refresh token chỉ dùng MỘT lần
   let tokens: TokenSet = {};
   const step = async (path: string, body: unknown) => {
-    const u = await upstream(req, path, 'POST', JSON.stringify(body));
+    // Idempotency-Key mỗi bước (hợp đồng ghi bắt buộc cho presign / complete — review react cổng CP04 T4)
+    const u = await upstream(req, path, 'POST', JSON.stringify(body), randomBytes(18).toString('base64url'));
     if (u.tokens.access_token) req.cookies.set(COOKIE.access, u.tokens.access_token);
     if (u.tokens.refresh_token) req.cookies.set(COOKIE.refresh, u.tokens.refresh_token);
     tokens = { ...tokens, ...u.tokens };

@@ -233,7 +233,9 @@ export default function ImportsPage() {
           </h2>
           {!done && <p className="muted">Đang xử lý ở máy chủ…</p>}
           {job.error && <p className="error">{job.error}</p>}
-          {rep && (
+          {/* file bị từ chối: báo cáo chỉ có mã lý do, không có số liệu (review react cổng CP04 T2) */}
+          {rep?.reason && rep.created === undefined && <p className="muted">Mã lý do: {rep.reason}</p>}
+          {rep && rep.created !== undefined && (
             <p>
               Tạo mới <strong>{rep.created ?? 0}</strong> · Cập nhật <strong>{rep.updated ?? 0}</strong> · Bỏ qua{' '}
               <strong>{rep.skipped ?? 0}</strong> · Lỗi <strong>{rep.errors ?? 0}</strong>

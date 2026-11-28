@@ -46,6 +46,13 @@ export default function SkuPage() {
   const [sku, setSku] = useState<Sku | null>(null);
   const [prices, setPrices] = useState<SkuPrices | null>(null);
   const [history, setHistory] = useState<PriceChangeLog[]>([]);
+  const [nextBefore, setNextBefore] = useState<string | null>(null);
+  /**
+   * Mỗi form dựng lại CHỈ khi chính nó lưu xong (hoặc khi tải lại vì xung đột) — hai form chung version SKU nên không dùng
+   * version làm key, tránh mất chữ đang gõ ở form kia (review react cổng CP04 T5).
+   */
+  const [attrsRev, setAttrsRev] = useState(0);
+  const [pricesRev, setPricesRev] = useState(0);
   const [units, setUnits] = useState<Unit[]>([]);
   const stores = useStores(true);
   const a = useAction();
@@ -55,11 +62,12 @@ export default function SkuPage() {
     const [s, p, h] = await Promise.all([
       bff<Sku>(`/api/admin/skus/${id}`),
       bff<SkuPrices>(`/api/admin/prices/${id}`),
-      bff<{ items: PriceChangeLog[] }>(`/api/admin/prices/${id}/history?limit=100`),
+      bff<{ items: PriceChangeLog[]; next_before: string | null }>(`/api/admin/prices/${id}/history?limit=100`),
     ]);
     setSku(s);
     setPrices(p);
     setHistory(h.items);
+    setNextBefore(h.next_before);
   }, [id, valid]);
   useEffect(() => {
     void a.load(async () => {
@@ -105,6 +113,7 @@ export default function SkuPage() {
       // PATCH tăng skus.version = version của giá ⇒ tải lại CẢ giá (review react lát 7 C1)
       await fresh(() => bff(`/api/admin/skus/${sku.id}`, 'PATCH', body));
       await load();
+      setAttrsRev((r) => r + 1);
       return 'Đã lưu thuộc tính';
     });
   }
@@ -117,6 +126,7 @@ export default function SkuPage() {
         bff(`/api/admin/skus/${sku.id}`, 'PATCH', { version: sku.version, archived: !sku.archived_at }),
       );
       await load();
+      setAttrsRev((r) => r + 1);
       return sku.archived_at ? 'Đã khôi phục' : 'Đã lưu trữ';
     });
   }
@@ -128,6 +138,8 @@ export default function SkuPage() {
     } catch (x) {
       if (x instanceof ApiFailure && x.error.code === 'VERSION_CONFLICT') {
         await load().catch(() => undefined);
+        setAttrsRev((r) => r + 1);
+        setPricesRev((r) => r + 1);
         throw new ApiFailure({
           ...x.error,
           message: `${x.error.message} — đã tải lại dữ liệu mới nhất, kiểm rồi lưu lại`,
@@ -205,8 +217,8 @@ export default function SkuPage() {
     if (Object.keys(body).length === 2) return a.setNotice('Không có giá nào thay đổi');
     void a.run(async () => {
       await fresh(() => bff(`/api/admin/prices/${prices.sku_id}`, 'PUT', body));
-      form.reset();
       await load();
+      setPricesRev((r) => r + 1);
       return 'Đã đổi giá — chỉ áp cho giao dịch mới';
     });
   }
@@ -232,7 +244,7 @@ export default function SkuPage() {
         </p>
         <Alert text={a.err} />
         <Alert text={a.notice} kind="notice" />
-        <form onSubmit={saveAttrs} key={`attrs-${sku.version}`}>
+        <form onSubmit={saveAttrs} key={attrsRev}>
           <div className="grid">
             <label>
               Tên SKU
@@ -436,7 +448,7 @@ export default function SkuPage() {
             Đổi giá chỉ áp cho giao dịch mới; mọi thay đổi ghi lịch sử (người, lúc, lý do). Cần xác thực lại nếu được
             hỏi.
           </p>
-          <form onSubmit={savePrices} key={`prices-${prices.version}`}>
+          <form onSubmit={savePrices} key={pricesRev}>
             <div className="grid">
               <label>
                 Giá chung {per} (đ)
@@ -533,6 +545,25 @@ export default function SkuPage() {
             </tbody>
           </table>
         </div>
+        {nextBefore && (
+          <button
+            type="button"
+            className="secondary mt8"
+            disabled={a.busy}
+            onClick={() =>
+              void a.load(async () => {
+                // trang sau (cũ hơn) — review react cổng CP04 T1
+                const h = await bff<{ items: PriceChangeLog[]; next_before: string | null }>(
+                  `/api/admin/prices/${sku.id}/history?limit=100&before=${nextBefore}`,
+                );
+                setHistory((cur) => [...cur, ...h.items]);
+                setNextBefore(h.next_before);
+              })
+            }
+          >
+            Xem thêm
+          </button>
+        )}
       </div>
     </>
   );

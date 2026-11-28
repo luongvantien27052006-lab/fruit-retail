@@ -41,3 +41,6 @@ apps/admin-web/next-env.d.ts
 
 # TypeScript incremental build
 *.tsbuildinfo
+
+# Dữ liệu kinh doanh thật / bản sửa từ file mẫu (giá, NCC) — KHÔNG commit (CP04 lát 8)
+/data-private/
